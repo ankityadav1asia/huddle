@@ -1,4 +1,5 @@
 {
+  "framework": null,
   "outputDirectory": "public",
   "functions": {
     "api/ai.js": { "maxDuration": 30 }
