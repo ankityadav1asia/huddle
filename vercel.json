@@ -1,0 +1,6 @@
+{
+  "outputDirectory": "public",
+  "functions": {
+    "api/ai.js": { "maxDuration": 30 }
+  }
+}

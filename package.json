@@ -1,0 +1,17 @@
+{
+  "name": "huddle-watch-along",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prototype: an AI co-host for live cricket watch-along rooms.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0"
+  }
+}
