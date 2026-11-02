@@ -333,11 +333,17 @@ function applyMember(state, ev) {
 
 // ---------------------------------------------------------------- feed items
 // Insight facts come from the feed; older ones may still start with "<label>:", so the label is never shown twice.
+// Also drops a leading tag that only repeats a word of the label ("Big wicket" + "WICKET: ..."); tags that add
+// meaning ("DROPPED:", "DRS:") stay.
 function factText(insight) {
   const fact = String(insight.fact || '');
-  const prefix = `${insight.label}:`;
-  if (!insight.label || fact.slice(0, prefix.length).toLowerCase() !== prefix.toLowerCase()) return fact;
-  const rest = fact.slice(prefix.length).trim();
+  const label = String(insight.label || '').toLowerCase();
+  if (!label) return fact;
+  const tag = fact.match(/^([A-Za-z][A-Za-z -]*):\s*/);
+  if (!tag) return fact;
+  const t = tag[1].toLowerCase();
+  if (t !== label && !label.split(/\s+/).includes(t)) return fact;
+  const rest = fact.slice(tag[0].length).trim();
   return rest.charAt(0).toUpperCase() + rest.slice(1);
 }
 

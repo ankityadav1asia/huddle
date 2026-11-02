@@ -40,9 +40,11 @@ async function disableBrowserAlerts() {
   return api.del('/api/me/push-subscriptions');
 }
 
-const refusalMessage = (err) => (err.message === 'denied' ? 'You blocked notifications. In-app alerts still work.'
-  : err.message === 'dismissed' ? 'No problem. You can turn notifications on any time in Alerts.'
-    : err.message || 'Could not turn on notifications. In-app alerts still work.');
+// Huddle API errors carry a status and a safe message; browser errors (service worker, push service) are not shown raw.
+const refusalMessage = (err) => (err?.message === 'denied' ? 'You blocked notifications. In-app alerts still work.'
+  : err?.message === 'dismissed' ? 'No problem. You can turn notifications on any time in Alerts.'
+    : err?.status !== undefined ? err.message
+      : 'Notifications could not be turned on in this browser. In-app alerts still work.');
 
 // ---------------------------------------------------------------- one-time prompt in the room
 const snoozeKey = (userId) => `huddle:push-prompt:${userId}`;

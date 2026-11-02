@@ -132,7 +132,8 @@ test('a crucial moment creates one deduplicated insight in every active room, an
 
   const endpoints = sent.map((s) => s.endpoint);
   assert.deepEqual(endpoints, ['https://push.example.test/sub/1']); // only the away, opted-in member
-  assert.match(sent[0].payload.body, /WICKET/);
+  assert.match(sent[0].payload.body, /Shivam Dube c Suryakumar b Tilak/);
+  assert.match(sent[0].payload.title, /Big wicket/);
   assert.ok(!sent[0].payload.body.includes('Friends room'), 'no private room name on the lock screen');
   // Delivery metadata only, never a chat row.
   const chatRows = (await app.db.query(`SELECT count(*)::int AS n FROM messages WHERE body LIKE '%WICKET%'`)).rows[0].n;
