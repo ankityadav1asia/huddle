@@ -150,7 +150,7 @@ When a room ends, every user-facing read of this content stops at once. The purg
 ### Limits
 | Table | Purpose |
 |---|---|
-| `user_send_cooldowns` | One row per user: `next_allowed_at`. The 30-second chat rule is one atomic `INSERT … ON CONFLICT DO UPDATE … WHERE next_allowed_at <= now()` |
+| `user_send_cooldowns` | One row per user: `next_allowed_at`. The chat rule (one message every 10 s, `CHAT_COOLDOWN_SECONDS`) is one atomic `INSERT … ON CONFLICT DO UPDATE … WHERE next_allowed_at <= now()` |
 | `rate_events` | Sliding-window counters for new profiles per network, AI requests, reactions and search (advisory-locked per bucket). Deleted after 2 h |
 
 ### Moderation (minimal audit, no message text)
@@ -178,7 +178,7 @@ When a room ends, every user-facing read of this content stops at once. The purg
    cookie (`__Host-` prefixed and Secure in production); the database keeps only its SHA-256 hash. Sessions last
    30 days. There is no password, so a profile cannot be recovered after signing out or clearing the browser.
 3. New profiles are limited per network (`GUEST_SIGNUPS_PER_IP_PER_HOUR`, default 10), so nobody can mint accounts
-   to get around the one-message-every-30-seconds rule. Without `HUDDLE_SECRET` joining fails closed.
+   to get around the one-message-every-10-seconds rule. Without `HUDDLE_SECRET` joining fails closed.
 4. Platform moderators are listed by account id (`MODERATOR_USER_IDS`). Ids are random and server-generated, so
    nobody can claim moderator rights by choosing a name.
 
@@ -208,7 +208,7 @@ sequenceDiagram
   alt rejected
     API-->>C: 422 + reason (no row, no cooldown used, audit row only)
   else allowed / flagged / held
-    API->>DB: BEGIN; 30 s limiter CAS; next room seq; insert message; room_events; follow-up jobs; COMMIT
+    API->>DB: BEGIN; 10 s limiter CAS; next room seq; insert message; room_events; follow-up jobs; COMMIT
     API-->>C: 201 message + cooldown_until
     DB-->>O: next poll (or in-process wake-up) returns the event
   end
@@ -304,7 +304,7 @@ by room, run and ball. So everyone in a room sees the same fans say the same thi
 crowd, balls skipped by a jump get none, and 2x halves the gaps. Each line carries `at` (ball time plus its place in
 the burst) and the client shows it then, marked "Simulated fan"; overdue lines (opening the room late) are skipped.
 Lines the room's moderation level would not allow are dropped, and nothing is written to `messages`, so the crowd
-never reaches the AI Co-host, the 30-second rule, reports or retention. Each viewer can hide it on their device.
+never reaches the AI Co-host, the message rate limit, reports or retention. Each viewer can hide it on their device.
 
 ## 5. Security and privacy controls
 - **Authorization on every request**: the user comes from the session; room access is checked in one place

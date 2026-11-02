@@ -1,4 +1,4 @@
-// The watch party room: realtime feed (long-poll), composer with the 30 s rule, match intelligence,
+// The watch party room: realtime feed (long-poll), composer with the message rate limit, match intelligence,
 // AI Co-host actions and the member/settings sheets. Everything shown comes from the server, which
 // re-authorises every request; this view only renders and never decides who may see what.
 import { api, serverNow, newKey } from './api.js';
@@ -202,7 +202,9 @@ function applyRoomInfo(state) {
 function updatePresence(state, presence) {
   state.presence = presence || state.presence;
   const n = state.presence.online.length;
-  if (state.els.online) state.els.online.textContent = ` · ${n} online`;
+  // Real people online; the simulated fans are counted separately so nobody takes them for real viewers.
+  const fans = state.room?.match && state.crowdOn ? state.ctx.config.crowd?.fans : 0;
+  if (state.els.online) state.els.online.textContent = ` · ${n} online${fans ? ` · ${fans} simulated fans` : ''}`;
   if (state.els.memberCount) state.els.memberCount.textContent = String(state.members.size);
   state.membersSheet?.refresh?.();
 }
@@ -249,7 +251,9 @@ async function loop(state, token) {
   while (state.active && state === R && token === state.loopToken) {
     try {
       const vis = document.hidden ? 'hidden' : 'visible';
-      const r = await api.get(`/api/rooms/${state.id}/events?after=${state.cursor}&wait=1&vis=${vis}`, { signal: state.abort.signal });
+      // Sending the match version we have lets the server answer as soon as the next ball is in.
+      const rev = state.matchRev != null ? `&rev=${encodeURIComponent(state.matchRev)}` : '';
+      const r = await api.get(`/api/rooms/${state.id}/events?after=${state.cursor}&wait=1&vis=${vis}${rev}`, { signal: state.abort.signal });
       if (!state.active || state !== R || token !== state.loopToken) return;
       failures = 0;
       setReconnecting(state, false);
@@ -463,6 +467,7 @@ function crowdPref() {
 function setCrowd(state, on) {
   state.crowdOn = on;
   try { localStorage.setItem(CROWD_KEY, on ? 'on' : 'off'); } catch { /* storage may be unavailable */ }
+  updatePresence(state);
   if (!on) {
     for (const t of state.crowdTimers) clearTimeout(t);
     state.crowdTimers.clear();
@@ -567,7 +572,8 @@ function renderPoll(state, p) {
 // ---------------------------------------------------------------- per-second updates
 function tick(state) {
   if (state !== R) return;
-  const remaining = Math.ceil((state.cooldownUntil - Date.now()) / 1000);
+  // Capped at the rule itself: the server-clock estimate is only accurate to about a second.
+  const remaining = Math.min(state.ctx.config.chat.cooldown_seconds, Math.ceil((state.cooldownUntil - Date.now()) / 1000));
   const cd = state.els.cooldown;
   if (cd) {
     if (remaining > 0) {

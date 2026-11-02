@@ -16,7 +16,7 @@ runs inside the watch party. The product rules this build follows are in [CLAUDE
 | Public watch party (up to 100 members, moderation run by Huddle) and private rooms (up to 50, owner picks relaxed / balanced / strict) | **Implemented** |
 | Invite several friends, accept/decline/revoke, expiry, owner and admin roles, leave, remove | **Implemented** |
 | Realtime chat, reactions, polls, presence, reply threads | **Implemented** (long-polling) |
-| One message per person every 30 s, across every room, tab and device | **Implemented** (atomic, server-side) |
+| One message per person every 10 s, across every room, tab and device | **Implemented** (atomic, server-side) |
 | Match Intelligence: score, overs, batting and bowling cards, fall of wickets, commentary, freshness | **Implemented** on a **simulated** MI v CSK replay (real players, made-up match) |
 | A private room's own replay: start, pause, 2x, restart, jump to a big moment (only that room moves) | **Implemented** (simulated replay only) |
 | Simulated fans: the scripted Hinglish crowd reacting to each ball, in every room following the replay (public room included), labelled, the same for everyone in a room, hidable per device | **Simulated** (demo data; never stored or sent to the AI) |
@@ -70,10 +70,11 @@ Choose the order with `AI_PRIMARY` / `AI_FALLBACK`. Keys stay on the server. Mod
 npm test
 ```
 
-96 tests (about 25 s) cover joining and player picks, room access and isolation, invitations and roles (including the
-demo friends), the 30-second rule (including concurrent sends and the exact boundary), moderation levels and the
-baseline, the match feed, private rooms' own replays and their controls, simulated fans, momentum alerts, alert fan-out and push eligibility, AI failover
-and circuit breaking, the Co-host's race with human replies, room closure and purge, observability, and log privacy.
+98 tests (under a minute) cover joining and player picks, room access and isolation, invitations and roles (including
+the demo friends), the 10-second message rule (including concurrent sends and the exact boundary), moderation levels
+and the baseline, the match feed and how fast it reaches the room, private rooms' own replays and their controls,
+simulated fans, momentum alerts, alert fan-out and push eligibility, AI failover and circuit breaking, the Co-host's
+race with human replies, room closure and purge, observability, and log privacy.
 
 `node scripts/load-check.mjs` runs a small load check: 3 rooms of 10 members, a burst of 30 messages and a slow AI
 provider, reporting delivery latency, losses, duplicates and ordering.

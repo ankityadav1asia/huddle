@@ -94,7 +94,7 @@ export async function secondDevice(app, userId) {
 
 export const msgId = () => `t${Math.random().toString(36).slice(2, 12)}${Date.now().toString(36)}`;
 
-// Let the cooldown pass without waiting 30 real seconds.
+// Let the cooldown pass without waiting for it in real time.
 export async function clearCooldown(db, userId) {
   await db.query('UPDATE user_send_cooldowns SET next_allowed_at = now() - interval \'1 second\' WHERE user_id = $1', [userId]);
 }

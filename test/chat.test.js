@@ -29,13 +29,14 @@ test('a message is accepted, sequenced and delivered to other members through th
   await clearCooldown(app.db, a.user.id);
 });
 
-test('one accepted message per user every 30 seconds, across rooms and devices', async () => {
+test('one accepted message per user every 10 seconds, across rooms and devices', async () => {
   await clearCooldown(app.db, a.user.id);
   assert.equal((await send(a, roomId, 'first one')).status, 201);
   const sameRoom = await send(a, roomId, 'second one');
   assert.equal(sameRoom.status, 429);
   assert.equal(sameRoom.body.error.code, 'cooldown');
-  assert.ok(sameRoom.body.error.retry_after > 25 && sameRoom.body.error.retry_after <= 30);
+  assert.equal(app.cfg.chat.cooldownSeconds, 10);
+  assert.ok(sameRoom.body.error.retry_after > 5 && sameRoom.body.error.retry_after <= 10);
   assert.equal(sameRoom.headers.get('retry-after'), String(sameRoom.body.error.retry_after));
   assert.equal((await send(a, roomId2, 'other room')).status, 429);
   // A second "device": a fresh session for the same user.
@@ -44,7 +45,7 @@ test('one accepted message per user every 30 seconds, across rooms and devices',
   await clearCooldown(app.db, a.user.id);
 });
 
-test('the boundary is exact: the next message is allowed at accepted time + 30 s, not before', async () => {
+test('the boundary is exact: the next message is allowed at accepted time + 10 s, not before', async () => {
   await clearCooldown(app.db, b.user.id);
   assert.equal((await send(b, roomId, 'boundary test')).status, 201);
   await app.db.query(`UPDATE user_send_cooldowns SET next_allowed_at = now() + interval '2 seconds' WHERE user_id = $1`, [b.user.id]);
