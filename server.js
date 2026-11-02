@@ -72,7 +72,7 @@ server.listen(cfg.port, () => {
   const ai = aiStatus();
   console.log(`Huddle running at http://localhost:${cfg.port}`);
   console.log(`  database: ${db.kind === 'pglite' ? `embedded PGlite (${path.relative(ROOT, cfg.dataDir)}/pglite)` : 'Postgres (DATABASE_URL)'}`);
-  console.log(`  sign-in: ${cfg.otp.provider === 'demo' ? 'demo OTP (no SMS; code shown on screen)' : cfg.otp.provider}`);
+  console.log('  joining: guest profiles (display name + handle, no phone or password)');
   console.log(`  AI Co-host: ${ai.available ? `primary ${ai.primary}${ai.fallback ? `, fallback ${ai.fallback}` : ', no fallback'}` : 'no AI key set (match alerts and Catch Me Up use verified-data templates)'}`);
   console.log(`  replay demo: http://localhost:${cfg.port}/replay`);
   log.info('server.start', { port: cfg.port, db: db.kind });

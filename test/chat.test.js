@@ -39,12 +39,8 @@ test('one accepted message per user every 30 seconds, across rooms and devices',
   assert.equal(sameRoom.headers.get('retry-after'), String(sameRoom.body.error.retry_after));
   assert.equal((await send(a, roomId2, 'other room')).status, 429);
   // A second "device": a fresh session for the same user.
-  const c2 = await import('./helpers.js').then((h) => h.client(app.base));
-  const otp = await c2.post('/api/auth/otp/request', { phone: a.phone });
-  if (otp.status === 200) {
-    await c2.post('/api/auth/otp/verify', { phone: a.phone, code: otp.body.demo_code });
-    assert.equal((await send(c2, roomId, 'from my phone')).status, 429);
-  }
+  const c2 = await import('./helpers.js').then((h) => h.secondDevice(app, a.user.id));
+  assert.equal((await send(c2, roomId, 'from my phone')).status, 429);
   await clearCooldown(app.db, a.user.id);
 });
 

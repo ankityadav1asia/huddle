@@ -4,8 +4,9 @@ import { startApp, signUp, client, makePrivateRoom } from './helpers.js';
 
 let app; let mod; let fan; let roomId; let matchId;
 before(async () => {
-  app = await startApp((cfg) => { cfg.moderatorPhones = ['+919700000001']; cfg.cronSecret = 'cron-test-secret'; });
-  mod = await signUp(app.base, 'ops_mod', { phone: '9700000001' });
+  app = await startApp((cfg) => { cfg.cronSecret = 'cron-test-secret'; });
+  mod = await signUp(app.base, 'ops_mod');
+  app.cfg.moderatorUserIds = [mod.user.id];
   fan = await signUp(app.base, 'ops_fan');
   await fan.get('/api/rooms');
   roomId = await makePrivateRoom(app, fan, []);

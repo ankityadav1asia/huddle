@@ -8,11 +8,12 @@ import { claimJobs, failJob, enqueue } from '../lib/jobs/queue.js';
 
 let app; let owner; let friend; let mod; let third;
 before(async () => {
-  app = await startApp((cfg) => { cfg.moderatorPhones = ['+919800000001']; cfg.cohost.unansweredDelaySeconds = 120; });
+  app = await startApp((cfg) => { cfg.cohost.unansweredDelaySeconds = 120; });
   owner = await signUp(app.base, 'life_owner');
   friend = await signUp(app.base, 'life_friend');
   third = await signUp(app.base, 'life_third');
-  mod = await signUp(app.base, 'life_mod', { phone: '9800000001' });
+  mod = await signUp(app.base, 'life_mod');
+  app.cfg.moderatorUserIds = [mod.user.id];
   await owner.get('/api/rooms');
   await app.db.query(`UPDATE matches SET feed_started_at = now() + interval '1 hour'`);
 });
@@ -124,11 +125,10 @@ test('reports reach human review; three reports hide a message; moderators appro
   assert.equal((await third.post('/api/appeals', { moderation_event_id: rejected.body.error.moderation_event_id })).status, 404);
 });
 
-test('logs never contain message bodies, phone numbers, OTP codes or session tokens', async () => {
+test('logs never contain message bodies or session tokens', async () => {
   const room = await makePrivateRoom(app, owner, [friend]);
   await say(owner, room, 'UNIQUE-PRIVATE-CANARY-7731 nobody should log this');
   const all = logs.join('\n');
   assert.ok(!all.includes('UNIQUE-PRIVATE-CANARY-7731'));
-  assert.ok(!all.includes(owner.phone));
   assert.ok(!all.includes(owner.cookie.split('=')[1]));
 });

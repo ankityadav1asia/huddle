@@ -17,7 +17,7 @@ export async function startApp(tweak = () => {}) {
   process.env.HUDDLE_SECRET = 'test-secret-not-real';
   const cfg = readConfig();
   cfg.dataDir = mkdtempSync(path.join(tmpdir(), 'huddle-test-'));
-  cfg.otp.perIpPerHour = 10_000;
+  cfg.guest.perIpPerHour = 10_000;
   cfg.rooms.maxActiveOwned = 1000;
   cfg.worker.inline = true;
   cfg.demoControls = true;
@@ -71,19 +71,25 @@ export function client(base) {
   return c;
 }
 
-let phoneSeq = 0;
-export async function signUp(base, handle, { team = 'CSK', phone } = {}) {
+// Joins as a guest (display name + handle) and returns a client holding that session.
+export async function signUp(base, handle, { team = 'CSK' } = {}) {
   const c = client(base);
-  const number = phone || `98${String(76543200 + (phoneSeq += 1) + Math.floor(Math.random() * 1e6)).padStart(8, '0')}`.slice(0, 10);
-  const r1 = await c.post('/api/auth/otp/request', { phone: number });
-  if (r1.status !== 200) throw new Error(`otp request failed: ${JSON.stringify(r1.body)}`);
-  const r2 = await c.post('/api/auth/otp/verify', { phone: number, code: r1.body.demo_code });
-  if (r2.status !== 200) throw new Error(`otp verify failed: ${JSON.stringify(r2.body)}`);
-  const r3 = await c.put('/api/me/profile', { display_name: handle, handle, team });
-  if (r3.status !== 200) throw new Error(`profile failed: ${JSON.stringify(r3.body)}`);
-  c.user = r3.body.user;
-  c.phone = number;
+  const r = await c.post('/api/auth/guest', { display_name: handle, handle, team });
+  if (r.status !== 201) throw new Error(`guest join failed: ${JSON.stringify(r.body)}`);
+  c.user = r.body.user;
   return c;
+}
+
+// A second signed-in device for an existing user (a guest cannot sign in again, so the test mints a session).
+export async function secondDevice(app, userId) {
+  const { createSession } = await import('../lib/auth/sessions.js');
+  const { token } = await createSession(app.db, userId);
+  const c = client(app.base);
+  const cookie = `huddle_session=${token}`;
+  return Object.assign(c, {
+    get: (u) => c.req('GET', u, undefined, { cookie }),
+    post: (u, b = {}) => c.req('POST', u, b, { cookie }),
+  });
 }
 
 export const msgId = () => `t${Math.random().toString(36).slice(2, 12)}${Date.now().toString(36)}`;

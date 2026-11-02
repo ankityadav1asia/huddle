@@ -154,32 +154,33 @@ function renderMine(ctx, section, rooms) {
 function openMenu(ctx) {
   const s = openSheet({ title: ctx.me.display_name || ctx.me.handle });
   s.body.append(
-    el('p', { class: 'lede', text: `@${ctx.me.handle}${ctx.me.team ? ` · ${ctx.me.team} fan` : ''} · ${ctx.me.phone} (only you see this)` }),
+    el('p', { class: 'lede', text: `@${ctx.me.handle}${ctx.me.team ? ` · ${ctx.me.team} fan` : ''}` }),
+    el('p', { class: 'fine', text: `Account ID: ${ctx.me.id}` }),
     el('div', { class: 'menu-list' },
       el('button', { type: 'button', class: 'menu-item', text: 'Alert settings', onclick: () => openNotificationSettings(ctx.config) }),
       el('button', { type: 'button', class: 'menu-item', text: 'Edit profile', onclick: () => { closeSheet(); ctx.editProfile(); } }),
       el('a', { class: 'menu-item', href: '/replay', text: 'Original replay demo (single viewer)' }),
       ctx.me.is_moderator ? el('a', { class: 'menu-item', href: '/mod', text: 'Moderation queue' }) : null,
-      el('button', { type: 'button', class: 'menu-item danger', text: 'Sign out', onclick: async () => {
-        try { await api.post('/api/auth/logout'); } catch { /* signed out locally either way */ }
-        closeSheet();
-        ctx.signedOut();
-      } }),
-      el('button', { type: 'button', class: 'menu-item danger', text: 'Sign out on all devices', onclick: async (e) => {
-        e.target.disabled = true;
-        try {
-          await api.post('/api/auth/logout-all');
-        } catch (err) {
-          if (err.status !== 401) {
-            e.target.disabled = false;
-            toast(err.message);
-            return;
-          }
-        }
-        closeSheet();
-        ctx.signedOut();
-      } })),
+      signOutButton(ctx)),
   );
+}
+
+// Guest profiles have no password to sign back in with, so signing out asks for a second, explicit click.
+function signOutButton(ctx) {
+  let armed = false;
+  const b = el('button', { type: 'button', class: 'menu-item danger', text: 'Sign out' });
+  b.addEventListener('click', async () => {
+    if (!armed) {
+      armed = true;
+      b.textContent = `Sign out and lose @${ctx.me.handle}? Tap again to confirm`;
+      return;
+    }
+    b.disabled = true;
+    try { await api.post('/api/auth/logout'); } catch { /* signed out locally either way */ }
+    closeSheet();
+    ctx.signedOut();
+  });
+  return b;
 }
 
 // ---------------------------------------------------------------- create a private room

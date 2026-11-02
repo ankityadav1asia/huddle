@@ -12,7 +12,7 @@ in [docs/api-contract.md](docs/api-contract.md).
 
 | | Status |
 |---|---|
-| Sign in with an Indian mobile number (+91) and a one-time code | **Implemented** with Message Central VerifyNow: it sends and checks a real SMS code, which Huddle never sees or stores. Local development can use an on-screen demo code, which production refuses |
+| Join with a display name and @handle (no phone number or password; the browser stays signed in for 30 days) | **Implemented** |
 | Public watch party (up to 100 members, moderation run by Huddle) and private rooms (up to 50, owner picks relaxed / balanced / strict) | **Implemented** |
 | Invite several friends, accept/decline/revoke, expiry, owner and admin roles, leave, remove | **Implemented** |
 | Realtime chat, reactions, polls, presence, reply threads | **Implemented** (long-polling) |
@@ -24,7 +24,7 @@ in [docs/api-contract.md](docs/api-contract.md).
 | Notifications for big moments when you are not looking at the room (at most 8 per match, the last kept for the result), invitation alerts | **Implemented**, tested with a mocked push service |
 | Mandatory safety baseline, reports, human review queue, appeals | **Implemented** |
 | Messages vanish when the room ends; deleted from the server after 24 h | **Implemented** |
-| Real cricket data feed, real SMS delivery, user blocking, quiet hours | **Planned** |
+| Real cricket data feed, account recovery, user blocking, quiet hours | **Planned** |
 
 Nothing here is connected to Dream11 systems or to a live match.
 
@@ -53,7 +53,7 @@ GEMINI_API_KEY=...         # fallback
 ```
 
 Choose the order with `AI_PRIMARY` / `AI_FALLBACK`. Keys stay on the server. Moderators (who see the review queue at
-`/mod`) are listed in `MODERATOR_PHONES`.
+`/mod`) are listed by account id in `MODERATOR_USER_IDS` (your id is shown in the app menu).
 
 ## Test
 
@@ -72,9 +72,8 @@ provider, reporting delivery latency, losses, duplicates and ordering.
 ## Deploy
 
 Production on Vercel uses Neon Postgres (`DATABASE_URL`, added by the Vercel Marketplace integration), generated
-`HUDDLE_SECRET` / `CRON_SECRET` / `VAPID_*` values, `OTP_PROVIDER=messagecentral` and the Message Central VerifyNow
-credentials `MESSAGECENTRAL_CUSTOMER_ID` and `MESSAGECENTRAL_PASSWORD` (set the password only in Vercel, never in the
-repo). Until both are set, the live site keeps sign-in closed.
+`HUDDLE_SECRET` / `CRON_SECRET` / `VAPID_*` values. Visitors join with a name and handle; without `HUDDLE_SECRET`
+joining fails closed.
 
 
 The app is one server plus one Postgres database.
@@ -92,7 +91,7 @@ The app is one server plus one Postgres database.
 | `server.js` | Local server: static files, API, replay endpoint, background worker |
 | `api/router.js`, `api/ai.js` | Vercel functions (Watch Party API, original replay AI endpoint) |
 | `lib/http/` | Router and routes |
-| `lib/auth/` | Phone OTP (demo and Twilio Verify providers), sessions |
+| `lib/auth/` | Sessions (HttpOnly cookie, server-side hashes) |
 | `lib/rooms/` | Rooms, membership, invitations, the per-room event log, long-polling, lifecycle and purge |
 | `lib/chat/` | Message fast path, reactions, polls, rendering |
 | `lib/moderation/` | Safety gate, lexicon, policy, audit, reports and review |

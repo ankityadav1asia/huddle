@@ -9,7 +9,7 @@ the UI), **Planned** (not built).
 
 | Capability | Status |
 |---|---|
-| Phone OTP sign-in (+91), sessions | Implemented with **Message Central VerifyNow** in production (it sends and checks the SMS code; Huddle never sees it). The on-screen `demo` code exists for local development only and is refused in production. A Twilio Verify adapter also exists. Both are tested against mocked provider APIs |
+| Joining (guest profile: display name + @handle), sessions | Implemented. No phone number or password: a 30-day HttpOnly session cookie keeps the browser signed in; new profiles are limited per network |
 | Public and private Watch Party rooms, invitations, roles, presence | Implemented |
 | Realtime chat, reactions, polls (long-polling) | Implemented |
 | Match Intelligence: scorecard, commentary, status, stats, freshness | Implemented on a **simulated** replay feed (real players, made-up match) |
@@ -19,7 +19,7 @@ the UI), **Planned** (not built).
 | Moderation levels, public policy, mandatory baseline, reports, review queue, appeals | Implemented |
 | In-app alerts; browser push for away members | In-app implemented; push implemented with VAPID and tested against a mocked push service |
 | Ephemeral rooms (end, revoke, purge after retention) | Implemented |
-| Real cricket data provider, real SMS, user blocking, quiet hours, async AI moderation | Planned |
+| Real cricket data provider, account recovery, user blocking, quiet hours, async AI moderation | Planned |
 
 ## 1. System overview
 
@@ -77,7 +77,7 @@ flowchart LR
 | Push subscription | Browser push service + `push_subscriptions` (endpoint and keys) | Until removed or the endpoint returns 404/410 |
 | Match feed | `match_events` / `match_signals`, shared by every room that follows the match | Kept with the match (demo data) |
 | Data sent to AI providers | Per request only: verified match facts, a bounded window of this room's messages with members pseudonymised (`member1`…), the question. Never handles, phone numbers, other rooms or secrets | Subject to each provider's own terms |
-| Logs | stdout JSON lines: ids, categories, timings. Message text, phone numbers, OTPs, tokens and keys are redacted (`lib/log.js`) | Hosting log retention |
+| Logs | stdout JSON lines: ids, categories, timings. Message text, tokens and keys are redacted (`lib/log.js`) | Hosting log retention |
 | Hosted database backups | The Postgres provider's backups / point-in-time restore | Follow the provider's window. Huddle's purge does not reach backups, so deletion there is not immediate |
 
 ## 3. Database schema
@@ -112,9 +112,8 @@ erDiagram
 ### Identity and access
 | Table | Purpose | Key columns |
 |---|---|---|
-| `users` | One row per verified mobile number | `phone_e164` (unique, never shown to others), `handle` (unique, public), `display_name`, `team` |
+| `users` | One row per profile | `handle` (unique, public), `display_name`, `team`; `phone_e164` (nullable, unused since phone sign-in was removed in migration `004`) |
 | `sessions` | Server-side sessions | `token_hash` (SHA-256 of the cookie token), `expires_at`, `revoked_at` |
-| `otp_challenges` | OTP attempts and rate limits | `phone_hash`, `ip_hash` (HMACs), `code_hash` (HMAC of the demo code; NULL when the SMS provider verifies), `attempts`, `expires_at`, `consumed_at`. Deleted after 1 day |
 
 ### Match Intelligence (shared across rooms; never per room)
 | Table | Purpose | Key columns |
@@ -150,7 +149,7 @@ When a room ends, every user-facing read of this content stops at once. The purg
 | Table | Purpose |
 |---|---|
 | `user_send_cooldowns` | One row per user: `next_allowed_at`. The 30-second chat rule is one atomic `INSERT … ON CONFLICT DO UPDATE … WHERE next_allowed_at <= now()` |
-| `rate_events` | Sliding-window counters for OTP, AI requests, reactions and search (advisory-locked per bucket). Deleted after 2 h |
+| `rate_events` | Sliding-window counters for new profiles per network, AI requests, reactions and search (advisory-locked per bucket). Deleted after 2 h |
 
 ### Moderation (minimal audit, no message text)
 | Table | Purpose |
@@ -169,36 +168,17 @@ When a room ends, every user-facing read of this content stops at once. The purg
 
 ## 4. Workflows
 
-### 4.1 Sign-in with an Indian mobile number (production: Message Central VerifyNow)
-```mermaid
-sequenceDiagram
-  participant B as Browser
-  participant S as Huddle server
-  participant M as Message Central VerifyNow
-  B->>S: POST /api/auth/otp/request {phone}
-  S->>S: normalise to +91, rate limits (per number, per network, server-wide)
-  S->>M: send (flowType SMS, 6 digits), with a cached auth token
-  M-->>S: verificationId (stored; the code itself never reaches Huddle)
-  M-->>B: SMS with the code
-  B->>S: POST /api/auth/otp/verify {phone, code}
-  S->>S: attempt limits (5 per code, 10 per number per hour, 30 per network per hour)
-  S->>M: validateOtp(verificationId, code)
-  M-->>S: VERIFICATION_COMPLETED / wrong / expired
-  S-->>B: Huddle session (HttpOnly __Host- cookie) or a plain error
-```
-1. Message Central generates, sends and checks the code, so the code is never in Huddle's server, database, logs
-   or responses. Huddle stores only the verification id and HMACs of the number and network.
-2. Limits: one code per number per 30 s, 5 per number and 20 per network per hour, 300 per hour server-wide (an
-   SMS-cost guard); 5 attempts per code, 10 failed attempts per number per hour across codes, 30 per network per
-   hour; codes expire after 5 minutes and work once. Responses never reveal whether a number has an account.
-3. The user is found or created by phone number and Huddle opens its own session. New users pick a handle and
-   display name (`PUT /api/me/profile`); every other endpoint requires one.
-4. Production rules (Vercel or `NODE_ENV=production`): the `demo` provider is refused and no code is ever returned;
-   with no provider configured sign-in stays closed ("being set up"); without `HUDDLE_SECRET` everything that needs
-   it fails closed. "Sign out on all devices" revokes every session. The Message Central password lives only in the
-   server environment.
-5. `demo` (local development only) creates the code on the server, keeps only its HMAC and shows it on screen.
-   `twilio_verify` works like Message Central through Twilio Verify.
+### 4.1 Joining
+1. A new visitor picks a display name, an @handle and optionally a team: `POST /api/auth/guest`. Names and handles
+   pass the same strict safety check as other public labels, handles are unique, and reserved handles (huddle,
+   admin, moderator…) are refused.
+2. The server creates the profile and a session. The browser holds a random token in an HttpOnly, SameSite=Lax
+   cookie (`__Host-` prefixed and Secure in production); the database keeps only its SHA-256 hash. Sessions last
+   30 days. There is no password, so a profile cannot be recovered after signing out or clearing the browser.
+3. New profiles are limited per network (`GUEST_SIGNUPS_PER_IP_PER_HOUR`, default 10), so nobody can mint accounts
+   to get around the one-message-every-30-seconds rule. Without `HUDDLE_SECRET` joining fails closed.
+4. Platform moderators are listed by account id (`MODERATOR_USER_IDS`). Ids are random and server-generated, so
+   nobody can claim moderator rights by choosing a name.
 
 ### 4.2 Private room and invitations
 `POST /api/rooms` creates the room, makes the caller its owner, records the chosen level (`relaxed`/`balanced`/`strict`)
@@ -327,9 +307,8 @@ sequenceDiagram
 
 ## 7. Known limitations
 - The match feed is a scripted replay labelled as simulated. A licensed provider would replace `lib/match/fixture.js`.
-- Message Central and Twilio Verify adapters are tested against mocked APIs; live SMS delivery depends on the
-  account configured in production. Message Central states that its VerifyNow OTPs to Indian numbers need no DLT
-  registration of your own; that is the vendor's claim.
+- Joining is a guest profile without phone verification: one person can hold several profiles (limited per
+  network per hour), and a profile cannot be recovered once its browser session is gone.
 - Authorization is enforced in application code, not Postgres Row Level Security (one server role connects).
 - On serverless hosting, background jobs run while some member is connected (long-poll requests drive them), plus
   a daily Vercel Cron sweep. A dedicated worker process would remove that dependency.

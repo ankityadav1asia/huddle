@@ -1,6 +1,6 @@
 # Huddle Watch Party API
 
-JSON over HTTPS. Every endpoint except those marked *public* needs the `huddle_session` cookie (set by OTP verify) and
+JSON over HTTPS. Every endpoint except those marked *public* needs the `huddle_session` cookie (set when joining) and
 a finished profile. The acting user always comes from the session; request bodies never carry user ids, roles, room
 types or moderation levels for another user or room, and unknown fields are rejected with `400 unexpected_field`.
 State-changing requests must be `Content-Type: application/json`; multipart, files and attachments get `415`.
@@ -12,21 +12,20 @@ with a `Retry-After` header. A private room the caller cannot see answers `404`,
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/health` | `{ ok, db }` |
-| GET | `/api/config` | `otp { provider: messagecentral \| twilio_verify \| demo \| unavailable, demo }`, `notifications { max_per_match }`, push key, demo controls flag, AI availability, chat limits and reactions, moderation levels and the public policy, retention hours |
-| POST | `/api/auth/otp/request` | `{ phone }` → `{ sent, resend_after, expires_in, provider, demo_code? }`. The provider (Message Central in production) sends the SMS; `demo_code` exists only for the local demo provider, and production refuses demo with `503`. `429` for limits, `503 otp_unavailable` when sign-in is not configured |
-| POST | `/api/auth/otp/verify` | `{ phone, code }` → `{ user, needs_profile }` + session cookie. `400 wrong_code { attempts_left }`, `400 otp_expired`, `429` after too many attempts |
+| GET | `/api/config` | `auth { mode: guest, available }`, `notifications { max_per_match }`, push key, demo controls flag, AI availability, chat limits and reactions, moderation levels and the public policy, retention hours |
+| POST | `/api/auth/guest` | `{ display_name, handle, team? }` → `201 { user, needs_profile: false }` + session cookie. `400` invalid or unsafe name/handle, `409 handle_taken`, `429` too many new profiles from this network, `503` server not configured |
 
 ## Account
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/auth/logout` | Revokes the session |
 | POST | `/api/auth/logout-all` | Revokes every session of this user (all devices) |
-| GET | `/api/me` | `{ user: { id, handle, display_name, team, phone (masked), is_moderator }, needs_profile }` |
+| GET | `/api/me` | `{ user: { id, handle, display_name, team, is_moderator }, needs_profile }` |
 | PUT | `/api/me/profile` | `{ display_name, handle, team? }` (handles 3–20 of a-z 0-9 _) |
 | GET / PUT | `/api/me/notifications` | `{ push_momentum, push_answers, push_invites }` (+ `push_subscribed`, `push_available`, `vapid_public_key` on GET) |
 | POST / DELETE | `/api/me/push-subscriptions` | Browser `PushSubscription.toJSON()` / remove all |
 | GET | `/api/me/invitations` | Pending, unexpired invitations to active rooms |
-| GET | `/api/users/search?q=` | Handle or display-name prefix (≥2 chars), max 10, never matches phone numbers |
+| GET | `/api/users/search?q=` | Handle or display-name prefix (≥2 chars), max 10, public fields only |
 
 ## Rooms
 | Method | Path | Notes |
