@@ -198,23 +198,42 @@ export function friendPicker({ excludeIds = new Set(), onChange }) {
       return x;
     }));
   };
+  const userItem = (u) => el('li', {},
+    el('button', { type: 'button', class: 'result-btn', 'aria-pressed': String(selected.has(u.id)), onclick: (e) => {
+      if (selected.has(u.id)) selected.delete(u.id); else selected.set(u.id, u);
+      e.currentTarget.setAttribute('aria-pressed', String(selected.has(u.id)));
+      renderChips();
+      onChange?.([...selected.keys()]);
+    } }, el('b', { text: `@${u.handle}` }), el('span', { text: u.name || '' }),
+    u.demo ? el('small', { class: 'demo-tag', text: 'Demo' }) : null,
+    u.team ? el('small', { text: u.team }) : null));
+
+  // With an empty search box, offer the labelled demo friends so the invite flow can be tried alone.
+  let demo = [];
+  let hidden = new Set();
+  const offered = (u) => !excludeIds.has(u.id) && !hidden.has(u.id);
+  const showDemo = () => {
+    const users = demo.filter(offered);
+    results.replaceChildren(...(users.length
+      ? [el('li', { class: 'results-head', text: 'Demo friends (no one signs in as them, so their invites stay pending)' }), ...users.map(userItem)]
+      : []));
+  };
+  api.get('/api/users/demo').then((r) => {
+    demo = r.users || [];
+    if (input.value.trim().length < 2) showDemo();
+  }).catch(() => {});
+
   input.addEventListener('input', () => {
     clearTimeout(timer);
     const q = input.value.trim();
-    if (q.length < 2) { results.replaceChildren(); return; }
+    if (q.length < 2) { seq += 1; showDemo(); return; }
     timer = setTimeout(async () => {
       const mineSeq = ++seq;
       try {
         const r = await api.get(`/api/users/search?q=${encodeURIComponent(q)}`);
         if (mineSeq !== seq) return;
-        const users = r.users.filter((u) => !excludeIds.has(u.id));
-        results.replaceChildren(...(users.length ? users.map((u) => el('li', {},
-          el('button', { type: 'button', class: 'result-btn', 'aria-pressed': String(selected.has(u.id)), onclick: (e) => {
-            if (selected.has(u.id)) selected.delete(u.id); else selected.set(u.id, u);
-            e.currentTarget.setAttribute('aria-pressed', String(selected.has(u.id)));
-            renderChips();
-            onChange?.([...selected.keys()]);
-          } }, el('b', { text: `@${u.handle}` }), el('span', { text: u.name || '' }), u.team ? el('small', { text: u.team }) : null)))
+        const users = r.users.filter(offered);
+        results.replaceChildren(...(users.length ? users.map(userItem)
           : [el('li', { class: 'empty small', text: 'No fans found with that handle.' })]));
       } catch (err) {
         results.replaceChildren(el('li', { class: 'empty small', text: err.message }));
@@ -227,6 +246,14 @@ export function friendPicker({ excludeIds = new Set(), onChange }) {
       el('p', { class: 'field-hint', id: 'friend-hint', text: 'Up to 10 at a time. They get an invitation they can accept or decline.' }),
       chips, results),
     ids: () => [...selected.keys()],
+    // People with a pending invitation: not offered again, and dropped from the selection, until it is revoked.
+    hide: (ids) => {
+      hidden = new Set(ids);
+      for (const id of hidden) selected.delete(id);
+      renderChips();
+      onChange?.([...selected.keys()]);
+      input.dispatchEvent(new Event('input')); // re-list suggestions or search results without them
+    },
   };
 }
 

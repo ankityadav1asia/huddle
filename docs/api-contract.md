@@ -25,12 +25,13 @@ with a `Retry-After` header. A private room the caller cannot see answers `404`,
 | GET / PUT | `/api/me/notifications` | `{ push_momentum, push_answers, push_invites }` (+ `push_subscribed`, `push_available`, `vapid_public_key` on GET) |
 | POST / DELETE | `/api/me/push-subscriptions` | Browser `PushSubscription.toJSON()` / remove all |
 | GET | `/api/me/invitations` | Pending, unexpired invitations to active rooms |
-| GET | `/api/users/search?q=` | Handle or display-name prefix (≥2 chars), max 10, public fields only |
+| GET | `/api/users/search?q=` | Handle or display-name prefix (≥2 chars), max 10, public fields only: `{ users: [{ id, handle, name, team, demo }] }`, real profiles first |
+| GET | `/api/users/demo` | The labelled demo friends to invite, each with `demo: true` (nobody signs in as them, so their invitations stay pending). `DEMO_USERS=false` empties this list and leaves them out of search |
 
 ## Rooms
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/rooms` | `{ public_rooms (live or upcoming matches only; each with members, online, max_members, full, joined), my_rooms, matches }` (ensures the demo match and its public room exist) |
+| GET | `/api/rooms` | `{ public_rooms (live or upcoming matches only; each with members, online, max_members, full, joined), my_rooms, matches }` (ensures the demo match, its public room and the demo friends exist) |
 | POST | `/api/rooms` | Private room: `{ name, match_id?, moderation_level?, ai_enabled?, invitee_ids? }` → `201 { room_id, invitations: [{ user_id, result }] }` |
 | GET | `/api/rooms/:id` | Bootstrap for members: room details and notices, members, the last ~60 items, `cursor`, presence, `cooldown_until`, `match_rev`. Ended rooms return `{ room: { status: 'ended' }, items: [] }` |
 | GET | `/api/rooms/:id/events?after=<seq>&wait=1&vis=visible\|hidden` | Long-poll (≤20 s). `{ room, events: [{ seq, type, data }], cursor, presence, match_rev }`; `reset: true` when the cursor is ahead; ended rooms return their status and no events |

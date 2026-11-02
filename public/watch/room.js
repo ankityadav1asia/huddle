@@ -920,6 +920,7 @@ async function loadInvites(state, s, slot) {
     try {
       const r = await api.get(`/api/rooms/${state.id}/invitations`);
       if (!s.isOpen()) return;
+      picker.hide(r.invitations.filter((i) => i.status === 'pending').map((i) => i.user_id));
       statusList.replaceChildren(...(r.invitations.length ? r.invitations.map((i) => el('li', { class: 'invite-row' },
         el('span', { class: 'member-main' }, el('b', { text: `@${i.handle}` }), el('small', { text: i.display_name || '' })),
         el('span', { class: `status-pill inv-${i.status}`, text: i.status }),

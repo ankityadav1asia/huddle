@@ -185,6 +185,8 @@
 .result-btn span { flex: 1; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .result-btn small { color: var(--faint); font-weight: 700; }
 .result-btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.result-btn small.demo-tag { padding: 0 6px; border-radius: 4px; background: var(--csk-soft); color: var(--csk-ink); font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; }
+.results-head { padding: 2px 2px 4px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .selected-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .selected-chips:empty { display: none; }
 .chip.selected { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-deep); }

@@ -10,7 +10,7 @@ the UI), **Planned** (not built).
 | Capability | Status |
 |---|---|
 | Joining (guest profile: display name + @handle), sessions | Implemented. No phone number or password: a 30-day HttpOnly session cookie keeps the browser signed in; new profiles are limited per network |
-| Public and private Watch Party rooms, invitations, roles, presence | Implemented |
+| Public and private Watch Party rooms, invitations, roles, presence | Implemented; six labelled **demo friends** can be invited to try invitations alone |
 | Realtime chat, reactions, polls (long-polling) | Implemented |
 | Match Intelligence: scorecard, commentary, status, stats, freshness | Implemented on a **simulated** replay feed (real players, made-up match) |
 | Match Momentum Engine (deterministic rules, dedup, fan-out) | Implemented |
@@ -112,7 +112,7 @@ erDiagram
 ### Identity and access
 | Table | Purpose | Key columns |
 |---|---|---|
-| `users` | One row per profile | `handle` (unique, public), `display_name`, `team`; `phone_e164` (nullable, unused since phone sign-in was removed in migration `004`) |
+| `users` | One row per profile | `handle` (unique, public), `display_name`, `team`; `is_demo` (the labelled demo friends, migration `005`); `phone_e164` (nullable, unused since phone sign-in was removed in migration `004`) |
 | `sessions` | Server-side sessions | `token_hash` (SHA-256 of the cookie token), `expires_at`, `revoked_at` |
 
 ### Match Intelligence (shared across rooms; never per room)
@@ -185,6 +185,12 @@ When a room ends, every user-facing read of this content stops at once. The purg
 and invites up to 10 people found through handle search (never phone search). Invitees see the invitation on their home
 screen (and as a generic push if they opted in). Accepting checks that the invitation belongs to the caller, is still
 pending, unexpired, the room is active and not full. Owners promote members to admin; nobody can change their own role.
+
+To try invitations without a second person, six demo friends are created once, the first time anyone loads
+`GET /api/rooms`: handles `demo_aarav`, `demo_diya`, `demo_kabir`, `demo_meera`, `demo_rohan` and `demo_sana`, names
+ending in "(demo)", `users.is_demo = true`. The invite picker offers them while its search box is empty
+(`GET /api/users/demo`) and search marks them `demo: true`. They never get a session and nobody can join with a
+`demo_` handle, so their invitations stay pending until revoked or expired. `DEMO_USERS=false` stops offering them.
 
 ### 4.3 Sending a message (fast path)
 ```mermaid

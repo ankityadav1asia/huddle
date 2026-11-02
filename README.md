@@ -41,6 +41,10 @@ Open http://localhost:3000. Everything runs locally with no accounts: an embedde
 `.data/` (git-ignored). To try a watch party with friends on one machine, sign in as different people in two browser
 profiles (or one normal and one private window).
 
+To try invitations on your own, invite the demo friends the invite picker offers while its search box is empty
+(`@demo_aarav`, `@demo_diya`, `@demo_kabir`, `@demo_meera`, `@demo_rohan`, `@demo_sana`). They are labelled profiles
+that nobody signs in as, so their invitations stay pending. `DEMO_USERS=false` hides them.
+
 The demo match starts when someone joins a room for it and plays a ball roughly every 10 seconds. With
 `DEMO_CONTROLS` on (the local default) the room's side panel can jump the replay to the bowling change, the DRS call,
 the dropped catch or the last over.
@@ -61,10 +65,10 @@ Choose the order with `AI_PRIMARY` / `AI_FALLBACK`. Keys stay on the server. Mod
 npm test
 ```
 
-81 tests (about 20 s) cover sign-in, room access and isolation, invitations and roles, the 30-second rule (including
-concurrent sends and the exact boundary), moderation levels and the baseline, the match feed and momentum alerts,
-alert fan-out and push eligibility, AI failover and circuit breaking, the Co-host's race with human replies, room
-closure and purge, observability, and log privacy.
+82 tests (about 20 s) cover joining, room access and isolation, invitations and roles (including the demo friends),
+the 30-second rule (including concurrent sends and the exact boundary), moderation levels and the baseline, the match
+feed and momentum alerts, alert fan-out and push eligibility, AI failover and circuit breaking, the Co-host's race
+with human replies, room closure and purge, observability, and log privacy.
 
 `node scripts/load-check.mjs` runs a small load check: 3 rooms of 10 members, a burst of 30 messages and a slow AI
 provider, reporting delivery latency, losses, duplicates and ordering.
