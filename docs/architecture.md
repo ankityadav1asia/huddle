@@ -1,7 +1,8 @@
 # Huddle Watch Party: architecture
 
-Huddle is a cricket Watch Party prototype: friends (or the public) chat in a room while a match plays, the room
-shows verified match data, and an AI Co-host answers questions, flags big moments and catches people up. It is one
+Huddle is a sports Watch Party prototype for cricket, Formula 1, basketball and ice hockey: friends (or the public)
+chat in a room while a game plays, the room shows verified match data, and an AI Co-host answers questions (about the
+rules and the players too), flags big moments and catches people up. It is one
 Node.js application with one Postgres database. There is no video, no microservice split, no Redis and no broker.
 
 **Status labels used below:** **Implemented** (built and covered by tests), **Simulated** (demo data, labelled in
@@ -13,16 +14,17 @@ the UI), **Planned** (not built).
 | Public and private Watch Party rooms, invitations, roles, presence | Implemented; six labelled **demo friends** can be invited to try invitations alone |
 | Realtime chat, reactions, polls (long-polling) | Implemented |
 | Moment threads: #topics for big moments and for what the room argues about | Implemented (deterministic rules) |
-| Match Intelligence: scorecard, commentary, status, stats, freshness | Implemented on a **simulated** replay feed (real players, made-up match) |
-| A private room's own replay with host controls (start, pause, 2x, restart, jump) | Implemented (simulated replay only) |
-| Simulated fans: the scripted crowd from the original demo, reacting to each ball in every room following the replay | **Simulated** (derived on request, never stored, not sent to the AI) |
+| Match Intelligence for four sports: a scoreboard per sport, play by play, status, freshness | Implemented on **simulated** feeds (real names, made-up games): MI v CSK, the Italian Grand Prix, Warriors v Lakers, Oilers v Maple Leafs; one shared game and public watch party per sport |
+| A private room's own replay with host controls (start, pause, 0.5x / 1x / 2x, restart, jump) | Implemented (simulated replay only); demo games play at 0.5x by default |
+| Simulated fans: 200 per sport, chatting in that sport's public watch party only | **Simulated** (derived on request, never stored, not sent to the AI) |
+| Rules and players help: a checked rules sheet and roster per sport; questions answered from the game as it stood when they were asked | Implemented; live answers need an AI key |
 | Match Momentum Engine (deterministic rules, dedup, fan-out) | Implemented |
-| AI Co-host: Q&A, unanswered questions, quiet-room polls, momentum explanations, Catch Me Up | Implemented; live AI needs an API key (none was available while building, so provider calls are tested with mocked HTTP) |
+| AI Co-host: Q&A, unanswered questions, quiet-room polls, momentum explanations, Catch Me Up | Implemented; live AI needs an API key (provider calls are tested with mocked HTTP) |
 | Primary/fallback AI providers, circuit breaker | Implemented (Anthropic, OpenRouter, Gemini and xAI Grok adapters; OpenRouter and Grok share one chat-completions adapter) |
 | Moderation levels, public policy, mandatory baseline, reports, review queue, appeals | Implemented |
 | In-app alerts; browser push for away members | In-app implemented; push implemented with VAPID and tested against a mocked push service |
 | Ephemeral rooms (end, revoke, purge after retention) | Implemented |
-| Real cricket data provider, account recovery, user blocking, quiet hours, async AI moderation | Planned |
+| Real sports data providers, account recovery, user blocking, quiet hours, async AI moderation | Planned |
 
 ## 1. System overview
 
@@ -121,12 +123,15 @@ erDiagram
 ### Match Intelligence (shared across rooms; never per room)
 | Table | Purpose | Key columns |
 |---|---|---|
-| `matches` | One match run | `source` = `demo_fixture`, `status` scheduled/live/completed, `feed_started_at`, `ball_interval_ms`, `backfill_until` (demo jumps); `room_id` (set only for a private room's own replay run, migration `006`), `paused_at` |
+| `matches` | One match run | `source` = `demo_fixture`, `fixture_key` (which sport's script: `mi-csk-demo`, `f1-monza-demo`, `nba-gsw-lal-demo`, `nhl-edm-tor-demo`), `status` scheduled/live/completed, `feed_started_at`, `ball_interval_ms`, `backfill_until` (demo jumps); `room_id` (set only for a private room's own replay run, migration `006`), `paused_at` |
 | `match_events` | Timestamped feed events | `provider_event_id` (unique per match: dedupes re-ingestion), `seq`, `kind` ball/event/overend, `data` (bowler, batter, runs, wicket…), `occurred_at`, `backfilled` |
 | `match_signals` | Momentum Engine output, one per crucial moment | `trigger` (e.g. `wicket_fallen`), `priority` high/medium/low, `evidence` (verified facts), `fact_text` (deterministic sentence), `dedupe_key` (unique), `status` pending/published/suppressed/expired, `ai_text` (optional validated explanation), `expires_at` |
 
-The scorecard (runs, wickets, overs, required rate, batting and bowling cards, fall of wickets, partnership) is not
-stored: it is recomputed deterministically from `match_events` and cached in memory per match.
+The scoreboard is not stored: each sport's engine (`lib/match/sports/`) recomputes it deterministically from
+`match_events` (cricket: runs, wickets, overs, required rate, batting and bowling cards, fall of wickets, partnership;
+F1: the running order, gaps, tyres and pit stops; basketball and hockey: the score, clock and key stats), and it is
+cached in memory per match. `lib/match/fixture.js` lists the four fixtures; each brings its engine, crowd, discussion
+topics, rules sheet, roster and example questions.
 
 ### Rooms and membership
 | Table | Purpose | Key columns |
@@ -140,7 +145,7 @@ stored: it is recomputed deterministically from `match_events` and cached in mem
 | Table | Purpose | Key columns |
 |---|---|---|
 | `room_events` | Realtime outbox: what changed, in order | PK `(room_id, seq)`, `type` message/message_update/poll/insight/member/room, `entity_id`. Ids only, no text |
-| `messages` | Chat and AI Co-host replies | `sender_type` user/ai (AI messages have no sender and a distinct type so the AI can never trigger itself), `client_msg_id` (idempotency key, unique per sender), `body`, `reply_to_id`, `status` visible/held/removed, `answer_state` (pending → human / ai_claimed → ai_answered / ai_unavailable / cancelled), `ai_meta` (provider, model, grounding; never the prompt), `moderation` (decision summary; never a copy of the text), `thread_id` (migration `008`) |
+| `messages` | Chat and AI Co-host replies | `sender_type` user/ai (AI messages have no sender and a distinct type so the AI can never trigger itself), `client_msg_id` (idempotency key, unique per sender), `body`, `reply_to_id`, `status` visible/held/removed, `answer_state` (pending → human / ai_claimed → ai_answered / ai_unavailable / cancelled), `ai_meta` (provider, model, grounding, `asked_at`; never the prompt), `moderation` (decision summary; never a copy of the text), `thread_id` (migration `008`), `match_seq` (the newest play when it was sent, migration `009`) |
 | `room_threads` | A #thread inside a room | `slug` (unique per room), `title` (#slug), `about`, `keywords`, `source` moment/discussion, `last_active_at`. Room content: purged with the messages |
 | `message_reactions` | Allowlisted emoji reactions | PK `(message_id, user_id, emoji)` |
 | `polls`, `poll_votes` | AI or template polls | `idempotency_key` (unique), one open poll per room, `closes_at` |
@@ -223,7 +228,10 @@ moderators until reviewed. AI work is only queued here: no LLM call ever sits on
    provider event id) inside a per-match row lock.
 2. The deterministic rules in `lib/match/momentum.js` compare the scorecard before and after each item: wickets
    (`partnership_break` when a 30+ stand ends), dropped catches, boundary bursts, dot-ball pressure, a required-rate
-   spike, death overs, DRS outcomes and the confirmed result. Thresholds are documented demo heuristics.
+   spike, death overs, DRS outcomes and the confirmed result. Thresholds are documented demo heuristics. The F1,
+   basketball and hockey scripts mark their moments on the items themselves (pit stops, safety car, lead changes,
+   clutch time, the buzzer-beater, power plays, goals, the empty net, the result), and `lib/match/sports/scripted.js`
+   turns them into the same signal rows.
 3. Only fresh signals alert. A backlog (server asleep), a demo jump (backfill) or several signals in one pass publish
    at most one alert; the rest are stored as `suppressed` for Catch Me Up.
 4. A `momentum_signal` job asks the AI Co-host for one explanatory sentence, validates it (schema, cited event ids,
@@ -242,7 +250,8 @@ moderators until reviewed. AI work is only queued here: no LLM call ever sits on
    person has come back. The payload is verified match facts only: no room name, no chat text.
 
 ### 4.5 AI Co-host answers
-- `@huddle …` queues an `ai_answer` job immediately. A cricket question without a mention queues one with a delay
+- `@huddle …` queues an `ai_answer` job immediately. A question about the room's sport (a question mark or question
+  word, and one of that sport's terms) without a mention queues one with a delay
   (`UNANSWERED_QUESTION_DELAY_SECONDS`, default 25 s).
 - A human reply (`reply_to`, or an `@handle` mention of the asker) flips the question's `answer_state` from `pending`
   to `human`. The job claims the question with the same compare-and-set (`pending` → `ai_claimed`), so only one path
@@ -251,6 +260,12 @@ moderators until reviewed. AI work is only queued here: no LLM call ever sits on
   of that room only, pseudonymised and labelled untrusted. It calls the orchestrator, validates the output, then
   publishes in a transaction that requires the room to still be active. An answer that fails validation, or a room
   that ended mid-generation, publishes nothing.
+- Rule and player questions are answered at the moment they were asked. Each message stores `match_seq`, the newest
+  play when it was sent; the job rebuilds the game as it stood then (`stateAt`) and sends it as MATCH_WHEN_ASKED,
+  with the sport's checked RULES_SHEET and ROSTER. The validator accepts numbers only from the match facts, the rules
+  sheet or the roster, so an invented figure is rejected. An answer from the rules sheet carries
+  `grounding.status = rules_sheet`, and `ai_meta.asked_at` names the over or game clock it was asked at.
+  `GET /api/rooms/:id/guide` shows newcomers the same sheet, roster and example questions.
 
 ### 4.6 Catch Me Up
 `POST /api/rooms/:id/catchup {since_seq}` checks membership and room state, gathers this room's messages since that
@@ -291,7 +306,8 @@ nobody can pause or move it. A private room created with `own_replay: true` gets
 (`matches.room_id` = the room) and waits for its host. Its owner and admins use `POST /api/rooms/:id/replay`:
 - **Start** sets the run live. **Pause** stores `paused_at`, and ingestion skips paused runs; **Resume** moves
   `feed_started_at` on by the pause, so no ball is skipped.
-- **Speed** (1x or 2x) changes `ball_interval_ms` and re-anchors the clock on the last ingested ball.
+- **Speed** (0.5x, 1x or 2x) changes `ball_interval_ms` and re-anchors the clock on the last ingested ball. Shared
+  games and new runs start at `DEMO_SPEED` (0.5x by default).
 - **Jump** ahead backfills the skipped balls (no alerts). Jumping back, or **Restart**, creates a fresh run in one
   transaction: the room moves to it and the old run is closed. Restarts are limited to 6 per room per hour, an
   auto-end queued for an old run is ignored once the room has moved on, and the alert cap spans the room's runs.
@@ -299,10 +315,13 @@ nobody can pause or move it. A private room created with `own_replay: true` gets
   screen updates at once. The DEMO_CONTROLS jump for the shared replay refuses private runs.
 
 ### 4.11 Simulated fans
-The original single-viewer demo played a scripted crowd. The watch party keeps it as labelled demo data, derived
-rather than stored: `GET /api/rooms/:id/match` returns `crowd`, the lines for the balls of the last 45 s, built by
-`lib/match/crowd.js` from each ball's crowd cue in the script (or background chatter) with a random generator seeded
-by room, run and ball. So everyone in a room sees the same fans say the same thing, another room gets a different
+The original single-viewer demo played a scripted crowd. The watch party keeps it as labelled demo data, in public
+watch parties only (a private room holds only the people invited), derived rather than stored. Each sport has 200
+simulated fans (`lib/match/fans.js`: seeded handles split between the two sides, such as MCL and RBR fans
+for F1); the bootstrap lists them as `simulated_fans`, and the room header counts real people online and the
+simulated fans separately. `GET /api/rooms/:id/match` returns `crowd`, the lines for the plays of the last 45 s,
+built by `lib/match/crowd.js` from each play's crowd cue in the sport's script (or background chatter) with a random
+generator seeded by room, run and play. So everyone in a room sees the same fans say the same thing, another room gets a different
 crowd, balls skipped by a jump get none, and 2x halves the gaps. Each line carries `at` (ball time plus its place in
 the burst) and the client shows it then, marked "Simulated fan"; overdue lines (opening the room late) are skipped.
 Lines the room's moderation level would not allow are dropped, and nothing is written to `messages`, so the crowd
@@ -310,12 +329,16 @@ never reaches the AI Co-host, the message rate limit, reports or retention. Each
 
 ### 4.12 Moment threads
 As in the original demo, a room splits its chat into #threads without anyone managing them (`lib/rooms/threads.js`):
-- **Big moments** open one in every room following the match, inside feed ingestion: a wicket (`#dube-out`), the
-  bowling change, the DRS call, a dropped catch, the last over and the result. They are ordinary cricket events, so a
-  real feed would open the same threads. Balls skipped by a jump open none, and re-ingesting opens nothing twice.
+- **Big moments** open one in every room following the match, inside feed ingestion: in cricket a wicket
+  (`#dube-out`), the bowling change, the DRS call, a dropped catch, the last over; in F1 the pit wall, the safety car,
+  Norris v Verstappen and the last lap; in basketball Curry's threes, clutch time and the buzzer-beater; in hockey the
+  power play, each goal and the empty net; and every result. Cricket's are ordinary cricket events, so a real feed
+  would open the same threads; the other sports mark them on the scripted items. Plays skipped by a jump open none,
+  and re-ingesting opens nothing twice.
 - **Discussions** open one when three messages from at least two people in ten minutes argue about the same topic
-  (Hinglish and English keywords for the DRS call, a dropped catch, the bowling change, the last over); those
-  messages move into it.
+  of the room's sport (in cricket, Hinglish and English keywords for the DRS call, a dropped catch, the bowling
+  change, the last over; in F1 the safety car, the pit wall, the stewards; in basketball the refs and the threes; in
+  hockey the refs and the goalies); those messages move into it.
 - A message joins the thread it is sent from (`thread_id`), else one whose topic it mentions, else a big moment
   from the last 30 s. Every message still shows in All chat. AI answers stay in their question's thread, and the
   simulated fans' reactions to a moment carry its thread.
@@ -354,7 +377,10 @@ As in the original demo, a room splits its chat into #threads without anyone man
   chat. These are prototype numbers from one machine, not capacity claims; nothing was designed for large-scale traffic.
 
 ## 7. Known limitations
-- The match feed is a scripted replay labelled as simulated. A licensed provider would replace `lib/match/fixture.js`.
+- Every game is a scripted replay labelled as simulated. A licensed provider per sport would replace the fixtures in
+  `lib/match/sports/`; the F1, basketball and hockey moments are marked in the scripts, so a real feed for those
+  sports would also need momentum rules like cricket's. The rules sheets are short hand-written summaries, not the
+  official rulebooks.
 - Joining is a guest profile without phone verification: one person can hold several profiles (limited per
   network per hour), and a profile cannot be recovered once its browser session is gone.
 - Authorization is enforced in application code, not Postgres Row Level Security (one server role connects).

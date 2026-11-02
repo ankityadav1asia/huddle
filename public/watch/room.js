@@ -93,6 +93,7 @@ async function bootstrap(state) {
   state.cursor = boot.cursor;
   state.matchRev = boot.match_rev;
   state.cooldownUntil = boot.cooldown_until ? toLocal(boot.cooldown_until) : 0;
+  state.simFans = boot.simulated_fans || []; // the public watch party's scripted crowd; none in private rooms
   buildRoom(state);
   for (const t of boot.threads || []) addThread(state, t, { quiet: true });
   for (const item of boot.items) upsertItem(state, item.type, item.data);
@@ -104,8 +105,10 @@ async function bootstrap(state) {
     showBanner(state, `Welcome back. ${plural(state.cursor - seen, 'update')} since your last visit.`);
   }
   rememberSeen(state);
-  if (state.room.match) refreshMatch(state);
-  else renderRail(state);
+  if (state.room.match) {
+    refreshMatch(state);
+    loadGuide(state);
+  } else renderRail(state);
   state.ticker = setInterval(() => tick(state), 1000);
   tick(state);
   state.onVis = () => onVisibility(state);
@@ -135,6 +138,10 @@ function buildRoom(state) {
   els.reconnect = el('span', { class: 'reconnect-pill', hidden: true, text: 'Reconnecting…' });
   const catchBtn = el('button', { type: 'button', class: 'catchup-btn', text: 'Catch me up', onclick: () => openCatchup(state) });
   els.pollBtn = el('button', { type: 'button', class: 'catchup-btn ghost', text: 'Suggest a poll', hidden: !room.match, onclick: () => suggestPoll(state) });
+  // From the public watch party: a private room on the same match, with only the people you invite.
+  const privateBtn = room.room_type === 'public' && room.match
+    ? el('button', { type: 'button', class: 'catchup-btn ghost', text: '+ Private room', onclick: () => openQuickPrivate(state) }) : null;
+  els.guide = el('div', { class: 'guide', hidden: true });
 
   els.feed = el('div', { class: 'feed', role: 'log', 'aria-live': 'polite', 'aria-label': 'Watch party messages' });
   els.notice = el('div', { class: 'feed-notice' });
@@ -172,7 +179,8 @@ function buildRoom(state) {
     els.cohost = el('section', { class: 'pulse cohost', 'aria-label': 'AI Co-host' },
       el('div', { class: 'pulse-head' }, els.cohostLabel, els.reconnect),
       els.cohostText,
-      el('div', { class: 'pulse-foot cohost-actions' }, catchBtn, els.pollBtn)),
+      el('div', { class: 'pulse-foot cohost-actions' }, catchBtn, els.pollBtn, privateBtn),
+      els.guide),
     els.threadBar,
     el('section', { class: 'chat' }, els.scroll, els.banner, els.newPill),
     el('div', { class: 'composer-wrap' }, el('div', { class: 'composer-status', 'aria-live': 'polite' }, els.reply, els.error, els.notice2, els.cooldown), form),
@@ -198,7 +206,7 @@ function applyRoomInfo(state) {
   const mod = room.moderation;
   els.notice.replaceChildren(
     el('p', {}, el('b', { text: room.ai_enabled ? 'AI Co-host. ' : 'AI Co-host off. ' }), room.ai_notice),
-    room.match ? el('p', {}, el('b', { text: 'Simulated fans. ' }), 'A scripted crowd reacts to the simulated replay. They are labelled, are not real people, and can be hidden in room settings.') : null,
+    state.simFans.length ? el('p', {}, el('b', { text: 'Simulated fans. ' }), 'A scripted crowd reacts to the simulated game in this public watch party. They are labelled, are not real people, and can be hidden in room settings. Private rooms have none.') : null,
     el('p', {}, el('b', { text: 'Disappearing chat. ' }), room.retention_notice),
     el('p', {}, el('b', { text: room.room_type === 'public' ? 'Public room. ' : `${LEVEL_NAMES[mod.level] || ''} moderation. ` }), mod.notice),
   );
@@ -208,10 +216,11 @@ function applyRoomInfo(state) {
 function updatePresence(state, presence) {
   state.presence = presence || state.presence;
   const n = state.presence.online.length;
-  // Real people online; the simulated fans are counted separately so nobody takes them for real viewers.
-  const fans = state.room?.match && state.crowdOn ? state.ctx.config.crowd?.fans : 0;
+  // Real people online; the simulated fans (public watch party only) are counted separately, so nobody takes them
+  // for real viewers, and listed under their own heading in Members.
+  const fans = simulatedFans(state).length;
   if (state.els.online) state.els.online.textContent = ` · ${n} online${fans ? ` · ${fans} simulated fans` : ''}`;
-  if (state.els.memberCount) state.els.memberCount.textContent = String(state.members.size);
+  if (state.els.memberCount) state.els.memberCount.textContent = String(state.members.size + fans);
   state.membersSheet?.refresh?.();
 }
 
@@ -467,12 +476,97 @@ function renderMessage(state, m) {
   return row;
 }
 
+// ---------------------------------------------------------------- new to the sport? rules and players
+// Every room following a match tells newcomers they can ask: example questions fill in "@huddle ..." and the
+// checked rules sheet opens even when the AI is off. Answers use the sheet and the moment the question was asked.
+async function loadGuide(state) {
+  try {
+    const g = await api.get(`/api/rooms/${state.id}/guide`, { signal: state.abort.signal });
+    if (state !== R) return;
+    state.guide = g;
+    renderGuide(state);
+  } catch { /* the guide is an extra: the room works without it */ }
+}
+
+function renderGuide(state) {
+  const g = state.guide;
+  const box = state.els.guide;
+  if (!g || !box) return;
+  const ai = state.room.ai_enabled;
+  box.replaceChildren(
+    el('p', { class: 'guide-line' }, el('b', { text: `New to ${g.sport_name}? ` }),
+      ai ? 'Ask @huddle about any rule or player: answers use the checked rules sheet and the moment you asked.' : 'The rules sheet explains the rules and the players.'),
+    el('div', { class: 'ask-chips' },
+      ai ? g.examples.map((q) => el('button', { type: 'button', class: 'chip ask-chip', text: q, onclick: () => askAbout(state, q) })) : null,
+      el('button', { type: 'button', class: 'chip ask-chip ghost', text: 'Rules and players', onclick: () => openGuideSheet(state) })));
+  box.hidden = false;
+}
+
+function askAbout(state, question) {
+  state.els.input.value = `@huddle ${question}`;
+  state.els.input.focus();
+}
+
+function openGuideSheet(state) {
+  const g = state.guide;
+  const s = openSheet({ title: `${g.sport_name[0].toUpperCase()}${g.sport_name.slice(1)}: rules and players`, lede: 'A short, checked rules sheet. The AI Co-host explains from it when you ask @huddle.' });
+  s.body.append(
+    el('h3', { text: 'Rules' }),
+    el('dl', { class: 'rules-list' }, g.rules.flatMap((r) => [el('dt', { text: r.topic }), el('dd', { text: r.text })])),
+    el('h3', { text: 'Players' }),
+    el('ul', { class: 'mi-list' }, g.roster.map((p) => el('li', {}, el('b', { text: p.name }), ` · ${p.role}, ${p.team}`))),
+    el('p', { class: 'fine', text: 'Real players in a made-up game: the match is a simulated replay, not a live feed.' }));
+}
+
+// ---------------------------------------------------------------- a private room from the public watch party
+// One tap from the public watch party: a private room on the same match, with only the people you invite by
+// @username. Match moments, #threads and the AI Co-host come with it; the simulated fans stay in the public room.
+function openQuickPrivate(state) {
+  const me = state.ctx.me;
+  const s = openSheet({ title: 'Start a private room', lede: 'Watch this match with only the people you invite. Match moments, #threads and the AI Co-host come with it; simulated fans stay here.' });
+  const error = el('p', { class: 'form-error', role: 'alert' });
+  const name = el('input', { id: 'quick-room-name', maxlength: '40', value: `${me.display_name || me.handle}'s room`.slice(0, 40) });
+  const own = el('input', { type: 'checkbox', id: 'quick-own-replay' });
+  const picker = friendPicker({ excludeIds: new Set([me.id]) });
+  const create = el('button', { type: 'submit', class: 'btn primary', text: 'Create and invite' });
+  const form = el('form', { class: 'sheet-form', novalidate: '' },
+    el('div', { class: 'field' }, el('label', { for: 'quick-room-name', text: 'Room name' }), name),
+    picker.node,
+    el('label', { class: 'toggle-row', for: 'quick-own-replay' }, own, el('span', {}, el('b', { text: 'Control the replay yourself' }),
+      el('small', { text: 'Off: the room follows this same match, in step with the public watch party. On: your room gets its own copy to start, pause or jump.' }))),
+    error,
+    sheetActions(el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: closeSheet }), create));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!name.value.trim()) {
+      error.textContent = 'Give the room a name.';
+      name.focus();
+      return;
+    }
+    create.disabled = true;
+    error.textContent = '';
+    try {
+      const r = await api.post('/api/rooms', { name: name.value, match_id: state.room.match.id, own_replay: own.checked, invitee_ids: picker.ids() });
+      closeSheet();
+      const sent = r.invitations.filter((i) => i.result === 'invited').length;
+      toast(sent ? `${plural(sent, 'invitation')} sent.` : 'Private room ready. Invite friends from Members.');
+      state.ctx.navigate(`#/room/${r.room_id}`);
+    } catch (err) {
+      error.textContent = err.message;
+      create.disabled = false;
+    }
+  });
+  s.body.append(form);
+}
+
 // ---------------------------------------------------------------- simulated fans
 // The scripted crowd that reacts to the simulated replay. The server derives the lines from the match feed, the
 // same for everyone in this room, and each one is shown when it is due. They are labelled, never stored with the
 // chat, and can be hidden on this device in room settings.
 const CROWD_KEY = 'huddle:crowd';
 const CROWD_LATE_MS = 20000; // a line this overdue (opening the room, coming back) is skipped, not replayed
+
+const simulatedFans = (state) => (state.crowdOn && state.simFans ? state.simFans : []);
 
 function crowdPref() {
   try { return localStorage.getItem(CROWD_KEY) !== 'off'; } catch { return true; }
@@ -606,8 +700,9 @@ function aiFootnote(ai) {
   if (ai.type === 'insufficient_data') return 'Not in the match data, so the Co-host will not guess.';
   if (ai.type === 'decline') return 'AI-generated';
   const g = ai.grounding || {};
-  const parts = ['From verified match data (simulated replay)'];
-  if (g.data_as_of) parts.push(`as of ${clockSeconds(g.data_as_of)}`);
+  const parts = [g.status === 'rules_sheet' ? 'From the checked rules sheet' : 'From verified match data (simulated)'];
+  if (ai.asked_at) parts.push(`asked at ${ai.asked_at}`);
+  else if (g.data_as_of) parts.push(`as of ${clockSeconds(g.data_as_of)}`);
   if (g.stale) parts.push('may be out of date');
   return parts.join(' · ');
 }
@@ -867,8 +962,17 @@ function needBlock(s) {
   return need;
 }
 
+// The score card under the room title, per sport. Every number comes from the match snapshot (the feed).
 function renderScore(state) {
   const snap = state.match;
+  const sport = snap.match.sport || 'cricket';
+  const [line, row1, detail] = sport === 'cricket' ? cricketScore(snap) : sport === 'f1' ? f1Score(snap) : teamScore(snap);
+  const row2 = el('div', { class: 'score-row' }, detail, el('span', { class: 'replay-tag', 'data-freshness': '', text: freshnessText(state) }));
+  state.els.score.replaceChildren(line, row1, row2);
+  state.els.score.hidden = false;
+}
+
+function cricketScore(snap) {
   const s = snap.score;
   const team = snap.match.teams.find((t) => t.code === s.batting) || { code: s.batting };
   const line = el('div', { class: 'score-line' },
@@ -878,11 +982,35 @@ function renderScore(state) {
     needBlock(s));
   const batters = s.batters.map((b) => `${b.short}${b.on_strike ? '*' : ''} ${b.runs} (${b.balls})`).join('  ·  ');
   const row1 = el('div', { class: 'score-row' }, el('span', { class: 'score-batters', text: batters }), el('span', { class: 'this-over' }, s.this_over.map(ballDot)));
-  const row2 = el('div', { class: 'score-row' },
-    el('span', {}, s.bowler ? ['Bowling ', el('b', { text: s.bowler.short }), ` ${s.bowler.figures}`] : ''),
-    el('span', { class: 'replay-tag', 'data-freshness': '', text: freshnessText(state) }));
-  state.els.score.replaceChildren(line, row1, row2);
-  state.els.score.hidden = false;
+  return [line, row1, el('span', {}, s.bowler ? ['Bowling ', el('b', { text: s.bowler.short }), ` ${s.bowler.figures}`] : '')];
+}
+
+function f1Score(snap) {
+  const s = snap.score;
+  const status = s.result ? el('b', { text: s.result }) : s.safety_car ? el('b', { class: 'flag-sc', text: 'Safety car' }) : [el('b', { text: s.order[0].short }), ' leads'];
+  const line = el('div', { class: 'score-line' },
+    el('span', { class: 'team-chip sport-chip', text: 'F1' }),
+    el('span', { class: 'score-runs', text: `Lap ${s.lap}` }),
+    el('span', { class: 'score-overs', text: `/ ${s.total_laps}` }),
+    el('span', { class: 'score-need' }, status));
+  const row1 = el('div', { class: 'score-row' }, el('span', { class: 'score-batters', text: s.order.slice(0, 3).map((d) => `P${d.pos} ${d.short}${d.pos > 1 ? ` ${d.gap}` : ''}`).join('  ·  ') }));
+  return [line, row1, el('span', { text: `Fastest lap ${s.fastest_lap.driver.split(' ').pop()} ${s.fastest_lap.time}` })];
+}
+
+// Basketball and hockey: two teams, a period and a clock.
+function teamScore(snap) {
+  const s = snap.score;
+  const [a, b] = s.teams;
+  const line = el('div', { class: 'score-line' },
+    el('span', { class: 'team-chip sport-chip', text: a.code }),
+    el('span', { class: 'score-runs', text: `${a.score}–${b.score}` }),
+    el('span', { class: 'team-chip sport-chip', text: b.code }),
+    el('span', { class: 'score-need' }, s.result ? el('b', { text: s.result }) : [el('b', { text: s.period }), ` ${s.clock}`]));
+  const detail = snap.match.sport === 'basketball'
+    ? s.teams.map((t) => `${t.leaders[0].short} ${t.leaders[0].pts} pts`).join('  ·  ')
+    : `Shots ${a.shots}–${b.shots}${s.power_play ? ` · ${s.power_play.team} power play` : ''}${s.empty_net ? ` · ${s.empty_net} goalie pulled` : ''}`;
+  const row1 = el('div', { class: 'score-row' }, el('span', { class: 'score-batters', text: detail }));
+  return [line, row1, el('span', { class: 'last-play', text: s.last_play || '' })];
 }
 
 function table(headers, rows) {
@@ -894,7 +1022,6 @@ function table(headers, rows) {
 function matchPanel(state, { withControls = true } = {}) {
   const snap = state.match;
   if (!snap) return el('p', { class: 'empty', text: 'Loading match data…' });
-  const s = snap.score;
   const own = snap.replay?.own;
   const status = snap.match.status === 'live' ? (snap.replay?.paused ? 'PAUSED' : 'LIVE · SIMULATED') : snap.match.status === 'scheduled' ? (own ? 'READY' : 'STARTING SOON') : 'FINISHED';
   const wrap = el('div', { class: 'mi' },
@@ -903,21 +1030,11 @@ function matchPanel(state, { withControls = true } = {}) {
       el('span', { class: `status-pill ${snap.match.status === 'live' && !snap.replay?.paused ? 'live' : ''}`, text: status })),
     el('p', { class: 'mi-fresh', 'data-freshness': '', text: freshnessText(state) }),
     el('p', { class: 'mi-src', text: `${snap.match.source_label}. Every number here comes from the feed, never from the AI.` }),
-    el('p', { class: 'mi-score' }, el('b', { text: `${s.batting} ${s.runs}/${s.wickets}` }), ` (${s.overs} ov) · ${s.result || (s.chase_won ? `${s.batting} have won` : `need ${s.need_runs} off ${s.need_balls}`)}`),
-    el('p', { class: 'mi-meta', text: `Target ${s.target} · CRR ${s.crr ?? '-'} · RRR ${s.rrr ?? '-'} · ${s.first_innings}` }),
+    ...sportSummary(snap),
     withControls && own ? replayPanel(state) : null,
     withControls && !own ? el('p', { class: 'fine', text: 'Every room following this shared replay sees the same match. For a replay you can start, pause and jump yourself, create a private room with its own replay.' }) : null,
-    el('h3', { text: 'Batting' }),
-    table(['Batter', 'R', 'B', 'SR'], s.batters.map((b) => [`${b.name}${b.on_strike ? ' *' : ''}`, b.runs, b.balls, b.strike_rate ?? '-'])),
-    el('p', { class: 'mi-meta', text: `Partnership ${s.partnership.runs} (${s.partnership.balls}) since the last wicket in the feed` }),
-    el('h3', { text: 'Bowling' }),
-    table(['Bowler', 'O-M-R-W', 'Econ'], s.bowling_card.map((b) => [b.name, b.figures, b.economy])),
-    el('h3', { text: 'Fall of wickets' }),
-    s.fall_of_wickets.length
-      ? el('ul', { class: 'mi-list' }, s.fall_of_wickets.map((w) => el('li', { text: `${w.name} ${w.r} (${w.b}) ${w.how}${w.score ? ` · ${w.score}` : ''}${w.over ? `, ${w.over} ov` : ''}` })))
-      : el('p', { class: 'mi-meta', text: 'No wickets yet.' }),
-    el('p', { class: 'mi-meta', text: `In the replay feed so far: ${count(s.team_stats.fours_in_feed, 'four', 'fours')} · ${count(s.team_stats.sixes_in_feed, 'six', 'sixes')} · ${count(s.team_stats.dots_in_feed, 'dot ball', 'dot balls')} · ${count(s.team_stats.extras_in_feed, 'extra', 'extras')}` }),
-    el('h3', { text: 'Ball by ball' }),
+    ...sportDetail(snap),
+    el('h3', { text: (snap.match.sport || 'cricket') === 'cricket' ? 'Ball by ball' : 'Play by play' }),
     snap.commentary.length
       ? el('ol', { class: 'commentary' }, snap.commentary.map((c) => el('li', {},
         el('span', { class: `over-tag${c.symbol ? ` r${c.symbol}` : ''}`, text: c.over || c.label || '•' }),
@@ -944,6 +1061,66 @@ function matchPanel(state, { withControls = true } = {}) {
   return wrap;
 }
 
+// The match panel's headline lines and tables, per sport.
+function sportSummary(snap) {
+  const s = snap.score;
+  const sport = snap.match.sport || 'cricket';
+  if (sport === 'cricket') {
+    return [
+      el('p', { class: 'mi-score' }, el('b', { text: `${s.batting} ${s.runs}/${s.wickets}` }), ` (${s.overs} ov) · ${s.result || (s.chase_won ? `${s.batting} have won` : `need ${s.need_runs} off ${s.need_balls}`)}`),
+      el('p', { class: 'mi-meta', text: `Target ${s.target} · CRR ${s.crr ?? '-'} · RRR ${s.rrr ?? '-'} · ${s.first_innings}` }),
+    ];
+  }
+  if (sport === 'f1') {
+    return [
+      el('p', { class: 'mi-score' }, el('b', { text: `Lap ${s.lap}/${s.total_laps}` }), ` · ${s.result || `${s.order[0].name} leads`}`),
+      el('p', { class: 'mi-meta', text: `Safety car: ${s.safety_car ? 'deployed' : 'not out'} · Fastest lap ${s.fastest_lap.driver} ${s.fastest_lap.time}` }),
+    ];
+  }
+  const [a, b] = s.teams;
+  return [
+    el('p', { class: 'mi-score' }, el('b', { text: `${a.name} ${a.score}–${b.score} ${b.name}` }), ` · ${s.result || `${s.period} ${s.clock}`}`),
+    el('p', { class: 'mi-meta', text: sport === 'basketball'
+      ? `Team fouls this quarter: ${a.name} ${a.team_fouls}, ${b.name} ${b.team_fouls}`
+      : `Shots on goal: ${a.name} ${a.shots}, ${b.name} ${b.shots}${s.power_play ? ` · ${s.power_play.team} power play until ${s.power_play.until}` : ''}` }),
+  ];
+}
+
+function sportDetail(snap) {
+  const s = snap.score;
+  const sport = snap.match.sport || 'cricket';
+  if (sport === 'cricket') {
+    return [
+      el('h3', { text: 'Batting' }),
+      table(['Batter', 'R', 'B', 'SR'], s.batters.map((b) => [`${b.name}${b.on_strike ? ' *' : ''}`, b.runs, b.balls, b.strike_rate ?? '-'])),
+      el('p', { class: 'mi-meta', text: `Partnership ${s.partnership.runs} (${s.partnership.balls}) since the last wicket in the feed` }),
+      el('h3', { text: 'Bowling' }),
+      table(['Bowler', 'O-M-R-W', 'Econ'], s.bowling_card.map((b) => [b.name, b.figures, b.economy])),
+      el('h3', { text: 'Fall of wickets' }),
+      s.fall_of_wickets.length
+        ? el('ul', { class: 'mi-list' }, s.fall_of_wickets.map((w) => el('li', { text: `${w.name} ${w.r} (${w.b}) ${w.how}${w.score ? ` · ${w.score}` : ''}${w.over ? `, ${w.over} ov` : ''}` })))
+        : el('p', { class: 'mi-meta', text: 'No wickets yet.' }),
+      el('p', { class: 'mi-meta', text: `In the replay feed so far: ${count(s.team_stats.fours_in_feed, 'four', 'fours')} · ${count(s.team_stats.sixes_in_feed, 'six', 'sixes')} · ${count(s.team_stats.dots_in_feed, 'dot ball', 'dot balls')} · ${count(s.team_stats.extras_in_feed, 'extra', 'extras')}` }),
+    ];
+  }
+  if (sport === 'f1') {
+    return [el('h3', { text: 'Running order' }),
+      table(['Pos', 'Driver', 'Gap', 'Tyre', 'Stops'], s.order.map((d) => [`P${d.pos}`, `${d.name} (${d.team})`, d.gap, d.tyre, d.pits]))];
+  }
+  if (sport === 'basketball') {
+    return [el('h3', { text: 'Points' }),
+      table(['Player', 'Team', 'Pts'], s.teams.flatMap((t) => t.leaders.map((p) => [p.name, t.name, p.pts])))];
+  }
+  return [
+    el('h3', { text: 'Goals this period' }),
+    s.goals.length ? el('ul', { class: 'mi-list' }, s.goals.map((g) => el('li', { text: `${g.time} ${g.scorer} (${g.team}, ${g.strength})${g.assists.length ? ` · assists ${g.assists.join(', ')}` : ''}` })))
+      : el('p', { class: 'mi-meta', text: 'No goals yet this period.' }),
+    el('h3', { text: 'Penalties' }),
+    s.penalties.length ? el('ul', { class: 'mi-list' }, s.penalties.map((p) => el('li', { text: `${p.time} ${p.player} (${p.team}), ${p.infraction}` })))
+      : el('p', { class: 'mi-meta', text: 'No penalties yet this period.' }),
+  ];
+}
+
 // ---------------------------------------------------------------- the room's own replay
 // A private room can run its own copy of the simulated replay. Its owner and admins control it from the bar
 // under the score and from the match panel; everyone else sees what the host did (waiting to start, paused).
@@ -968,9 +1145,10 @@ function replayButtons(state, { compact = false, status = null } = {}) {
     : st === 'completed' ? ctl('Watch again', { action: 'restart' }, { class: 'ctl primary' })
       : rp.paused ? ctl('Resume', { action: 'resume' }, { class: 'ctl primary' })
         : ctl('Pause', { action: 'pause' });
-  const speeds = st === 'completed' ? [] : [1, 2].map((n) => (rp.speed === n
-    ? el('button', { type: 'button', class: 'ctl', 'aria-pressed': 'true', 'aria-label': n === 1 ? 'Normal speed' : 'Double speed', text: `${n}x` })
-    : ctl(`${n}x`, { action: 'speed', speed: n }, { 'aria-pressed': 'false', 'aria-label': n === 1 ? 'Normal speed' : 'Double speed' })));
+  const speedName = { 0.5: 'Half speed', 1: 'Normal speed', 2: 'Double speed' };
+  const speeds = st === 'completed' ? [] : [0.5, 1, 2].map((n) => (rp.speed === n
+    ? el('button', { type: 'button', class: 'ctl', 'aria-pressed': 'true', 'aria-label': speedName[n], text: `${n}x` })
+    : ctl(`${n}x`, { action: 'speed', speed: n }, { 'aria-pressed': 'false', 'aria-label': speedName[n] })));
   const more = compact
     ? el('button', { type: 'button', class: 'ctl', text: 'Moments', onclick: () => openMatchSheet(state) })
     : st === 'live' ? ctl('Restart', { action: 'restart' }) : null;
@@ -1111,11 +1289,22 @@ function openMembers(state) {
   const lede = el('p', { class: 'lede' });
   const list = el('ul', { class: 'member-list' });
   const invites = el('div');
-  s.body.append(lede, list, invites);
+  const fanList = el('div');
+  s.body.append(lede, list, invites, fanList);
   const render = () => {
     if (!s.isOpen()) return;
     const online = new Set(state.presence.online);
-    lede.textContent = `${plural(state.members.size, 'member')} · ${state.presence.online.length} online`;
+    const fans = simulatedFans(state);
+    lede.textContent = `${plural(state.members.size, 'member')} · ${state.presence.online.length} online${fans.length ? ` · ${fans.length} simulated fans` : ''}`;
+    fanList.replaceChildren(...(fans.length ? [
+      el('h3', { text: `Simulated fans (${fans.length})` }),
+      el('p', { class: 'fine', text: 'The scripted crowd of this public watch party. They are not real people and only appear here, never in private rooms.' }),
+      el('ul', { class: 'member-list' }, fans.slice(0, 40).map((f) => el('li', { class: 'member-row' },
+        el('span', { class: `avatar ${teamClass(f.team)}`, 'aria-hidden': 'true', text: initials(f.handle) }),
+        el('span', { class: 'member-main' }, el('b', { text: f.handle }), el('small', { text: f.team })),
+        el('span', { class: 'badge sim', text: 'Simulated fan' })))),
+      fans.length > 40 ? el('p', { class: 'fine', text: `And ${fans.length - 40} more.` }) : null,
+    ] : []));
     const order = { owner: 0, admin: 1, member: 2 };
     const members = [...state.members.values()].sort((a, b) => order[a.role] - order[b.role] || String(a.handle).localeCompare(String(b.handle)));
     list.replaceChildren(...members.map((m) => {
@@ -1235,8 +1424,8 @@ function openSettings(state) {
   fans.addEventListener('change', () => setCrowd(state, fans.checked));
   s.body.append(
     el('p', { class: 'field-hint strong', text: 'Mandatory safety protections stay on at every level: threats, hate, sexual harassment and sharing personal details are always blocked.' }),
-    room.match ? el('h3', { text: 'Simulated fans' }) : null,
-    room.match ? el('label', { class: 'toggle-row', for: 'room-crowd' }, fans, el('span', {}, el('b', { text: 'Show simulated fans' }), el('small', { text: 'The scripted crowd that reacts to the simulated replay. They are not real people, and only this device hides them.' }))) : null,
+    state.simFans.length ? el('h3', { text: 'Simulated fans' }) : null,
+    state.simFans.length ? el('label', { class: 'toggle-row', for: 'room-crowd' }, fans, el('span', {}, el('b', { text: 'Show simulated fans' }), el('small', { text: 'The scripted crowd that reacts to the simulated game. They are not real people, and only this device hides them.' }))) : null,
     el('h3', { text: 'Privacy' }),
     el('p', { class: 'fine', text: room.ai_notice }),
     el('p', { class: 'fine', text: room.retention_notice }),

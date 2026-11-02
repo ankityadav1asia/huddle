@@ -21,6 +21,7 @@ export async function startApp(tweak = () => {}) {
   cfg.rooms.maxActiveOwned = 1000;
   cfg.worker.inline = true;
   cfg.demoControls = true;
+  cfg.match.defaultSpeed = 1; // tests compute ball timings at 1x
   cfg.push.publicKey = '';
   cfg.push.privateKey = '';
   for (const p of Object.values(cfg.ai.providers)) p.apiKey = '';
@@ -100,7 +101,8 @@ export async function clearCooldown(db, userId) {
 }
 
 export async function makePrivateRoom(app, owner, invitees = [], extra = {}) {
-  const matchId = (await app.db.query(`SELECT id FROM matches WHERE status IN ('scheduled','live') AND room_id IS NULL ORDER BY created_at DESC LIMIT 1`)).rows[0]?.id;
+  const matchId = (await app.db.query(
+    `SELECT id FROM matches WHERE status IN ('scheduled','live') AND room_id IS NULL AND fixture_key = 'mi-csk-demo' ORDER BY created_at DESC LIMIT 1`)).rows[0]?.id;
   const r = await owner.post('/api/rooms', { name: 'Friends room', moderation_level: 'balanced', match_id: matchId, invitee_ids: invitees.map((u) => u.user.id), ...extra });
   if (r.status !== 201) throw new Error(`room create failed: ${JSON.stringify(r.body)}`);
   for (const u of invitees) {

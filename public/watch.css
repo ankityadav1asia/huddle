@@ -64,6 +64,21 @@
 .msg.pending { opacity: 0.6; }
 .msg.failed { opacity: 1; }
 .msg.failed .msg-time { color: #b4232f; font-weight: 700; }
+/* New to the sport? Example questions for @huddle and the rules sheet, under the AI Co-host. */
+.guide { display: grid; gap: 6px; margin-top: 8px; }
+.guide-line { margin: 0; color: var(--muted); font-size: 12.5px; }
+.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip.ask-chip { padding: 4px 10px; font-size: 12px; font-weight: 600; }
+.chip.ask-chip.ghost { background: none; border-style: dashed; }
+.rules-list { margin: 0; }
+.rules-list dt { margin-top: 10px; font-weight: 700; font-size: 13.5px; }
+.rules-list dd { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+/* Other sports on the score card and home cards. */
+.team-chip.sport-chip { padding: 2px 8px; border-radius: 6px; background: var(--card-2); font-weight: 800; letter-spacing: 0.04em; }
+.flag-sc { color: #b7791f; }
+.last-play { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sport-tag { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--card-2); font-size: 12px; font-weight: 800; letter-spacing: 0.04em; }
+.card-sport { margin: 0; color: var(--muted); font-size: 12px; }
 /* Moment threads: the #tag on a message opens its thread. */
 button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; cursor: pointer; }
 .thread-bar { padding-top: 8px; }

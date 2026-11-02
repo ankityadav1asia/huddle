@@ -13,7 +13,7 @@ if (portFlag > 0 && process.argv[portFlag + 1]) process.env.PORT = process.argv[
 const { handleApi } = await import('./lib/http/app.js');
 const { getDb } = await import('./lib/db/index.js');
 const { startWorker } = await import('./lib/jobs/worker.js');
-const { ensureDemoMatch } = await import('./lib/match/feed.js');
+const { ensureDemoMatches } = await import('./lib/match/feed.js');
 const { aiStatus } = await import('./lib/ai/index.js');
 const { log } = await import('./lib/log.js');
 
@@ -57,7 +57,7 @@ const server = http.createServer(async (req, res) => {
 
 const cfg = config();
 const db = await getDb();
-await ensureDemoMatch(db);
+await ensureDemoMatches(db);
 if (cfg.worker.inline) startWorker(db);
 server.listen(cfg.port, () => {
   const ai = aiStatus();

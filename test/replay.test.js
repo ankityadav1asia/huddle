@@ -71,6 +71,10 @@ test("the host starts, pauses, resumes and speeds up only this room's replay", a
   assert.equal((await matchRow(run)).ball_interval_ms, app.cfg.match.ballSeconds * 500);
   assert.equal((await host.get(`/api/rooms/${roomId}/match`)).body.replay.speed, 2);
   assert.equal(await ingestDue(app.db, run), 0); // a new speed never skips balls
+  assert.equal((await control(host, { action: 'speed', speed: 0.5 })).status, 200); // half speed for an easy-going demo
+  assert.equal((await matchRow(run)).ball_interval_ms, app.cfg.match.ballSeconds * 2000);
+  assert.equal((await host.get(`/api/rooms/${roomId}/match`)).body.replay.speed, 0.5);
+  assert.equal((await control(host, { action: 'speed', speed: 2 })).status, 200);
   assert.equal((await control(host, { action: 'speed', speed: 3 })).status, 400);
 
   const sharedAfter = await matchRow(shared);

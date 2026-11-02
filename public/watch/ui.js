@@ -113,15 +113,16 @@ export function setRail(...children) {
 
 export function railIntro() {
   return [
-    el('p', { class: 'rail-kicker', text: 'Prototype · Cricket watch parties' }),
+    el('p', { class: 'rail-kicker', text: 'Prototype · Sports watch parties' }),
     el('h1', { class: 'rail-title', text: 'Huddle' }),
-    el('p', { class: 'rail-lede', text: 'Private watch parties for cricket fans: invite friends, chat in real time, follow a verified scorecard, and let an AI Co-host answer questions, explain the big moments and catch you up.' }),
+    el('p', { class: 'rail-lede', text: 'Watch parties for cricket, F1, basketball and hockey fans: invite friends, chat in real time, follow a verified scoreboard, and let an AI Co-host answer questions, explain the rules and the big moments, and catch you up.' }),
     el('ul', { class: 'rail-features' },
-      el('li', {}, el('b', { text: 'Watch parties' }), el('span', { text: 'Public rooms run by Huddle, private rooms you create and invite friends to.' })),
-      el('li', {}, el('b', { text: 'Match intelligence' }), el('span', { text: 'Scorecard, ball-by-ball commentary and alerts for the moments that matter.' })),
-      el('li', {}, el('b', { text: 'Your own replay' }), el('span', { text: 'A private room can run its own simulated replay: start it, pause it, play at 2x or jump to big moments.' })),
+      el('li', {}, el('b', { text: 'Watch parties' }), el('span', { text: 'A public room for every sport run by Huddle, and private rooms you start in one tap and invite friends to by username.' })),
+      el('li', {}, el('b', { text: 'Match intelligence' }), el('span', { text: 'Scoreboard, play-by-play and alerts for the moments that matter.' })),
+      el('li', {}, el('b', { text: 'Your own replay' }), el('span', { text: 'A private room can run its own simulated replay: start it, pause it, play at 0.5x, 1x or 2x or jump to big moments.' })),
+      el('li', {}, el('b', { text: 'New to the sport?' }), el('span', { text: 'Ask @huddle about any rule or player. Answers use a checked rules sheet and the game as it stood when you asked.' })),
       el('li', {}, el('b', { text: 'AI Co-host' }), el('span', { text: 'Answers @huddle questions from verified match data only, and says so when it cannot.' })),
       el('li', {}, el('b', { text: 'Safe by default' }), el('span', { text: 'Choose relaxed, balanced or strict moderation. Core safety protections are always on.' }))),
-    el('p', { class: 'rail-fine', text: 'Demo data: the MI v CSK match is a simulated replay (real players, a made-up game), not a live feed. Messages disappear when a watch party ends.' }),
+    el('p', { class: 'rail-fine', text: 'Demo data: every game is a simulated replay (real names, made-up games), not a live feed. The 200 fans chatting in public rooms are simulated and labelled. Messages disappear when a watch party ends.' }),
   ];
 }

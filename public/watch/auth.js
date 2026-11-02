@@ -21,7 +21,7 @@ const field = (id, label, input, hint) => el('div', { class: 'field' },
 // New visitors: create a guest profile.
 export function renderAuth(ctx) {
   renderProfileForm(ctx, {
-    subtitle: 'Cricket watch parties with friends',
+    subtitle: 'Sports watch parties with friends',
     title: 'Join the watch party',
     lede: 'Pick a name for the chat. No phone number or password needed: this browser keeps you signed in.',
     button: 'Join Huddle',
@@ -80,8 +80,8 @@ function renderProfileForm(ctx, { subtitle, title, lede, button, submit, note })
     el('p', { class: 'card-lede', text: lede }),
     field('display-name', 'Display name', name),
     field('handle', 'Handle', el('div', { class: 'phone-input' }, el('span', { class: 'cc', 'aria-hidden': 'true', text: '@' }), handle), '3–20 letters, numbers or underscores. Friends find you by this.'),
-    el('fieldset', { class: 'field' }, el('legend', { text: 'Backing (optional)' }), el('div', { class: 'team-grid' }, teamBtns)),
-    pickBtns.length ? el('fieldset', { class: 'field', 'aria-describedby': 'picks-hint' }, el('legend', { text: 'Players you picked' }), el('div', { class: 'pick-grid' }, pickBtns), pickHint) : null,
+    el('fieldset', { class: 'field' }, el('legend', { text: 'Backing in MI v CSK (optional)' }), el('div', { class: 'team-grid' }, teamBtns)),
+    pickBtns.length ? el('fieldset', { class: 'field', 'aria-describedby': 'picks-hint' }, el('legend', { text: 'Players you picked (MI v CSK)' }), el('div', { class: 'pick-grid' }, pickBtns), pickHint) : null,
     error, save);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

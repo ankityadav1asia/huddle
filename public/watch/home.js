@@ -94,8 +94,11 @@ function renderInvites(ctx, section, invitations, reload) {
 // Only rooms for live or scheduled matches are listed; rooms of finished matches are not.
 const matchStatus = (status) => (status === 'live' ? 'Live · simulated replay' : 'Starts when the first fan joins');
 
+const SPORT_LABEL = { cricket: 'Cricket · T20', f1: 'Formula 1', basketball: 'Basketball · NBA', hockey: 'Ice hockey · NHL' };
+const SPORT_TAG = { f1: 'F1', basketball: 'NBA', hockey: 'NHL' };
+
 function renderLive(ctx, section, rooms) {
-  section.replaceChildren(el('h2', { class: 'section-title', id: 'h-live', text: 'Public watch party' }));
+  section.replaceChildren(el('h2', { class: 'section-title', id: 'h-live', text: 'Public watch parties' }));
   const pub = rooms.public_rooms;
   if (!pub.length) {
     section.append(el('p', { class: 'empty', text: 'No public watch party right now.' }));
@@ -119,8 +122,11 @@ function renderLive(ctx, section, rooms) {
     const seats = room.max_members ? `${room.members}/${room.max_members}` : plural(room.members, 'member');
     section.append(el('article', { class: 'card public-card' },
       el('div', { class: 'fixture-row' },
-        teamLogo('MI'), el('b', { class: 'fixture-name', text: room.match_title || 'Match' }), teamLogo('CSK'),
+        room.sport === 'cricket' || !room.sport
+          ? [teamLogo('MI'), el('b', { class: 'fixture-name', text: room.match_title || 'Match' }), teamLogo('CSK')]
+          : [el('span', { class: 'sport-tag', text: SPORT_TAG[room.sport] || room.sport }), el('b', { class: 'fixture-name', text: room.match_title || 'Match' })],
         el('span', { class: `status-pill ${room.match_status === 'live' ? 'live' : ''}`, text: matchStatus(room.match_status) })),
+      el('p', { class: 'card-sport', text: `${SPORT_LABEL[room.sport] || 'Cricket'} · simulated game` }),
       el('h3', { class: 'card-h', text: room.name }),
       el('p', { class: 'card-meta' },
         room.full ? el('b', { class: 'full-tag', text: `Full · ${seats}` }) : `${seats}${room.max_members ? ' members' : ''}`,
@@ -271,7 +277,19 @@ function openCreateRoom(ctx, data) {
   const s = openSheet({ title: 'Create a private room', lede: 'Invite friends, pick how strict the chat should be, and watch together.' });
   const error = el('p', { class: 'form-error', role: 'alert' });
   const name = el('input', { id: 'room-name', maxlength: '40', required: true, placeholder: 'e.g. Chepauk crew' });
-  const match = data?.matches?.[0];
+  const matches = data?.matches || [];
+  let match = matches[0];
+  const followTitle = el('b', { text: match ? `Follow ${match.title}` : '' });
+  // One simulated game per sport: pick which one the room watches.
+  const pickMatch = matches.length > 1 ? el('fieldset', { class: 'field' }, el('legend', { text: 'Game' }),
+    el('div', { class: 'choice-list', role: 'radiogroup', 'aria-label': 'Game' }, matches.map((m, i) => {
+      const radio = el('input', { type: 'radio', name: 'create-match', id: `create-match-${i}`, value: m.id, checked: i === 0 });
+      radio.addEventListener('change', () => {
+        match = m;
+        followTitle.textContent = `Follow ${m.title}`;
+      });
+      return el('label', { class: 'choice', for: `create-match-${i}` }, radio, el('span', {}, el('b', { text: m.title }), el('small', { text: SPORT_LABEL[m.sport] || m.sport })));
+    }))) : null;
   const follow = el('input', { type: 'checkbox', id: 'follow-match', checked: Boolean(match) });
   const own = el('input', { type: 'checkbox', id: 'own-replay', checked: true });
   follow.addEventListener('change', () => { own.disabled = !follow.checked; });
@@ -281,10 +299,11 @@ function openCreateRoom(ctx, data) {
   const create = el('button', { type: 'submit', class: 'btn primary', text: 'Create and enter' });
   const form = el('form', { class: 'sheet-form', novalidate: '' },
     el('div', { class: 'field' }, el('label', { for: 'room-name', text: 'Room name' }), name),
+    pickMatch,
     match ? el('label', { class: 'toggle-row', for: 'follow-match' }, follow,
-      el('span', {}, el('b', { text: `Follow ${match.title}` }), el('small', { text: 'Simulated replay (demo data). Scorecard, commentary and big-moment alerts in the room.' }))) : null,
+      el('span', {}, followTitle, el('small', { text: 'Simulated replay (demo data). Scoreboard, play by play, big-moment alerts, #threads and rules help in the room.' }))) : null,
     match ? el('label', { class: 'toggle-row sub', for: 'own-replay' }, own,
-      el('span', {}, el('b', { text: 'Control the replay yourself' }), el('small', { text: 'Your room gets its own copy: start it when friends arrive, pause, play at 2x or jump to big moments. Off: follow the shared replay with the public watch party.' }))) : null,
+      el('span', {}, el('b', { text: 'Control the replay yourself' }), el('small', { text: 'Your room gets its own copy: start it when friends arrive, pause, play at 0.5x or 2x, or jump to big moments. Off: follow the shared replay with the public watch party.' }))) : null,
     el('fieldset', { class: 'field' }, el('legend', { text: 'Moderation' }), levels.node,
       el('p', { class: 'field-hint strong', text: 'Mandatory safety protections stay on at every level: threats, hate, sexual harassment and sharing personal details are always blocked.' })),
     el('label', { class: 'toggle-row', for: 'ai-on' }, ai,
