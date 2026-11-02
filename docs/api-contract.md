@@ -32,10 +32,11 @@ with a `Retry-After` header. A private room the caller cannot see answers `404`,
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/rooms` | `{ public_rooms (live or upcoming matches only; each with members, online, max_members, full, joined), my_rooms, matches }` (ensures the demo match, its public room and the demo friends exist) |
-| POST | `/api/rooms` | Private room: `{ name, match_id?, moderation_level?, ai_enabled?, invitee_ids? }` → `201 { room_id, invitations: [{ user_id, result }] }` |
+| POST | `/api/rooms` | Private room: `{ name, match_id?, own_replay?, moderation_level?, ai_enabled?, invitee_ids? }` → `201 { room_id, invitations: [{ user_id, result }] }`. `match_id` is the shared replay; with `own_replay: true` the room gets its own copy of it instead, waiting for its host to press Start |
 | GET | `/api/rooms/:id` | Bootstrap for members: room details and notices, members, the last ~60 items, `cursor`, presence, `cooldown_until`, `match_rev`. Ended rooms return `{ room: { status: 'ended' }, items: [] }` |
 | GET | `/api/rooms/:id/events?after=<seq>&wait=1&vis=visible\|hidden` | Long-poll (≤20 s). `{ room, events: [{ seq, type, data }], cursor, presence, match_rev }`; `reset: true` when the cursor is ahead; ended rooms return their status and no events |
-| GET | `/api/rooms/:id/match` | Match Intelligence: `{ match (source_label), freshness { updated_at, age_seconds, stale }, score (scorecard, rates, batters, bowling_card, fall_of_wickets, partnership, this_over, team_stats, result), commentary [{ event_id, over, text, occurred_at }], moments (demo), rev }` |
+| GET | `/api/rooms/:id/match` | Match Intelligence: `{ match (source_label), freshness { updated_at, age_seconds, stale }, score (scorecard, rates, batters, bowling_card, fall_of_wickets, partnership, this_over, team_stats, result), commentary [{ event_id, over, text, occurred_at }], moments (demo), replay { own, paused, speed (1 or 2), moments [{ id, label, passed }], can_control }, rev }`. `own` is a private room's own replay; `can_control` is true for its owner and admins |
+| POST | `/api/rooms/:id/replay` | A private room's own replay, owner and admins only: `{ action: start\|pause\|resume\|speed\|restart\|jump, speed?: 1\|2, moment? }` → `{ ok, jumped_to? }`. Jumping ahead backfills skipped balls without alerts; jumping back, or restarting, starts a fresh run (6 per room per hour, then 429). 403 in the public room, 409 `not_controllable` in a room following the shared replay, 409 `replay_state` for a control that does not fit (pausing a paused replay) |
 | POST | `/api/rooms/:id/join` | Public rooms only; `409 room_full` at `PUBLIC_ROOM_MAX_MEMBERS` (100) |
 | POST | `/api/rooms/:id/leave` | Not for owners |
 | POST | `/api/rooms/:id/end` | Private: owner. Public: platform moderators |
@@ -67,10 +68,10 @@ Event `type`s: `message`, `message_update` (reactions, moderation, answer state)
 | GET | `/api/mod/queue` | Moderators: held messages and open reports |
 | POST | `/api/mod/messages/:mid` | Moderators: `{ action: approve \| remove \| dismiss }` |
 | POST | `/api/mod/appeals/:rid` | Moderators: `{ action: uphold \| overturn }` |
-| POST | `/api/demo/matches/:id/jump` | `DEMO_CONTROLS` only: `{ moment }` jumps the simulated replay (skipped balls never alert) |
+| POST | `/api/demo/matches/:id/jump` | `DEMO_CONTROLS` only: `{ moment }` jumps the shared simulated replay (skipped balls never alert); 403 for a private room's own replay |
 | POST | `/api/demo/matches` | `DEMO_CONTROLS` only: start a new demo match run when the last one finished |
 | GET | `/api/ops/metrics` | Moderators: delivery latency, job timings and queue state, AI outcomes/latency/tokens/fallbacks (last hour), moderation counts, purge status |
 | GET | `/api/cron/sweep` | Vercel Cron with `Authorization: Bearer $CRON_SECRET` |
 
-The original single-viewer replay keeps its endpoint: `GET/POST /api/ai` (`{ mode: tick|catchup|ask, payload }`), now
-served through the same primary/fallback provider layer.
+`match_rev` in the room bootstrap and long-poll responses is opaque: it changes with every new ball and with every
+replay control, and clients refetch `/api/rooms/:id/match` when it does.

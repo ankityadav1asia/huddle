@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { classify } from '../lib/moderation/classifier.js';
 import { effectivePolicy } from '../lib/moderation/policy.js';
-import { CROWD } from '../public/src/data.js';
+import { CROWD } from '../lib/match/demo-script.js';
 
 const LEVELS = ['relaxed', 'balanced', 'strict'];
 

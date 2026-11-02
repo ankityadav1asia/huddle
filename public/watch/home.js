@@ -273,6 +273,8 @@ function openCreateRoom(ctx, data) {
   const name = el('input', { id: 'room-name', maxlength: '40', required: true, placeholder: 'e.g. Chepauk crew' });
   const match = data?.matches?.[0];
   const follow = el('input', { type: 'checkbox', id: 'follow-match', checked: Boolean(match) });
+  const own = el('input', { type: 'checkbox', id: 'own-replay', checked: true });
+  follow.addEventListener('change', () => { own.disabled = !follow.checked; });
   const ai = el('input', { type: 'checkbox', id: 'ai-on', checked: true });
   const levels = levelChooser(ctx.config.moderation.levels, 'balanced', 'create-level');
   const picker = friendPicker({ excludeIds: new Set([ctx.me.id]) });
@@ -281,6 +283,8 @@ function openCreateRoom(ctx, data) {
     el('div', { class: 'field' }, el('label', { for: 'room-name', text: 'Room name' }), name),
     match ? el('label', { class: 'toggle-row', for: 'follow-match' }, follow,
       el('span', {}, el('b', { text: `Follow ${match.title}` }), el('small', { text: 'Simulated replay (demo data). Scorecard, commentary and big-moment alerts in the room.' }))) : null,
+    match ? el('label', { class: 'toggle-row sub', for: 'own-replay' }, own,
+      el('span', {}, el('b', { text: 'Control the replay yourself' }), el('small', { text: 'Your room gets its own copy: start it when friends arrive, pause, play at 2x or jump to big moments. Off: follow the shared replay with the public watch party.' }))) : null,
     el('fieldset', { class: 'field' }, el('legend', { text: 'Moderation' }), levels.node,
       el('p', { class: 'field-hint strong', text: 'Mandatory safety protections stay on at every level: threats, hate, sexual harassment and sharing personal details are always blocked.' })),
     el('label', { class: 'toggle-row', for: 'ai-on' }, ai,
@@ -301,6 +305,7 @@ function openCreateRoom(ctx, data) {
       const r = await api.post('/api/rooms', {
         name: name.value,
         match_id: follow.checked && match ? match.id : null,
+        ...(follow.checked && match ? { own_replay: own.checked } : {}),
         moderation_level: levels.value(),
         ai_enabled: ai.checked,
         invitee_ids: picker.ids(),

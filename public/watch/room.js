@@ -123,6 +123,7 @@ function buildRoom(state) {
   more.append(icon('dots'));
   els.score = el('button', { type: 'button', class: 'score score-btn', 'aria-label': 'Open match intelligence', hidden: !room.match, onclick: () => openMatchSheet(state) },
     el('div', { class: 'skeleton' }));
+  els.replayBar = el('div', { class: 'replay-bar', role: 'group', 'aria-label': 'Replay controls', hidden: true });
 
   els.cohostLabel = el('span', { class: 'cohost-label' });
   els.cohostText = el('p', { class: 'pulse-text' });
@@ -160,7 +161,7 @@ function buildRoom(state) {
       el('header', { class: 'top' }, backButton(state),
         el('div', { class: 'top-title' }, els.title, el('span', { class: 'top-sub' }, els.typeBadge, els.online)),
         people, more),
-      els.score),
+      els.score, els.replayBar),
     els.cohost = el('section', { class: 'pulse cohost', 'aria-label': 'AI Co-host' },
       el('div', { class: 'pulse-head' }, els.cohostLabel, els.reconnect),
       els.cohostText,
@@ -663,6 +664,7 @@ async function refreshMatch(state) {
     state.match = snap;
     state.matchFetchedAt = Date.now();
     renderScore(state);
+    renderReplayBar(state);
     renderRail(state);
     if (state.matchSheet?.isOpen()) state.matchSheet.render();
   } catch (err) {
@@ -682,8 +684,9 @@ const liveAge = (state) => (state.match?.freshness?.age_seconds == null ? null :
 function freshnessText(state) {
   const m = state.match;
   if (!m) return '';
-  if (m.match.status === 'scheduled') return 'Simulated replay · starting soon';
+  if (m.match.status === 'scheduled') return m.replay?.own ? 'Simulated replay · ready to start' : 'Simulated replay · starting soon';
   if (m.match.status === 'completed') return 'Simulated replay · match finished';
+  if (m.replay?.paused) return 'Simulated replay · paused';
   const age = liveAge(state);
   if (age == null) return 'Simulated replay · waiting for the first ball';
   return `Simulated replay · updated ${ago(age)}${m.freshness.stale ? ' · data may be stale' : ''}`;
@@ -731,15 +734,18 @@ function matchPanel(state, { withControls = true } = {}) {
   const snap = state.match;
   if (!snap) return el('p', { class: 'empty', text: 'Loading match data…' });
   const s = snap.score;
-  const status = snap.match.status === 'live' ? 'LIVE · SIMULATED' : snap.match.status === 'scheduled' ? 'STARTING SOON' : 'FINISHED';
+  const own = snap.replay?.own;
+  const status = snap.match.status === 'live' ? (snap.replay?.paused ? 'PAUSED' : 'LIVE · SIMULATED') : snap.match.status === 'scheduled' ? (own ? 'READY' : 'STARTING SOON') : 'FINISHED';
   const wrap = el('div', { class: 'mi' },
     el('div', { class: 'mi-head' },
       el('b', { class: 'mi-title', text: snap.match.title }),
-      el('span', { class: `status-pill ${snap.match.status === 'live' ? 'live' : ''}`, text: status })),
+      el('span', { class: `status-pill ${snap.match.status === 'live' && !snap.replay?.paused ? 'live' : ''}`, text: status })),
     el('p', { class: 'mi-fresh', 'data-freshness': '', text: freshnessText(state) }),
     el('p', { class: 'mi-src', text: `${snap.match.source_label}. Every number here comes from the feed, never from the AI.` }),
     el('p', { class: 'mi-score' }, el('b', { text: `${s.batting} ${s.runs}/${s.wickets}` }), ` (${s.overs} ov) · ${s.result || (s.chase_won ? `${s.batting} have won` : `need ${s.need_runs} off ${s.need_balls}`)}`),
     el('p', { class: 'mi-meta', text: `Target ${s.target} · CRR ${s.crr ?? '-'} · RRR ${s.rrr ?? '-'} · ${s.first_innings}` }),
+    withControls && own ? replayPanel(state) : null,
+    withControls && !own ? el('p', { class: 'fine', text: 'Every room following this shared replay sees the same match. For a replay you can start, pause and jump yourself, create a private room with its own replay.' }) : null,
     el('h3', { text: 'Batting' }),
     table(['Batter', 'R', 'B', 'SR'], s.batters.map((b) => [`${b.name}${b.on_strike ? ' *' : ''}`, b.runs, b.balls, b.strike_rate ?? '-'])),
     el('p', { class: 'mi-meta', text: `Partnership ${s.partnership.runs} (${s.partnership.balls}) since the last wicket in the feed` }),
@@ -775,6 +781,78 @@ function matchPanel(state, { withControls = true } = {}) {
       status2));
   }
   return wrap;
+}
+
+// ---------------------------------------------------------------- the room's own replay
+// A private room can run its own copy of the simulated replay. Its owner and admins control it from the bar
+// under the score and from the match panel; everyone else sees what the host did (waiting to start, paused).
+async function replayAction(state, body, btn, status) {
+  btn.disabled = true;
+  try {
+    const r = await api.post(`/api/rooms/${state.id}/replay`, body);
+    if (status) status.textContent = r.jumped_to ? `Jumped to ${r.jumped_to}.` : '';
+    refreshMatch(state);
+  } catch (err) {
+    if (status) status.textContent = err.message;
+    else toast(err.message);
+    btn.disabled = false;
+  }
+}
+
+function replayButtons(state, { compact = false, status = null } = {}) {
+  const st = state.match.match.status;
+  const rp = state.match.replay;
+  const ctl = (text, body, extra = {}) => el('button', { type: 'button', class: 'ctl', text, ...extra, onclick: (e) => replayAction(state, body, e.currentTarget, status) });
+  const main = st === 'scheduled' ? ctl('Start replay', { action: 'start' }, { class: 'ctl primary' })
+    : st === 'completed' ? ctl('Watch again', { action: 'restart' }, { class: 'ctl primary' })
+      : rp.paused ? ctl('Resume', { action: 'resume' }, { class: 'ctl primary' })
+        : ctl('Pause', { action: 'pause' });
+  const speeds = st === 'completed' ? [] : [1, 2].map((n) => (rp.speed === n
+    ? el('button', { type: 'button', class: 'ctl', 'aria-pressed': 'true', 'aria-label': n === 1 ? 'Normal speed' : 'Double speed', text: `${n}x` })
+    : ctl(`${n}x`, { action: 'speed', speed: n }, { 'aria-pressed': 'false', 'aria-label': n === 1 ? 'Normal speed' : 'Double speed' })));
+  const more = compact
+    ? el('button', { type: 'button', class: 'ctl', text: 'Moments', onclick: () => openMatchSheet(state) })
+    : st === 'live' ? ctl('Restart', { action: 'restart' }) : null;
+  return el('div', { class: 'controls-row' }, main, speeds, more);
+}
+
+function replayPanel(state) {
+  const rp = state.match.replay;
+  if (!rp.can_control) {
+    return el('div', { class: 'demo-controls' }, el('h3', { text: 'This room\'s replay' }),
+      el('p', { class: 'fine', text: 'This room has its own copy of the simulated replay. The room owner and admins start, pause, speed it up or jump it.' }));
+  }
+  const status = el('p', { class: 'fine', role: 'status' });
+  return el('div', { class: 'demo-controls' },
+    el('h3', { text: 'This room\'s replay' }),
+    el('p', { class: 'fine', text: 'Your room has its own copy of the simulated replay, so only this room moves. Jumping ahead fills in the skipped balls without alerts; jumping back starts the replay again.' }),
+    replayButtons(state, { status }),
+    el('p', { class: 'ctl-label', text: 'Jump to a moment' }),
+    el('div', { class: 'controls-row' }, rp.moments.map((m) => el('button', {
+      type: 'button', class: 'ctl', text: m.label, title: m.passed ? 'Starts the replay again from here' : null,
+      onclick: (e) => replayAction(state, { action: 'jump', moment: m.id }, e.currentTarget, status),
+    }))),
+    status);
+}
+
+function renderReplayBar(state) {
+  const bar = state.els.replayBar;
+  const snap = state.match;
+  if (!bar || !snap) return;
+  const rp = snap.replay;
+  const st = snap.match.status;
+  if (!rp?.own) {
+    bar.hidden = true;
+    return;
+  }
+  if (rp.can_control) {
+    bar.replaceChildren(el('span', { class: 'replay-note', text: st === 'scheduled' ? 'Your replay is ready' : 'Your replay' }), replayButtons(state, { compact: true }));
+    bar.hidden = false;
+    return;
+  }
+  const note = st === 'scheduled' ? 'Waiting for the host to start the replay.' : st === 'live' && rp.paused ? 'The host paused the replay.' : '';
+  bar.replaceChildren(el('span', { class: 'replay-note', text: note }));
+  bar.hidden = !note;
 }
 
 function openMatchSheet(state) {

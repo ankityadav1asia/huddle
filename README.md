@@ -4,9 +4,9 @@ A prototype of a cricket Watch Party: friends join a private room (or the public
 verified match data without leaving the room, and get help from an AI Co-host that answers questions, flags the big
 moments and catches you up when you look away.
 
-It grew out of the original single-viewer replay demo (still available at `/replay`). The product rules this build
-follows are in [CLAUDE.md](CLAUDE.md); the design is in [docs/architecture.md](docs/architecture.md) and the endpoints
-in [docs/api-contract.md](docs/api-contract.md).
+It grew out of a single-viewer replay demo. That page is gone (`/replay` now opens the app) and its simulated replay
+runs inside the watch party. The product rules this build follows are in [CLAUDE.md](CLAUDE.md); the design is in
+[docs/architecture.md](docs/architecture.md) and the endpoints in [docs/api-contract.md](docs/api-contract.md).
 
 ## What works, and what is simulated
 
@@ -18,6 +18,7 @@ in [docs/api-contract.md](docs/api-contract.md).
 | Realtime chat, reactions, polls, presence, reply threads | **Implemented** (long-polling) |
 | One message per person every 30 s, across every room, tab and device | **Implemented** (atomic, server-side) |
 | Match Intelligence: score, overs, batting and bowling cards, fall of wickets, commentary, freshness | **Implemented** on a **simulated** MI v CSK replay (real players, made-up match) |
+| A private room's own replay: start, pause, 2x, restart, jump to a big moment (only that room moves) | **Implemented** (simulated replay only) |
 | Match Momentum: wickets, dropped catches, run-rate pressure, boundary bursts, result → one alert for everyone in the room | **Implemented** (deterministic rules, deduplicated) |
 | AI Co-host: `@huddle` answers, answers to questions nobody answered, quiet-room polls, Catch Me Up | **Implemented**. Needs an AI key for live answers; without one, alerts and Catch Me Up fall back to summaries built from verified match data |
 | Primary + fallback AI provider with circuit breaker | **Implemented** (Anthropic, OpenRouter, Gemini) |
@@ -45,9 +46,12 @@ To try invitations on your own, invite the demo friends the invite picker offers
 (`@demo_aarav`, `@demo_diya`, `@demo_kabir`, `@demo_meera`, `@demo_rohan`, `@demo_sana`). They are labelled profiles
 that nobody signs in as, so their invitations stay pending. `DEMO_USERS=false` hides them.
 
-The demo match starts when someone joins a room for it and plays a ball roughly every 10 seconds. With
-`DEMO_CONTROLS` on (the local default) the room's side panel can jump the replay to the bowling change, the DRS call,
-the dropped catch or the last over.
+The public watch party follows a shared simulated replay: it starts when someone joins, plays a ball roughly every
+10 seconds, and nobody can pause or move it. To drive the simulation yourself, create a private room with **Control
+the replay yourself** ticked (the default). The room gets its own copy, and its owner and admins can start it, pause
+it, play it at 2x, restart it or jump to the bowling change, the DRS call, the dropped catch or the last over, from
+the bar under the score or the match panel. Only that room moves. With `DEMO_CONTROLS` on (the local default) the
+shared replay can be jumped too, from its match panel.
 
 To turn on the live AI Co-host, copy `.env.example` to `.env` and set one or two keys:
 
@@ -65,10 +69,10 @@ Choose the order with `AI_PRIMARY` / `AI_FALLBACK`. Keys stay on the server. Mod
 npm test
 ```
 
-82 tests (about 20 s) cover joining, room access and isolation, invitations and roles (including the demo friends),
+90 tests (about 25 s) cover joining, room access and isolation, invitations and roles (including the demo friends),
 the 30-second rule (including concurrent sends and the exact boundary), moderation levels and the baseline, the match
-feed and momentum alerts, alert fan-out and push eligibility, AI failover and circuit breaking, the Co-host's race
-with human replies, room closure and purge, observability, and log privacy.
+feed, private rooms' own replays and their controls, momentum alerts, alert fan-out and push eligibility, AI failover
+and circuit breaking, the Co-host's race with human replies, room closure and purge, observability, and log privacy.
 
 `node scripts/load-check.mjs` runs a small load check: 3 rooms of 10 members, a burst of 30 messages and a slow AI
 provider, reporting delivery latency, losses, duplicates and ordering.
@@ -82,8 +86,8 @@ joining fails closed.
 
 The app is one server plus one Postgres database.
 
-- **Vercel**: `vercel.json` serves `public/`, runs the API as one function (`api/router.js`) and keeps `api/ai.js`
-  for the replay. It needs a Postgres `DATABASE_URL` (for example Neon from the Vercel Marketplace) and
+- **Vercel**: `vercel.json` serves `public/`, runs the API as one function (`api/router.js`) and redirects the old
+  `/replay` page to the app. It needs a Postgres `DATABASE_URL` (for example Neon from the Vercel Marketplace) and
   `HUDDLE_SECRET`. Optional: AI keys, `VAPID_*` for push, `CRON_SECRET` for the daily sweep. Serverless functions do not
   run a background worker, so queued work runs while members are connected (their long-polls drive it).
 - **Any Node host with Postgres**: `npm start` with `DATABASE_URL` set runs the worker in-process.
@@ -92,20 +96,19 @@ The app is one server plus one Postgres database.
 
 | Path | What |
 |---|---|
-| `server.js` | Local server: static files, API, replay endpoint, background worker |
-| `api/router.js`, `api/ai.js` | Vercel functions (Watch Party API, original replay AI endpoint) |
+| `server.js` | Local server: static files, API, background worker |
+| `api/router.js` | Vercel function (Watch Party API) |
 | `lib/http/` | Router and routes |
 | `lib/auth/` | Sessions (HttpOnly cookie, server-side hashes) |
 | `lib/rooms/` | Rooms, membership, invitations, the per-room event log, long-polling, lifecycle and purge |
 | `lib/chat/` | Message fast path, reactions, polls, rendering |
 | `lib/moderation/` | Safety gate, lexicon, policy, audit, reports and review |
-| `lib/match/` | Simulated feed, scorecard, momentum rules, ingestion |
+| `lib/match/` | Simulated feed and its script, scorecard, momentum rules, ingestion, private rooms' own replays |
 | `lib/ai/`, `lib/cohost/` | Provider adapters, failover orchestrator, task schemas and validation, Co-host behaviours |
 | `lib/notify/` | Notification policy, push delivery |
 | `lib/jobs/` | The job queue, worker, housekeeping |
 | `lib/db/` | Database access and migrations |
 | `public/index.html`, `public/watch/` | Watch Party UI |
-| `public/replay.html`, `public/src/` | The original single-viewer replay demo |
 | `test/` | Automated tests (`node --test`) |
 
 Team names and logos belong to their franchises and are used only to make the prototype feel real.

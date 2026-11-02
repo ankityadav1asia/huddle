@@ -13,6 +13,7 @@ the UI), **Planned** (not built).
 | Public and private Watch Party rooms, invitations, roles, presence | Implemented; six labelled **demo friends** can be invited to try invitations alone |
 | Realtime chat, reactions, polls (long-polling) | Implemented |
 | Match Intelligence: scorecard, commentary, status, stats, freshness | Implemented on a **simulated** replay feed (real players, made-up match) |
+| A private room's own replay with host controls (start, pause, 2x, restart, jump) | Implemented (simulated replay only) |
 | Match Momentum Engine (deterministic rules, dedup, fan-out) | Implemented |
 | AI Co-host: Q&A, unanswered questions, quiet-room polls, momentum explanations, Catch Me Up | Implemented; live AI needs an API key (none was available while building, so provider calls are tested with mocked HTTP) |
 | Primary/fallback AI providers, circuit breaker | Implemented (Anthropic, OpenRouter, Gemini adapters) |
@@ -118,7 +119,7 @@ erDiagram
 ### Match Intelligence (shared across rooms; never per room)
 | Table | Purpose | Key columns |
 |---|---|---|
-| `matches` | One match run | `source` = `demo_fixture`, `status` scheduled/live/completed, `feed_started_at`, `ball_interval_ms`, `backfill_until` (demo jumps) |
+| `matches` | One match run | `source` = `demo_fixture`, `status` scheduled/live/completed, `feed_started_at`, `ball_interval_ms`, `backfill_until` (demo jumps); `room_id` (set only for a private room's own replay run, migration `006`), `paused_at` |
 | `match_events` | Timestamped feed events | `provider_event_id` (unique per match: dedupes re-ingestion), `seq`, `kind` ball/event/overend, `data` (bowler, batter, runs, wicket…), `occurred_at`, `backfilled` |
 | `match_signals` | Momentum Engine output, one per crucial moment | `trigger` (e.g. `wicket_fallen`), `priority` high/medium/low, `evidence` (verified facts), `fact_text` (deterministic sentence), `dedupe_key` (unique), `status` pending/published/suppressed/expired, `ai_text` (optional validated explanation), `expires_at` |
 
@@ -231,6 +232,8 @@ moderators until reviewed. AI work is only queued here: no LLM call ever sits on
    the result) go to opted-in members with a push subscription who are **not looking at the room** (tab hidden or
    closed; people watching the room get the in-app pop-up instead). Each person gets at most
    `MATCH_ALERTS_PER_USER` (default 8) per match, at least 90 s apart, with the last slot kept for the result.
+   For a private room's own replay, every run of that room in the last 12 hours counts as one match, so restarting
+   it never resets the cap.
    Low-priority moments (boundary bursts, dot balls, death overs, DRS) stay in-app only. Deliveries are deduped per
    signal and person; just before sending, the job re-checks room, membership, preference, expiry and whether the
    person has come back. The payload is verified match facts only: no room name, no chat text.
@@ -278,6 +281,19 @@ sequenceDiagram
 - A per-provider circuit breaker opens after 3 consecutive failures for 30 s, then lets a single probe through.
 - Concurrency is capped (3), and per-user (6 per 5 min) and per-room (30 per 10 min) AI budgets apply.
 - If both providers fail, the Co-host degrades: chat, reactions, polls and match data keep working.
+
+### 4.10 A private room's own replay
+The public watch party, and private rooms that follow the shared replay, all see one match run (fan-out above), so
+nobody can pause or move it. A private room created with `own_replay: true` gets its own run of the same script
+(`matches.room_id` = the room) and waits for its host. Its owner and admins use `POST /api/rooms/:id/replay`:
+- **Start** sets the run live. **Pause** stores `paused_at`, and ingestion skips paused runs; **Resume** moves
+  `feed_started_at` on by the pause, so no ball is skipped.
+- **Speed** (1x or 2x) changes `ball_interval_ms` and re-anchors the clock on the last ingested ball.
+- **Jump** ahead backfills the skipped balls (no alerts). Jumping back, or **Restart**, creates a fresh run in one
+  transaction: the room moves to it and the old run is closed. Restarts are limited to 6 per room per hour, an
+  auto-end queued for an old run is ignored once the room has moved on, and the alert cap spans the room's runs.
+- Every control wakes the room's long-polls; `match_rev` includes the run, pause state and pace, so every member's
+  screen updates at once. The DEMO_CONTROLS jump for the shared replay refuses private runs.
 
 ## 5. Security and privacy controls
 - **Authorization on every request**: the user comes from the session; room access is checked in one place

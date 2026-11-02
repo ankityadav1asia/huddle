@@ -100,7 +100,7 @@ export async function clearCooldown(db, userId) {
 }
 
 export async function makePrivateRoom(app, owner, invitees = [], extra = {}) {
-  const matchId = (await app.db.query(`SELECT id FROM matches WHERE status IN ('scheduled','live') LIMIT 1`)).rows[0]?.id;
+  const matchId = (await app.db.query(`SELECT id FROM matches WHERE status IN ('scheduled','live') AND room_id IS NULL ORDER BY created_at DESC LIMIT 1`)).rows[0]?.id;
   const r = await owner.post('/api/rooms', { name: 'Friends room', moderation_level: 'balanced', match_id: matchId, invitee_ids: invitees.map((u) => u.user.id), ...extra });
   if (r.status !== 201) throw new Error(`room create failed: ${JSON.stringify(r.body)}`);
   for (const u of invitees) {

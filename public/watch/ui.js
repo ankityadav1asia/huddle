@@ -119,6 +119,7 @@ export function railIntro() {
     el('ul', { class: 'rail-features' },
       el('li', {}, el('b', { text: 'Watch parties' }), el('span', { text: 'Public rooms run by Huddle, private rooms you create and invite friends to.' })),
       el('li', {}, el('b', { text: 'Match intelligence' }), el('span', { text: 'Scorecard, ball-by-ball commentary and alerts for the moments that matter.' })),
+      el('li', {}, el('b', { text: 'Your own replay' }), el('span', { text: 'A private room can run its own simulated replay: start it, pause it, play at 2x or jump to big moments.' })),
       el('li', {}, el('b', { text: 'AI Co-host' }), el('span', { text: 'Answers @huddle questions from verified match data only, and says so when it cannot.' })),
       el('li', {}, el('b', { text: 'Safe by default' }), el('span', { text: 'Choose relaxed, balanced or strict moderation. Core safety protections are always on.' }))),
     el('p', { class: 'rail-fine', text: 'Demo data: the MI v CSK match is a simulated replay (real players, a made-up game), not a live feed. Messages disappear when a watch party ends.' }),

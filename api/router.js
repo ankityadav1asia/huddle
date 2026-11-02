@@ -1,5 +1,5 @@
-// Vercel entry for the Watch Party API. vercel.json rewrites /api/<path> here as ?__path=<path>; the original
-// replay endpoint keeps its own function (api/ai.js). Background jobs run inside long-poll requests on Vercel.
+// Vercel entry for the Watch Party API. vercel.json rewrites /api/<path> here as ?__path=<path>.
+// Background jobs run inside long-poll requests on Vercel.
 import { handleApi } from '../lib/http/app.js';
 
 export default async function handler(req, res) {
