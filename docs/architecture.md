@@ -12,6 +12,7 @@ the UI), **Planned** (not built).
 | Joining (guest profile: display name + @handle), sessions | Implemented. No phone number or password: a 30-day HttpOnly session cookie keeps the browser signed in; new profiles are limited per network |
 | Public and private Watch Party rooms, invitations, roles, presence | Implemented; six labelled **demo friends** can be invited to try invitations alone |
 | Realtime chat, reactions, polls (long-polling) | Implemented |
+| Moment threads: #topics for big moments and for what the room argues about | Implemented (deterministic rules) |
 | Match Intelligence: scorecard, commentary, status, stats, freshness | Implemented on a **simulated** replay feed (real players, made-up match) |
 | A private room's own replay with host controls (start, pause, 2x, restart, jump) | Implemented (simulated replay only) |
 | Simulated fans: the scripted crowd from the original demo, reacting to each ball in every room following the replay | **Simulated** (derived on request, never stored, not sent to the AI) |
@@ -139,7 +140,8 @@ stored: it is recomputed deterministically from `match_events` and cached in mem
 | Table | Purpose | Key columns |
 |---|---|---|
 | `room_events` | Realtime outbox: what changed, in order | PK `(room_id, seq)`, `type` message/message_update/poll/insight/member/room, `entity_id`. Ids only, no text |
-| `messages` | Chat and AI Co-host replies | `sender_type` user/ai (AI messages have no sender and a distinct type so the AI can never trigger itself), `client_msg_id` (idempotency key, unique per sender), `body`, `reply_to_id`, `status` visible/held/removed, `answer_state` (pending → human / ai_claimed → ai_answered / ai_unavailable / cancelled), `ai_meta` (provider, model, grounding; never the prompt), `moderation` (decision summary; never a copy of the text) |
+| `messages` | Chat and AI Co-host replies | `sender_type` user/ai (AI messages have no sender and a distinct type so the AI can never trigger itself), `client_msg_id` (idempotency key, unique per sender), `body`, `reply_to_id`, `status` visible/held/removed, `answer_state` (pending → human / ai_claimed → ai_answered / ai_unavailable / cancelled), `ai_meta` (provider, model, grounding; never the prompt), `moderation` (decision summary; never a copy of the text), `thread_id` (migration `008`) |
+| `room_threads` | A #thread inside a room | `slug` (unique per room), `title` (#slug), `about`, `keywords`, `source` moment/discussion, `last_active_at`. Room content: purged with the messages |
 | `message_reactions` | Allowlisted emoji reactions | PK `(message_id, user_id, emoji)` |
 | `polls`, `poll_votes` | AI or template polls | `idempotency_key` (unique), one open poll per room, `closes_at` |
 | `room_insights` | In-app delivery of a match signal to one room | unique `(room_id, signal_id)`: a retry can never show the same alert twice |
@@ -305,6 +307,19 @@ crowd, balls skipped by a jump get none, and 2x halves the gaps. Each line carri
 the burst) and the client shows it then, marked "Simulated fan"; overdue lines (opening the room late) are skipped.
 Lines the room's moderation level would not allow are dropped, and nothing is written to `messages`, so the crowd
 never reaches the AI Co-host, the message rate limit, reports or retention. Each viewer can hide it on their device.
+
+### 4.12 Moment threads
+As in the original demo, a room splits its chat into #threads without anyone managing them (`lib/rooms/threads.js`):
+- **Big moments** open one in every room following the match, inside feed ingestion: a wicket (`#dube-out`), the
+  bowling change, the DRS call, a dropped catch, the last over and the result. They are ordinary cricket events, so a
+  real feed would open the same threads. Balls skipped by a jump open none, and re-ingesting opens nothing twice.
+- **Discussions** open one when three messages from at least two people in ten minutes argue about the same topic
+  (Hinglish and English keywords for the DRS call, a dropped catch, the bowling change, the last over); those
+  messages move into it.
+- A message joins the thread it is sent from (`thread_id`), else one whose topic it mentions, else a big moment
+  from the last 30 s. Every message still shows in All chat. AI answers stay in their question's thread, and the
+  simulated fans' reactions to a moment carry its thread.
+- New threads reach clients as `thread` events; the chips above the chat filter it and show counts.
 
 ## 5. Security and privacy controls
 - **Authorization on every request**: the user comes from the session; room access is checked in one place

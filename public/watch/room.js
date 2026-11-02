@@ -56,6 +56,7 @@ export async function renderRoom(ctx, roomId) {
     match: null, matchFetchedAt: 0, matchRev: null, matchBusy: false, matchAgain: false, stick: true,
     hiddenAt: 0, hiddenCursor: 0, catchupSince: null, loopToken: 0, els: {},
     crowdOn: crowdPref(), crowdSeen: new Set(), crowdTimers: new Set(), crowdN: 0,
+    threads: new Map(), activeThread: 'all', booted: false,
   };
   R = state;
   const view = document.getElementById('view');
@@ -93,7 +94,9 @@ async function bootstrap(state) {
   state.matchRev = boot.match_rev;
   state.cooldownUntil = boot.cooldown_until ? toLocal(boot.cooldown_until) : 0;
   buildRoom(state);
+  for (const t of boot.threads || []) addThread(state, t, { quiet: true });
   for (const item of boot.items) upsertItem(state, item.type, item.data);
+  state.booted = true;
   scrollToBottom(state);
   const seen = lastSeen(state.id);
   if (seen && state.cursor - seen >= 3) {
@@ -135,7 +138,9 @@ function buildRoom(state) {
 
   els.feed = el('div', { class: 'feed', role: 'log', 'aria-live': 'polite', 'aria-label': 'Watch party messages' });
   els.notice = el('div', { class: 'feed-notice' });
-  els.feed.append(els.notice);
+  els.threadHead = el('div', { class: 'thread-head', hidden: true });
+  els.feed.append(els.notice, els.threadHead);
+  els.threadBar = el('div', { class: 'chips thread-bar', role: 'toolbar', 'aria-label': 'Threads', hidden: true });
   els.scroll = el('div', { class: 'chat-scroll' }, els.feed);
   els.banner = el('div', { class: 'banner', hidden: true });
   els.newPill = el('button', { type: 'button', class: 'new-pill', hidden: true, text: 'New messages', onclick: () => { state.stick = true; scrollToBottom(state); } });
@@ -168,6 +173,7 @@ function buildRoom(state) {
       el('div', { class: 'pulse-head' }, els.cohostLabel, els.reconnect),
       els.cohostText,
       el('div', { class: 'pulse-foot cohost-actions' }, catchBtn, els.pollBtn)),
+    els.threadBar,
     el('section', { class: 'chat' }, els.scroll, els.banner, els.newPill),
     el('div', { class: 'composer-wrap' }, el('div', { class: 'composer-status', 'aria-live': 'polite' }, els.reply, els.error, els.notice2, els.cooldown), form),
   );
@@ -319,6 +325,7 @@ function applyEvents(state, events) {
         toast([el('b', { text: `${ev.data.label}: ` }), factText(ev.data)], { ms: 8000, tone: ev.data.priority });
       }
     } else if (ev.type === 'member') applyMember(state, ev);
+    else if (ev.type === 'thread') addThread(state, ev.data);
     else if (ev.type === 'room') refreshRoomInfo(state);
   }
 }
@@ -367,20 +374,26 @@ function upsertItem(state, type, data) {
   if (type === 'insight') setCohostLine(state, data);
   const key = `${type}:${data.id}`;
   const node = renderItem(state, type, data);
+  const thread = itemThread(state, type, data);
   const existing = state.items.get(key);
   if (existing) {
     existing.data = data;
+    existing.thread = thread;
     if (data.seq != null) existing.seq = data.seq;
     existing.node.replaceWith(node);
     existing.node = node;
+    node.hidden = !shown(state, existing);
     return;
   }
-  const entry = { key, type, data, node, seq: data.seq ?? Number.MAX_SAFE_INTEGER };
+  const entry = { key, type, data, node, thread, seq: data.seq ?? Number.MAX_SAFE_INTEGER };
   state.items.set(key, entry);
   const later = [...state.items.values()].filter((e) => e !== entry && e.seq > entry.seq && e.node.isConnected).sort((a, b) => a.seq - b.seq)[0];
   if (later) state.els.feed.insertBefore(node, later.node);
   else state.els.feed.append(node);
+  node.hidden = !shown(state, entry);
+  if (state.booted && thread && (type === 'message' || type === 'crowd')) bumpThread(state, thread);
   trimFeed(state);
+  if (node.hidden) return;
   if (state.stick) scrollToBottom(state);
   else if (state.els.newPill) state.els.newPill.hidden = false;
 }
@@ -399,7 +412,7 @@ function trimFeed(state) {
 }
 
 function renderItem(state, type, data) {
-  if (type === 'crowd') return renderCrowd(data);
+  if (type === 'crowd') return renderCrowd(state, data);
   if (type === 'message') return data.sender?.type === 'ai' ? renderAiMessage(state, data) : renderMessage(state, data);
   if (type === 'pending') return renderPending(state, data);
   if (type === 'poll') return renderPoll(state, data);
@@ -436,6 +449,7 @@ function renderMessage(state, m) {
   if (ROLE_LABEL[member?.role]) meta.append(el('span', { class: 'badge role', text: ROLE_LABEL[member.role] }));
   if (m.sender.team) meta.append(el('span', { class: `badge ${teamClass(m.sender.team)}`, text: m.sender.team }));
   meta.append(el('time', { class: 'msg-time', datetime: m.created_at, text: clock(m.created_at) }));
+  if (m.thread) meta.append(threadTag(state, m.thread.id, m.thread.title));
   const body = el('div', { class: 'msg-body' }, meta);
   if (m.reply_to) body.append(replyPreview(m.reply_to));
   if (m.status === 'removed' || m.text == null) body.append(el('p', { class: 'msg-text removed', text: 'Message removed by a moderator.' }));
@@ -494,15 +508,97 @@ function scheduleCrowd(state, lines = []) {
   }
 }
 
-function renderCrowd(c) {
+function renderCrowd(state, c) {
+  const thread = threadBySlug(state, c.thread);
   return el('div', { class: 'msg crowd' },
     el('span', { class: `avatar ${teamClass(c.team)}`, 'aria-hidden': 'true', text: initials(c.fan) }),
     el('div', { class: 'msg-body' },
       el('div', { class: 'msg-meta' },
         el('b', { class: 'handle', text: c.fan }),
         el('span', { class: `badge ${teamClass(c.team)}`, text: c.team }),
-        el('span', { class: 'badge sim', text: 'Simulated fan' })),
+        el('span', { class: 'badge sim', text: 'Simulated fan' }),
+        thread ? threadTag(state, thread.id, thread.title) : null),
       el('p', { class: 'msg-text', text: c.text })));
+}
+
+// ---------------------------------------------------------------- moment threads (#topics)
+// The match opens a #thread for each big moment and the room opens one for a topic people keep arguing about. The
+// chips above the chat filter it to one thread; anything sent from a thread joins it. All chat still shows everything.
+const threadBySlug = (state, slug) => (slug ? [...state.threads.values()].find((t) => t.slug === slug) || null : null);
+
+function itemThread(state, type, data) {
+  if (type === 'message') return data.thread?.id || null;
+  if (type === 'pending') return data.thread_id || null;
+  if (type === 'crowd') return threadBySlug(state, data.thread)?.id || null;
+  return null;
+}
+
+const shown = (state, entry) => state.activeThread === 'all' || entry.thread === state.activeThread;
+
+function threadTag(state, id, title) {
+  return el('button', { type: 'button', class: 'thread-tag', text: title, 'aria-label': `Open ${title}`, onclick: (e) => {
+    e.stopPropagation();
+    setThread(state, id);
+  } });
+}
+
+function addThread(state, t, { quiet = false } = {}) {
+  const isNew = !state.threads.has(t.id);
+  const live = state.threads.get(t.id)?.live || 0;
+  state.threads.set(t.id, { ...t, live, lastActive: Date.parse(t.last_active_at) || Date.now(), fresh: isNew && !quiet });
+  renderThreadBar(state);
+  if (isNew && !quiet) {
+    toast([el('b', { text: t.title }), t.source === 'moment' ? ' opened for this moment.' : ' started: the room keeps talking about it.'],
+      { action: { label: 'Open', run: () => setThread(state, t.id) } });
+  }
+}
+
+function bumpThread(state, id) {
+  const t = state.threads.get(id);
+  if (!t) return;
+  t.live += 1;
+  t.lastActive = Date.now();
+  renderThreadBar(state);
+  if (state.activeThread === id) renderThreadHead(state);
+}
+
+function renderThreadHead(state) {
+  const t = state.threads.get(state.activeThread);
+  state.els.notice.hidden = Boolean(t);
+  state.els.threadHead.hidden = !t;
+  if (!t) return;
+  state.els.threadHead.replaceChildren(
+    el('h2', { text: t.title }),
+    t.about ? el('p', { text: t.about }) : null,
+    el('p', { class: 'meta', text: `${plural(t.messages + t.live, 'message')} · ${t.source === 'moment' ? 'opened by a big moment' : 'started by the room'}` }),
+    el('button', { type: 'button', class: 'link-btn', text: 'Back to All chat', onclick: () => setThread(state, 'all') }));
+}
+
+function renderThreadBar(state) {
+  const bar = state.els.threadBar;
+  if (!bar) return;
+  const threads = [...state.threads.values()].sort((a, b) => b.lastActive - a.lastActive);
+  bar.hidden = !threads.length;
+  const chip = (id, label, count, { hot = false, fresh = false } = {}) => el('button', {
+    type: 'button', class: `chip${state.activeThread === id ? ' active' : ''}${fresh ? ' fresh' : ''}`, 'aria-pressed': String(state.activeThread === id),
+    onclick: () => setThread(state, id),
+  }, hot ? el('span', { class: 'hot', 'aria-hidden': 'true' }) : null, label, count == null ? null : el('span', { class: 'count', text: String(count) }));
+  bar.replaceChildren(chip('all', 'All chat'), ...threads.map((t) => {
+    const node = chip(t.id, t.title, t.messages + t.live, { hot: Date.now() - t.lastActive < 15000, fresh: t.fresh });
+    t.fresh = false;
+    return node;
+  }));
+}
+
+function setThread(state, id) {
+  state.activeThread = state.threads.has(id) ? id : 'all';
+  const t = state.threads.get(state.activeThread);
+  for (const e of state.items.values()) e.node.hidden = !shown(state, e);
+  renderThreadHead(state);
+  state.els.input.placeholder = t ? `Reply in ${t.title}` : 'Say something, or ask @huddle';
+  renderThreadBar(state);
+  state.stick = true;
+  scrollToBottom(state);
 }
 
 function aiFootnote(ai) {
@@ -627,7 +723,7 @@ function submitMessage(state) {
     setError(state, `One message every ${state.ctx.config.chat.cooldown_seconds} seconds. Hold that thought.`);
     return;
   }
-  const pending = { id: newKey(), key: null, text, reply_to: state.replyTo?.id || null, failed: false };
+  const pending = { id: newKey(), key: null, text, reply_to: state.replyTo?.id || null, thread_id: state.activeThread === 'all' ? null : state.activeThread, failed: false };
   pending.key = pending.id;
   state.els.input.value = '';
   setReply(state, null);
@@ -642,7 +738,10 @@ async function deliver(state, pending) {
   pending.failed = false;
   upsertItem(state, 'pending', pending);
   try {
-    const r = await api.post(`/api/rooms/${state.id}/messages`, { client_msg_id: pending.key, text: pending.text, ...(pending.reply_to ? { reply_to: pending.reply_to } : {}) });
+    const r = await api.post(`/api/rooms/${state.id}/messages`, {
+      client_msg_id: pending.key, text: pending.text,
+      ...(pending.reply_to ? { reply_to: pending.reply_to } : {}), ...(pending.thread_id ? { thread_id: pending.thread_id } : {}),
+    });
     if (state !== R) return;
     removeItem(state, `pending:${pending.id}`);
     upsertItem(state, 'message', r.message);

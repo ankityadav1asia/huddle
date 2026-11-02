@@ -39,7 +39,7 @@ test('simulated fans are the same for everyone in a room, labelled, and never st
   assert.ok(mine.length >= 5);
   assert.deepEqual((await friend.get(`/api/rooms/${roomId}/match`)).body.crowd, mine);
   for (const c of mine) {
-    assert.deepEqual(Object.keys(c).sort(), ['at', 'fan', 'id', 'team', 'text']);
+    assert.deepEqual(Object.keys(c).sort(), ['at', 'fan', 'id', 'team', 'text', 'thread']);
     assert.ok(['MI', 'CSK'].includes(c.team));
     assert.ok(!Number.isNaN(Date.parse(c.at)));
     assert.doesNotMatch(c.text, /\{\w+\}/); // placeholders are filled from the scorecard

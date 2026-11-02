@@ -64,6 +64,9 @@
 .msg.pending { opacity: 0.6; }
 .msg.failed { opacity: 1; }
 .msg.failed .msg-time { color: #b4232f; font-weight: 700; }
+/* Moment threads: the #tag on a message opens its thread. */
+button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; cursor: pointer; }
+.thread-bar { padding-top: 8px; }
 /* Simulated fans: the scripted crowd, set apart from real people's messages. */
 .msg.crowd .handle { color: var(--muted); font-weight: 700; }
 .msg.crowd .avatar { opacity: 0.8; }

@@ -19,6 +19,7 @@ runs inside the watch party. The product rules this build follows are in [CLAUDE
 | One message per person every 10 s, across every room, tab and device | **Implemented** (atomic, server-side) |
 | Match Intelligence: score, overs, batting and bowling cards, fall of wickets, commentary, freshness | **Implemented** on a **simulated** MI v CSK replay (real players, made-up match) |
 | A private room's own replay: start, pause, 2x, restart, jump to a big moment (only that room moves) | **Implemented** (simulated replay only) |
+| Moment threads: a #thread for each big moment (bowling change, wickets, DRS call, dropped catch, last over, result) and for each topic three people argue about; chips above the chat filter it, replies stay in the thread | **Implemented** (deterministic, no AI needed) |
 | Simulated fans: the scripted Hinglish crowd reacting to each ball, in every room following the replay (public room included), labelled, the same for everyone in a room, hidable per device | **Simulated** (demo data; never stored or sent to the AI) |
 | Match Momentum: wickets, dropped catches, run-rate pressure, boundary bursts, result → one alert for everyone in the room | **Implemented** (deterministic rules, deduplicated) |
 | AI Co-host: `@huddle` answers, answers to questions nobody answered, quiet-room polls, Catch Me Up | **Implemented**. Needs an AI key for live answers; without one, alerts and Catch Me Up fall back to summaries built from verified match data |
@@ -73,10 +74,10 @@ two. Keys stay on the server. Moderators (who see the review queue at
 npm test
 ```
 
-101 tests (under a minute) cover joining and player picks, room access and isolation, invitations and roles (including
+108 tests (under a minute) cover joining and player picks, room access and isolation, invitations and roles (including
 the demo friends), the 10-second message rule (including concurrent sends and the exact boundary), moderation levels
 and the baseline, the match feed and how fast it reaches the room, private rooms' own replays and their controls,
-simulated fans, momentum alerts, alert fan-out and push eligibility, AI failover and circuit breaking, the Co-host's
+simulated fans, moment threads, momentum alerts, alert fan-out and push eligibility, AI failover and circuit breaking, the Co-host's
 race with human replies, room closure and purge, observability, and log privacy.
 
 `node scripts/load-check.mjs` runs a small load check: 3 rooms of 10 members, a burst of 30 messages and a slow AI
