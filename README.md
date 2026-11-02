@@ -22,7 +22,7 @@ runs inside the watch party. The product rules this build follows are in [CLAUDE
 | Simulated fans: the scripted Hinglish crowd reacting to each ball, in every room following the replay (public room included), labelled, the same for everyone in a room, hidable per device | **Simulated** (demo data; never stored or sent to the AI) |
 | Match Momentum: wickets, dropped catches, run-rate pressure, boundary bursts, result → one alert for everyone in the room | **Implemented** (deterministic rules, deduplicated) |
 | AI Co-host: `@huddle` answers, answers to questions nobody answered, quiet-room polls, Catch Me Up | **Implemented**. Needs an AI key for live answers; without one, alerts and Catch Me Up fall back to summaries built from verified match data |
-| Primary + fallback AI provider with circuit breaker | **Implemented** (Anthropic, OpenRouter, Gemini) |
+| Primary + fallback AI provider with circuit breaker | **Implemented** (Gemini, xAI Grok, Anthropic, OpenRouter) |
 | Notifications for big moments when you are not looking at the room (at most 8 per match, the last kept for the result), invitation alerts | **Implemented**, tested with a mocked push service |
 | Mandatory safety baseline, reports, human review queue, appeals | **Implemented** |
 | Messages vanish when the room ends; deleted from the server after 24 h | **Implemented** |
@@ -54,14 +54,17 @@ it, play it at 2x, restart it or jump to the bowling change, the DRS call, the d
 the bar under the score or the match panel. Only that room moves. With `DEMO_CONTROLS` on (the local default) the
 shared replay can be jumped too, from its match panel.
 
-To turn on the live AI Co-host, copy `.env.example` to `.env` and set one or two keys:
+To turn on the live AI Co-host, set one or two provider keys: in a `.env` file locally, or under Environment
+Variables on Vercel (as Secrets, then redeploy):
 
 ```bash
-ANTHROPIC_API_KEY=...      # primary (claude-opus-5-5 at low effort by default)
-GEMINI_API_KEY=...         # fallback
+GEMINI_API_KEY=...         # Google Gemini (gemini-3.5-flash-lite by default; GEMINI_MODEL to change)
+XAI_API_KEY=...            # xAI Grok (grok-4.20-0309-non-reasoning by default; XAI_MODEL; GROK_API_KEY also works)
 ```
 
-Choose the order with `AI_PRIMARY` / `AI_FALLBACK`. Keys stay on the server. Moderators (who see the review queue at
+With both, Gemini answers first and Grok takes over when Gemini fails; `AI_PRIMARY=xai` swaps them. Anthropic
+(`ANTHROPIC_API_KEY`) and OpenRouter (`OPENROUTER_API_KEY`) are supported too; `AI_PRIMARY` / `AI_FALLBACK` pick any
+two. Keys stay on the server. Moderators (who see the review queue at
 `/mod`) are listed by account id in `MODERATOR_USER_IDS` (your id is shown in the app menu).
 
 ## Test
@@ -70,7 +73,7 @@ Choose the order with `AI_PRIMARY` / `AI_FALLBACK`. Keys stay on the server. Mod
 npm test
 ```
 
-98 tests (under a minute) cover joining and player picks, room access and isolation, invitations and roles (including
+101 tests (under a minute) cover joining and player picks, room access and isolation, invitations and roles (including
 the demo friends), the 10-second message rule (including concurrent sends and the exact boundary), moderation levels
 and the baseline, the match feed and how fast it reaches the room, private rooms' own replays and their controls,
 simulated fans, momentum alerts, alert fan-out and push eligibility, AI failover and circuit breaking, the Co-host's

@@ -17,7 +17,7 @@ the UI), **Planned** (not built).
 | Simulated fans: the scripted crowd from the original demo, reacting to each ball in every room following the replay | **Simulated** (derived on request, never stored, not sent to the AI) |
 | Match Momentum Engine (deterministic rules, dedup, fan-out) | Implemented |
 | AI Co-host: Q&A, unanswered questions, quiet-room polls, momentum explanations, Catch Me Up | Implemented; live AI needs an API key (none was available while building, so provider calls are tested with mocked HTTP) |
-| Primary/fallback AI providers, circuit breaker | Implemented (Anthropic, OpenRouter, Gemini adapters) |
+| Primary/fallback AI providers, circuit breaker | Implemented (Anthropic, OpenRouter, Gemini and xAI Grok adapters; OpenRouter and Grok share one chat-completions adapter) |
 | Moderation levels, public policy, mandatory baseline, reports, review queue, appeals | Implemented |
 | In-app alerts; browser push for away members | In-app implemented; push implemented with VAPID and tested against a mocked push service |
 | Ephemeral rooms (end, revoke, purge after retention) | Implemented |

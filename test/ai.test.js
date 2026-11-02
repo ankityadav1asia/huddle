@@ -2,7 +2,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, signUp, makePrivateRoom, msgId, clearCooldown, logs } from './helpers.js';
 import { createOrchestrator } from '../lib/ai/orchestrator.js';
-import { AIError, openRouterAdapter } from '../lib/ai/providers.js';
+import { AIError, openRouterAdapter, xaiAdapter, configuredProviders } from '../lib/ai/providers.js';
+import { readConfig } from '../lib/config.js';
 import { setAi } from '../lib/ai/index.js';
 import { pump } from '../lib/jobs/worker.js';
 import { handleAnswerJob } from '../lib/cohost/index.js';
@@ -108,6 +109,64 @@ test('provider errors are normalised and API keys never leak into results or log
   assert.equal(r.ok, false);
   assert.ok(!JSON.stringify(r).includes(key));
   assert.ok(!logs.join('\n').includes(key));
+});
+
+// ---------------------------------------------------------------- xAI (Grok)
+const askGrok = (grok) => grok.generate({ name: 'answer', system: 's', user: 'u', schema: { type: 'object' }, maxTokens: 50, timeoutMs: 5000 });
+
+test('the Grok adapter sends the chat-completions format with a strict schema and reads the answer', async () => {
+  const calls = [];
+  const grok = xaiAdapter({ apiKey: 'xai-FAKEKEY', model: 'grok-4.20-0309-non-reasoning' }, {
+    fetchImpl: async (url, init) => {
+      calls.push({ url, headers: init.headers, body: JSON.parse(init.body) });
+      return new Response(JSON.stringify({
+        id: 'req_1', model: 'grok-4.20-0309-non-reasoning',
+        choices: [{ finish_reason: 'stop', message: { content: '{"ok":true}' } }], usage: { prompt_tokens: 12, completion_tokens: 3 },
+      }), { status: 200 });
+    },
+  });
+  const r = await askGrok(grok);
+  assert.equal(calls[0].url, 'https://api.x.ai/v1/chat/completions');
+  assert.equal(calls[0].headers.authorization, 'Bearer xai-FAKEKEY');
+  assert.equal(calls[0].body.model, 'grok-4.20-0309-non-reasoning');
+  assert.deepEqual(calls[0].body.response_format.json_schema, { name: 'answer', strict: true, schema: { type: 'object' } });
+  assert.equal(calls[0].body.reasoning, undefined); // OpenRouter's routing option, not xAI's
+  assert.deepEqual([r.content, r.provider, r.usage], [{ ok: true }, 'xai', { input: 12, output: 3 }]);
+});
+
+test('Grok: a strict schema it rejects is asked again without one; refusals and rate limits are categorised', async () => {
+  let n = 0;
+  const refusing = xaiAdapter({ apiKey: 'k', model: 'm' }, {
+    fetchImpl: async (url, init) => {
+      n += 1;
+      if (JSON.parse(init.body).response_format) return new Response(JSON.stringify({ error: { message: 'schema not supported' } }), { status: 400 });
+      return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: null, refusal: 'Not able to help' } }] }), { status: 200 });
+    },
+  });
+  await assert.rejects(askGrok(refusing), (err) => err instanceof AIError && err.category === 'safety_refusal');
+  assert.equal(n, 2);
+  const busy = xaiAdapter({ apiKey: 'k', model: 'm' }, {
+    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'slow down' } }), { status: 429, headers: { 'retry-after': '2' } }),
+  });
+  await assert.rejects(askGrok(busy), (err) => err.category === 'rate_limited' && err.retryAfterMs === 2000);
+});
+
+test('with Gemini and Grok keys, Gemini answers first and Grok backs it up; AI_PRIMARY swaps them', () => {
+  const ai = (extra = {}) => ({
+    primary: '', fallback: '', ...extra,
+    providers: { anthropic: {}, openrouter: {}, gemini: { apiKey: 'g', model: 'gemini-3.5-flash-lite' }, xai: { apiKey: 'x', model: 'grok-4.20-0309-non-reasoning' } },
+  });
+  assert.deepEqual(configuredProviders(ai()).map((p) => p.name), ['gemini', 'xai']);
+  assert.deepEqual(configuredProviders(ai({ primary: 'xai' })).map((p) => p.name), ['xai', 'gemini']);
+  const saved = { xai: process.env.XAI_API_KEY, grok: process.env.GROK_API_KEY };
+  try {
+    delete process.env.XAI_API_KEY;
+    process.env.GROK_API_KEY = 'grok-key-from-the-other-name';
+    assert.equal(readConfig().ai.providers.xai.apiKey, 'grok-key-from-the-other-name');
+  } finally {
+    if (saved.xai === undefined) delete process.env.XAI_API_KEY; else process.env.XAI_API_KEY = saved.xai;
+    if (saved.grok === undefined) delete process.env.GROK_API_KEY; else process.env.GROK_API_KEY = saved.grok;
+  }
 });
 
 // ---------------------------------------------------------------- Co-host behaviours against the real API
