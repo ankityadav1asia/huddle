@@ -154,7 +154,7 @@ function renderMine(ctx, section, rooms) {
 function openMenu(ctx) {
   const s = openSheet({ title: ctx.me.display_name || ctx.me.handle });
   s.body.append(
-    el('p', { class: 'lede', text: `@${ctx.me.handle}${ctx.me.team ? ` · ${ctx.me.team} fan` : ''}` }),
+    el('p', { class: 'lede', text: `@${ctx.me.handle}${ctx.me.team ? ` · ${ctx.me.team} fan` : ''}${ctx.me.picks?.length ? ` · picked ${ctx.me.picks.join(', ')}` : ''}` }),
     el('p', { class: 'fine', text: `Account ID: ${ctx.me.id}` }),
     el('div', { class: 'menu-list' },
       el('button', { type: 'button', class: 'menu-item', text: 'Alert settings', onclick: () => openNotificationSettings(ctx.config) }),

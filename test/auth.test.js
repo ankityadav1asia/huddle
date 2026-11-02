@@ -10,7 +10,7 @@ test('joining as a guest creates a profile and a session, with no phone or passw
   const c = client(app.base);
   const r = await c.post('/api/auth/guest', { display_name: 'Riya', handle: '@Riya_Sixes', team: 'CSK' });
   assert.equal(r.status, 201);
-  assert.deepEqual(Object.keys(r.body.user).sort(), ['display_name', 'handle', 'id', 'is_moderator', 'team']);
+  assert.deepEqual(Object.keys(r.body.user).sort(), ['display_name', 'handle', 'id', 'is_moderator', 'picks', 'team']);
   assert.equal(r.body.user.handle, 'riya_sixes');
   assert.ok(c.cookie.startsWith('huddle_session='));
   assert.match(r.headers.get('set-cookie'), /HttpOnly; SameSite=Lax/);
@@ -70,6 +70,26 @@ test('without a server secret, joining fails closed', async () => {
   assert.equal(r.status, 503);
   assert.equal((await client(app.base).get('/api/config')).body.auth.available, false);
   app.cfg.secret = secret;
+});
+
+test('fans can pick up to three players from the squads, keep them on edit, or clear them', async () => {
+  const config = (await client(app.base).get('/api/config')).body;
+  assert.equal(config.max_picks, 3);
+  assert.ok(config.squads.MI.some((p) => p.name === 'Jasprit Bumrah' && p.short === 'Bumrah'));
+  const c = client(app.base);
+  const r = await c.post('/api/auth/guest', { display_name: 'Picker', handle: 'picker_1', team: 'CSK', picks: ['MS Dhoni', 'Jasprit Bumrah'] });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.body.user.picks, ['MS Dhoni', 'Jasprit Bumrah']);
+  assert.deepEqual((await c.get('/api/me')).body.user.picks, ['MS Dhoni', 'Jasprit Bumrah']);
+  let n = 0;
+  for (const picks of [['Virat Kohli'], ['MS Dhoni', 'MS Dhoni'], ['MS Dhoni', 'Jasprit Bumrah', 'Rohit Sharma', 'Tilak Varma'], 'MS Dhoni']) {
+    const bad = await client(app.base).post('/api/auth/guest', { display_name: 'Bad', handle: `bad_picks_${n += 1}`, picks });
+    assert.equal(bad.status, 400);
+    assert.equal(bad.body.error.code, 'invalid_picks');
+  }
+  const edit = (extra) => c.put('/api/me/profile', { display_name: 'Picker', handle: 'picker_1', team: 'CSK', ...extra });
+  assert.deepEqual((await edit({})).body.user.picks, ['MS Dhoni', 'Jasprit Bumrah']);
+  assert.deepEqual((await edit({ picks: [] })).body.user.picks, []);
 });
 
 test('user search returns public profile fields only', async () => {

@@ -12,16 +12,16 @@ with a `Retry-After` header. A private room the caller cannot see answers `404`,
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/health` | `{ ok, db }` |
-| GET | `/api/config` | `auth { mode: guest, available }`, `notifications { max_per_match }`, push key, demo controls flag, AI availability, chat limits and reactions, moderation levels and the public policy, retention hours |
-| POST | `/api/auth/guest` | `{ display_name, handle, team? }` → `201 { user, needs_profile: false }` + session cookie. `400` invalid or unsafe name/handle, `409 handle_taken`, `429` too many new profiles from this network, `503` server not configured |
+| GET | `/api/config` | `auth { mode: guest, available }`, `notifications { max_per_match }`, push key, demo controls flag, AI availability, chat limits and reactions, moderation levels and the public policy, retention hours, `squads { MI, CSK: [{ name, short }] }` and `max_picks` (3) for picking players |
+| POST | `/api/auth/guest` | `{ display_name, handle, team?, picks? }` (`picks`: up to 3 different player names from `squads`, else `400 invalid_picks`) → `201 { user, needs_profile: false }` + session cookie. `400` invalid or unsafe name/handle, `409 handle_taken`, `429` too many new profiles from this network, `503` server not configured |
 
 ## Account
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/auth/logout` | Revokes the session |
 | POST | `/api/auth/logout-all` | Revokes every session of this user (all devices) |
-| GET | `/api/me` | `{ user: { id, handle, display_name, team, is_moderator }, needs_profile }` |
-| PUT | `/api/me/profile` | `{ display_name, handle, team? }` (handles 3–20 of a-z 0-9 _) |
+| GET | `/api/me` | `{ user: { id, handle, display_name, team, picks, is_moderator }, needs_profile }` |
+| PUT | `/api/me/profile` | `{ display_name, handle, team?, picks? }` (handles 3–20 of a-z 0-9 _; leaving out `picks` keeps them, `[]` clears them) |
 | GET / PUT | `/api/me/notifications` | `{ push_momentum, push_answers, push_invites }` (+ `push_subscribed`, `push_available`, `vapid_public_key` on GET) |
 | POST / DELETE | `/api/me/push-subscriptions` | Browser `PushSubscription.toJSON()` / remove all |
 | GET | `/api/me/invitations` | Pending, unexpired invitations to active rooms |
@@ -35,7 +35,7 @@ with a `Retry-After` header. A private room the caller cannot see answers `404`,
 | POST | `/api/rooms` | Private room: `{ name, match_id?, own_replay?, moderation_level?, ai_enabled?, invitee_ids? }` → `201 { room_id, invitations: [{ user_id, result }] }`. `match_id` is the shared replay; with `own_replay: true` the room gets its own copy of it instead, waiting for its host to press Start |
 | GET | `/api/rooms/:id` | Bootstrap for members: room details and notices, members, the last ~60 items, `cursor`, presence, `cooldown_until`, `match_rev`. Ended rooms return `{ room: { status: 'ended' }, items: [] }` |
 | GET | `/api/rooms/:id/events?after=<seq>&wait=1&vis=visible\|hidden` | Long-poll (≤20 s). `{ room, events: [{ seq, type, data }], cursor, presence, match_rev }`; `reset: true` when the cursor is ahead; ended rooms return their status and no events |
-| GET | `/api/rooms/:id/match` | Match Intelligence: `{ match (source_label), freshness { updated_at, age_seconds, stale }, score (scorecard, rates, batters, bowling_card, fall_of_wickets, partnership, this_over, team_stats, result), commentary [{ event_id, over, text, occurred_at }], moments (demo), replay { own, paused, speed (1 or 2), moments [{ id, label, passed }], can_control }, rev }`. `own` is a private room's own replay; `can_control` is true for its owner and admins |
+| GET | `/api/rooms/:id/match` | Match Intelligence: `{ match (source_label), freshness { updated_at, age_seconds, stale }, score (scorecard, rates, batters, bowling_card, fall_of_wickets, partnership, this_over, team_stats, result), commentary [{ event_id, over, text, occurred_at }], moments (demo), replay { own, paused, speed (1 or 2), moments [{ id, label, passed }], can_control }, crowd [{ id, at, fan, team, text }], rev }`. `crowd` is the simulated fans' lines for the balls of the last 45 s, the same for everyone in the room; clients show each line at `at`. `own` is a private room's own replay; `can_control` is true for its owner and admins |
 | POST | `/api/rooms/:id/replay` | A private room's own replay, owner and admins only: `{ action: start\|pause\|resume\|speed\|restart\|jump, speed?: 1\|2, moment? }` → `{ ok, jumped_to? }`. Jumping ahead backfills skipped balls without alerts; jumping back, or restarting, starts a fresh run (6 per room per hour, then 429). 403 in the public room, 409 `not_controllable` in a room following the shared replay, 409 `replay_state` for a control that does not fit (pausing a paused replay) |
 | POST | `/api/rooms/:id/join` | Public rooms only; `409 room_full` at `PUBLIC_ROOM_MAX_MEMBERS` (100) |
 | POST | `/api/rooms/:id/leave` | Not for owners |

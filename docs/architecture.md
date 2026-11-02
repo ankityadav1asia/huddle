@@ -14,6 +14,7 @@ the UI), **Planned** (not built).
 | Realtime chat, reactions, polls (long-polling) | Implemented |
 | Match Intelligence: scorecard, commentary, status, stats, freshness | Implemented on a **simulated** replay feed (real players, made-up match) |
 | A private room's own replay with host controls (start, pause, 2x, restart, jump) | Implemented (simulated replay only) |
+| Simulated fans: the scripted crowd from the original demo, reacting to each ball in every room following the replay | **Simulated** (derived on request, never stored, not sent to the AI) |
 | Match Momentum Engine (deterministic rules, dedup, fan-out) | Implemented |
 | AI Co-host: Q&A, unanswered questions, quiet-room polls, momentum explanations, Catch Me Up | Implemented; live AI needs an API key (none was available while building, so provider calls are tested with mocked HTTP) |
 | Primary/fallback AI providers, circuit breaker | Implemented (Anthropic, OpenRouter, Gemini adapters) |
@@ -113,7 +114,7 @@ erDiagram
 ### Identity and access
 | Table | Purpose | Key columns |
 |---|---|---|
-| `users` | One row per profile | `handle` (unique, public), `display_name`, `team`; `is_demo` (the labelled demo friends, migration `005`); `phone_e164` (nullable, unused since phone sign-in was removed in migration `004`) |
+| `users` | One row per profile | `handle` (unique, public), `display_name`, `team`, `picks` (up to 3 players from the demo squads, migration `007`); `is_demo` (the labelled demo friends, migration `005`); `phone_e164` (nullable, unused since phone sign-in was removed in migration `004`) |
 | `sessions` | Server-side sessions | `token_hash` (SHA-256 of the cookie token), `expires_at`, `revoked_at` |
 
 ### Match Intelligence (shared across rooms; never per room)
@@ -294,6 +295,16 @@ nobody can pause or move it. A private room created with `own_replay: true` gets
   auto-end queued for an old run is ignored once the room has moved on, and the alert cap spans the room's runs.
 - Every control wakes the room's long-polls; `match_rev` includes the run, pause state and pace, so every member's
   screen updates at once. The DEMO_CONTROLS jump for the shared replay refuses private runs.
+
+### 4.11 Simulated fans
+The original single-viewer demo played a scripted crowd. The watch party keeps it as labelled demo data, derived
+rather than stored: `GET /api/rooms/:id/match` returns `crowd`, the lines for the balls of the last 45 s, built by
+`lib/match/crowd.js` from each ball's crowd cue in the script (or background chatter) with a random generator seeded
+by room, run and ball. So everyone in a room sees the same fans say the same thing, another room gets a different
+crowd, balls skipped by a jump get none, and 2x halves the gaps. Each line carries `at` (ball time plus its place in
+the burst) and the client shows it then, marked "Simulated fan"; overdue lines (opening the room late) are skipped.
+Lines the room's moderation level would not allow are dropped, and nothing is written to `messages`, so the crowd
+never reaches the AI Co-host, the 30-second rule, reports or retention. Each viewer can hide it on their device.
 
 ## 5. Security and privacy controls
 - **Authorization on every request**: the user comes from the session; room access is checked in one place

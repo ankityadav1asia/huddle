@@ -43,6 +43,7 @@ export function leaveRoom() {
   state.active = false;
   state.abort.abort();
   clearInterval(state.ticker);
+  for (const t of state.crowdTimers) clearTimeout(t);
   document.removeEventListener('visibilitychange', state.onVis);
   rememberSeen(state);
 }
@@ -54,6 +55,7 @@ export async function renderRoom(ctx, roomId) {
     members: new Map(), presence: { online: [], active: [] }, cursor: 0, cooldownUntil: 0, replyTo: null,
     match: null, matchFetchedAt: 0, matchRev: null, matchBusy: false, matchAgain: false, stick: true,
     hiddenAt: 0, hiddenCursor: 0, catchupSince: null, loopToken: 0, els: {},
+    crowdOn: crowdPref(), crowdSeen: new Set(), crowdTimers: new Set(), crowdN: 0,
   };
   R = state;
   const view = document.getElementById('view');
@@ -190,6 +192,7 @@ function applyRoomInfo(state) {
   const mod = room.moderation;
   els.notice.replaceChildren(
     el('p', {}, el('b', { text: room.ai_enabled ? 'AI Co-host. ' : 'AI Co-host off. ' }), room.ai_notice),
+    room.match ? el('p', {}, el('b', { text: 'Simulated fans. ' }), 'A scripted crowd reacts to the simulated replay. They are labelled, are not real people, and can be hidden in room settings.') : null,
     el('p', {}, el('b', { text: 'Disappearing chat. ' }), room.retention_notice),
     el('p', {}, el('b', { text: room.room_type === 'public' ? 'Public room. ' : `${LEVEL_NAMES[mod.level] || ''} moderation. ` }), mod.notice),
   );
@@ -392,6 +395,7 @@ function trimFeed(state) {
 }
 
 function renderItem(state, type, data) {
+  if (type === 'crowd') return renderCrowd(data);
   if (type === 'message') return data.sender?.type === 'ai' ? renderAiMessage(state, data) : renderMessage(state, data);
   if (type === 'pending') return renderPending(state, data);
   if (type === 'poll') return renderPoll(state, data);
@@ -443,6 +447,57 @@ function renderMessage(state, m) {
     body.addEventListener('click', (e) => { if (!e.target.closest('button, a')) openMessageActions(state, m); });
   }
   return row;
+}
+
+// ---------------------------------------------------------------- simulated fans
+// The scripted crowd that reacts to the simulated replay. The server derives the lines from the match feed, the
+// same for everyone in this room, and each one is shown when it is due. They are labelled, never stored with the
+// chat, and can be hidden on this device in room settings.
+const CROWD_KEY = 'huddle:crowd';
+const CROWD_LATE_MS = 20000; // a line this overdue (opening the room, coming back) is skipped, not replayed
+
+function crowdPref() {
+  try { return localStorage.getItem(CROWD_KEY) !== 'off'; } catch { return true; }
+}
+
+function setCrowd(state, on) {
+  state.crowdOn = on;
+  try { localStorage.setItem(CROWD_KEY, on ? 'on' : 'off'); } catch { /* storage may be unavailable */ }
+  if (!on) {
+    for (const t of state.crowdTimers) clearTimeout(t);
+    state.crowdTimers.clear();
+    for (const key of [...state.items.keys()]) if (key.startsWith('crowd:')) removeItem(state, key);
+  }
+}
+
+function scheduleCrowd(state, lines = []) {
+  if (!state.crowdOn) return;
+  const now = serverNow();
+  for (const c of lines) {
+    if (state.crowdSeen.has(c.id)) continue;
+    state.crowdSeen.add(c.id);
+    const wait = Date.parse(c.at) - now;
+    if (wait < -CROWD_LATE_MS) continue;
+    const timer = setTimeout(() => {
+      state.crowdTimers.delete(timer);
+      if (state !== R || !state.crowdOn) return;
+      // Sorts after everything already in the feed and before the next real message.
+      state.crowdN += 1;
+      upsertItem(state, 'crowd', { ...c, seq: state.cursor + 1 - 1 / (state.crowdN + 1) });
+    }, Math.max(0, wait));
+    state.crowdTimers.add(timer);
+  }
+}
+
+function renderCrowd(c) {
+  return el('div', { class: 'msg crowd' },
+    el('span', { class: `avatar ${teamClass(c.team)}`, 'aria-hidden': 'true', text: initials(c.fan) }),
+    el('div', { class: 'msg-body' },
+      el('div', { class: 'msg-meta' },
+        el('b', { class: 'handle', text: c.fan }),
+        el('span', { class: `badge ${teamClass(c.team)}`, text: c.team }),
+        el('span', { class: 'badge sim', text: 'Simulated fan' })),
+      el('p', { class: 'msg-text', text: c.text })));
 }
 
 function aiFootnote(ai) {
@@ -666,6 +721,7 @@ async function refreshMatch(state) {
     renderScore(state);
     renderReplayBar(state);
     renderRail(state);
+    scheduleCrowd(state, snap.crowd);
     if (state.matchSheet?.isOpen()) state.matchSheet.render();
   } catch (err) {
     if (err?.name === 'AbortError' || state !== R) return;
@@ -1070,8 +1126,12 @@ function openSettings(state) {
     s.body.append(el('h3', { text: 'Moderation' }), el('p', { class: 'notice-box' }, el('b', { text: `${LEVEL_NAMES[room.moderation.level]}. ` }), room.moderation.description || ''),
       el('p', { class: 'fine', text: 'Only the owner or an admin can change room settings.' }));
   }
+  const fans = el('input', { type: 'checkbox', id: 'room-crowd', checked: state.crowdOn });
+  fans.addEventListener('change', () => setCrowd(state, fans.checked));
   s.body.append(
     el('p', { class: 'field-hint strong', text: 'Mandatory safety protections stay on at every level: threats, hate, sexual harassment and sharing personal details are always blocked.' }),
+    room.match ? el('h3', { text: 'Simulated fans' }) : null,
+    room.match ? el('label', { class: 'toggle-row', for: 'room-crowd' }, fans, el('span', {}, el('b', { text: 'Show simulated fans' }), el('small', { text: 'The scripted crowd that reacts to the simulated replay. They are not real people, and only this device hides them.' }))) : null,
     el('h3', { text: 'Privacy' }),
     el('p', { class: 'fine', text: room.ai_notice }),
     el('p', { class: 'fine', text: room.retention_notice }),

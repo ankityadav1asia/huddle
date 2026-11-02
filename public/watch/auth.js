@@ -1,4 +1,5 @@
-// Joining Huddle: pick a display name, a handle and (optionally) a team. No phone number or password; the server
+// Joining Huddle: pick a display name, a handle and (optionally) a team and up to three players. No phone number
+// or password; the server
 // creates a guest profile and keeps this browser signed in with an HttpOnly session cookie.
 import { api } from './api.js';
 import { el, setRail, railIntro } from './ui.js';
@@ -34,7 +35,7 @@ export function renderProfile(ctx) {
   renderProfileForm(ctx, {
     subtitle: 'Almost there',
     title: 'Set up your profile',
-    lede: 'Fans see your name, handle and team.',
+    lede: 'Fans see your name, handle, team and players.',
     button: 'Save and continue',
     submit: (body) => api.put('/api/me/profile', body),
   });
@@ -57,13 +58,30 @@ function renderProfileForm(ctx, { subtitle, title, lede, button, submit, note })
     });
     return b;
   });
+  // Players for your contest team, from both squads (demo data, like the match).
+  const maxPicks = ctx.config?.max_picks || 3;
+  const picks = new Set(ctx.me?.picks || []);
+  const pickHint = el('p', { class: 'field-hint', id: 'picks-hint', text: `Up to ${maxPicks}, for your contest team. You can change them later in Edit profile.` });
+  const pickBtns = Object.entries(ctx.config?.squads || {}).flatMap(([code, players]) => players.map((p) => {
+    const b = el('button', { type: 'button', class: 'pick', 'aria-pressed': String(picks.has(p.name)), 'aria-label': `${p.name}, ${code}` }, p.short, el('small', { text: ` ${code}` }));
+    b.addEventListener('click', () => {
+      if (picks.has(p.name)) picks.delete(p.name);
+      else if (picks.size >= maxPicks) {
+        pickHint.textContent = `You can pick ${maxPicks}. Tap one of your players to swap.`;
+        return;
+      } else picks.add(p.name);
+      b.setAttribute('aria-pressed', String(picks.has(p.name)));
+    });
+    return b;
+  }));
   const save = el('button', { type: 'submit', class: 'btn primary', text: button });
   const form = el('form', { class: 'card form-card', novalidate: '' },
     el('h2', { class: 'card-title', text: title }),
     el('p', { class: 'card-lede', text: lede }),
     field('display-name', 'Display name', name),
     field('handle', 'Handle', el('div', { class: 'phone-input' }, el('span', { class: 'cc', 'aria-hidden': 'true', text: '@' }), handle), '3–20 letters, numbers or underscores. Friends find you by this.'),
-    el('fieldset', { class: 'field' }, el('legend', { text: 'Your team (optional)' }), el('div', { class: 'team-grid' }, teamBtns)),
+    el('fieldset', { class: 'field' }, el('legend', { text: 'Backing (optional)' }), el('div', { class: 'team-grid' }, teamBtns)),
+    pickBtns.length ? el('fieldset', { class: 'field', 'aria-describedby': 'picks-hint' }, el('legend', { text: 'Players you picked' }), el('div', { class: 'pick-grid' }, pickBtns), pickHint) : null,
     error, save);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -81,7 +99,7 @@ function renderProfileForm(ctx, { subtitle, title, lede, button, submit, note })
     save.disabled = true;
     error.textContent = '';
     try {
-      const r = await submit({ display_name: name.value, handle: h, team: team || null });
+      const r = await submit({ display_name: name.value, handle: h, team: team || null, picks: [...picks] });
       ctx.signedIn(r.user, false);
     } catch (err) {
       error.textContent = err.message;
