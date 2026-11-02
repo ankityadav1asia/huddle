@@ -1,15 +1,12 @@
 // Sign-in with an Indian mobile number and a one-time code, then a first-time profile.
 // Providers (from GET /api/config → otp.provider):
-//   firebase      Firebase Phone Auth sends and checks the SMS code in the browser; Huddle's server verifies the
-//                 resulting Firebase ID token once and issues its own HttpOnly session. Nothing Firebase persists.
-//   demo          local development only: no SMS, the code is shown on screen and labelled as demo.
-//   twilio_verify the server sends and checks the code (same screens as demo, without the code box).
-//   unavailable   sign-in is not configured yet.
+//   messagecentral Message Central VerifyNow sends and checks the SMS code; Huddle's server talks to it.
+//   twilio_verify  Twilio Verify sends and checks the code (same screens).
+//   demo           local development only: no SMS, the code is shown on screen and labelled as demo.
+//   unavailable    sign-in is not configured yet.
 import { api } from './api.js';
 import { el, setRail, railIntro } from './ui.js';
 
-const FIREBASE_APP = 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
-const FIREBASE_AUTH = 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 const RESEND_SECONDS = 30;
 const PHONE_RE = /^[6-9]\d{9}$/;
 
@@ -59,8 +56,7 @@ function resendTimer(button, seconds) {
 export function renderAuth(ctx) {
   setRail(railIntro());
   const otp = ctx.config?.otp || {};
-  if (otp.provider === 'unavailable' || (otp.provider === 'firebase' && !otp.firebase)) return renderUnavailable();
-  if (otp.provider === 'firebase') return renderFirebasePhone(ctx);
+  if (!otp.provider || otp.provider === 'unavailable') return renderUnavailable();
   return renderServerPhone(ctx);
 }
 
@@ -71,159 +67,7 @@ function renderUnavailable() {
       el('p', { class: 'card-lede', text: 'Please check back soon.' })));
 }
 
-// ---------------------------------------------------------------- Firebase Phone Auth
-let firebase = null;
-
-async function loadFirebase(config) {
-  if (firebase) return firebase;
-  const [appMod, authMod] = await Promise.all([import(FIREBASE_APP), import(FIREBASE_AUTH)]);
-  const apps = appMod.getApps();
-  const app = apps.length ? apps[0] : appMod.initializeApp(config);
-  // In-memory only: no Firebase session survives the page; Huddle's own HttpOnly cookie is the session.
-  const auth = authMod.initializeAuth(app, { persistence: authMod.inMemoryPersistence, popupRedirectResolver: authMod.browserPopupRedirectResolver });
-  authMod.useDeviceLanguage(auth);
-  firebase = { auth, m: authMod };
-  return firebase;
-}
-
-const FIREBASE_ERRORS = {
-  'auth/invalid-phone-number': 'Enter a valid 10-digit Indian mobile number.',
-  'auth/too-many-requests': 'Too many attempts from this device. Try again later.',
-  'auth/invalid-verification-code': 'That code is not right.',
-  'auth/code-expired': 'That code has expired. Request a new one.',
-  'auth/captcha-check-failed': 'We could not confirm you\'re not a bot. Reload the page and try again.',
-  'auth/internal-error': 'We could not confirm you\'re not a bot. Reload the page and try again.',
-  'auth/quota-exceeded': 'SMS limit reached. Try again later.',
-  'auth/operation-not-allowed': 'Sign-in is not available for this number.',
-};
-
-// Our API errors carry an HTTP status; Firebase errors carry an auth/* code. Never logged anywhere.
-const signInMessage = (err) => (err?.status !== undefined ? err.message : FIREBASE_ERRORS[err?.code] || 'Sign-in failed. Try again.');
-
-function recaptchaNote() {
-  return el('p', { class: 'fine center recaptcha-note' }, 'This site is protected by reCAPTCHA and the Google ',
-    el('a', { href: 'https://policies.google.com/privacy', target: '_blank', rel: 'noopener noreferrer', text: 'Privacy Policy' }), ' and ',
-    el('a', { href: 'https://policies.google.com/terms', target: '_blank', rel: 'noopener noreferrer', text: 'Terms of Service' }), ' apply.');
-}
-
-function renderFirebasePhone(ctx) {
-  const view = document.getElementById('view');
-  const error = el('p', { class: 'form-error', role: 'alert' });
-  const phone = phoneInput();
-  const send = el('button', { type: 'submit', class: 'btn primary', text: 'Send code', disabled: true });
-  // The invisible reCAPTCHA renders into a fresh child of this element each time a verifier is created.
-  const captcha = el('div', { class: 'recaptcha-slot' });
-  const form = el('form', { class: 'card form-card', novalidate: '' },
-    el('h2', { class: 'card-title', text: 'Sign in with your mobile' }),
-    el('p', { class: 'card-lede', text: 'We\'ll text a 6-digit code to this number. Your number is never shown to other fans.' }),
-    phoneField(phone), error, send, captcha);
-  shell(view, 'Cricket watch parties with friends', form, recaptchaNote());
-  phone.focus();
-
-  let fb = null;
-  loadFirebase(ctx.config.otp.firebase).then((f) => {
-    fb = f;
-    send.disabled = false;
-  }).catch(() => {
-    error.textContent = 'Sign-in could not load. Check your connection and reload the page.';
-  });
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!fb) return;
-    const digits = tenDigits(phone.value);
-    if (!PHONE_RE.test(digits)) {
-      error.textContent = 'Enter a valid 10-digit Indian mobile number.';
-      phone.focus();
-      return;
-    }
-    send.disabled = true;
-    error.textContent = '';
-    const session = { fb, captcha, digits, verifier: null, confirmation: null };
-    try {
-      await sendFirebaseCode(session);
-      renderFirebaseCode(ctx, session);
-    } catch (err) {
-      error.textContent = signInMessage(err);
-      send.disabled = false;
-    }
-  });
-}
-
-// A fresh verifier for every send: the previous one is cleared first (required before re-rendering reCAPTCHA).
-async function sendFirebaseCode(session) {
-  const { auth, m } = session.fb;
-  try { session.verifier?.clear(); } catch { /* the old widget may already be gone */ }
-  const slot = el('div');
-  session.captcha.replaceChildren(slot);
-  session.verifier = new m.RecaptchaVerifier(auth, slot, { size: 'invisible' });
-  session.confirmation = await m.signInWithPhoneNumber(auth, `+91${session.digits}`, session.verifier);
-}
-
-function renderFirebaseCode(ctx, session) {
-  const view = document.getElementById('view');
-  const { m, auth } = session.fb;
-  const error = el('p', { class: 'form-error', role: 'alert' });
-  const info = el('p', { class: 'field-hint', role: 'status' });
-  const code = codeInput('6');
-  const verify = el('button', { type: 'submit', class: 'btn primary', text: 'Verify and continue' });
-  const resend = el('button', { type: 'button', class: 'link-btn' });
-  const timer = resendTimer(resend, RESEND_SECONDS);
-  resend.addEventListener('click', async () => {
-    resend.disabled = true;
-    error.textContent = '';
-    info.textContent = '';
-    try {
-      await sendFirebaseCode(session);
-      timer.restart(RESEND_SECONDS);
-      info.textContent = 'A new code is on its way.';
-    } catch (err) {
-      error.textContent = signInMessage(err);
-      timer.restart(0);
-    }
-  });
-  const form = el('form', { class: 'card form-card', novalidate: '' },
-    el('h2', { class: 'card-title', text: 'Enter your code' }),
-    el('p', { class: 'card-lede', text: `We texted a 6-digit code to ${masked(session.digits)}.` }),
-    field('code', 'One-time code', code),
-    error, info, verify,
-    el('div', { class: 'form-links' }, resend,
-      el('button', { type: 'button', class: 'link-btn', text: 'Change number', onclick: () => {
-        timer.stop();
-        try { session.verifier?.clear(); } catch { /* already gone */ }
-        renderAuth(ctx);
-      } })),
-    // Keep the reCAPTCHA host in the page so a resend can render a new verifier.
-    session.captcha);
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const value = code.value.replace(/\D/g, '');
-    if (!/^\d{6}$/.test(value)) {
-      error.textContent = 'Enter the 6-digit code from the SMS.';
-      code.focus();
-      return;
-    }
-    verify.disabled = true;
-    error.textContent = '';
-    try {
-      const cred = await session.confirmation.confirm(value);
-      const idToken = await cred.user.getIdToken();
-      const r = await api.post('/api/auth/firebase', { id_token: idToken });
-      timer.stop();
-      await m.signOut(auth).catch(() => {});
-      try { session.verifier?.clear(); } catch { /* already gone */ }
-      ctx.signedIn(r.user, r.needs_profile);
-    } catch (err) {
-      await m.signOut(auth).catch(() => {});
-      error.textContent = signInMessage(err);
-      verify.disabled = false;
-    }
-  });
-  shell(view, 'Cricket watch parties with friends', form, recaptchaNote());
-  code.focus();
-}
-
-// ---------------------------------------------------------------- server-side OTP (demo locally, or Twilio Verify)
+// ---------------------------------------------------------------- one-time code (Message Central or Twilio Verify; demo locally)
 function renderServerPhone(ctx) {
   const view = document.getElementById('view');
   const error = el('p', { class: 'form-error', role: 'alert' });

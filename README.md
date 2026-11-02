@@ -12,7 +12,7 @@ in [docs/api-contract.md](docs/api-contract.md).
 
 | | Status |
 |---|---|
-| Sign in with an Indian mobile number (+91) and a one-time code | **Implemented** with Firebase Phone Auth: Google sends the SMS behind a reCAPTCHA bot check and the server verifies Firebase's signed token. Local development can use an on-screen demo code, which production refuses |
+| Sign in with an Indian mobile number (+91) and a one-time code | **Implemented** with Message Central VerifyNow: it sends and checks a real SMS code, which Huddle never sees or stores. Local development can use an on-screen demo code, which production refuses |
 | Public watch party (up to 100 members, moderation run by Huddle) and private rooms (up to 50, owner picks relaxed / balanced / strict) | **Implemented** |
 | Invite several friends, accept/decline/revoke, expiry, owner and admin roles, leave, remove | **Implemented** |
 | Realtime chat, reactions, polls, presence, reply threads | **Implemented** (long-polling) |
@@ -72,10 +72,9 @@ provider, reporting delivery latency, losses, duplicates and ordering.
 ## Deploy
 
 Production on Vercel uses Neon Postgres (`DATABASE_URL`, added by the Vercel Marketplace integration), generated
-`HUDDLE_SECRET` / `CRON_SECRET` / `VAPID_*` values, `OTP_PROVIDER=firebase` and the Firebase web config
-(`FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`). In the Firebase console: enable the
-Phone provider, add the site to Authorized domains, set the SMS region policy to India only, and stay on the Blaze plan
-(phone sign-in is billed per SMS). Until the Firebase config is set, the live site keeps sign-in closed.
+`HUDDLE_SECRET` / `CRON_SECRET` / `VAPID_*` values, `OTP_PROVIDER=messagecentral` and the Message Central VerifyNow
+credentials `MESSAGECENTRAL_CUSTOMER_ID` and `MESSAGECENTRAL_PASSWORD` (set the password only in Vercel, never in the
+repo). Until both are set, the live site keeps sign-in closed.
 
 
 The app is one server plus one Postgres database.

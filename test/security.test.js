@@ -1,81 +1,104 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, sign } from 'node:crypto';
 import { startApp, client, signUp } from './helpers.js';
-import { verifyFirebaseIdToken, signInWithFirebase } from '../lib/auth/firebase.js';
 import { ensureDemoMatch } from '../lib/match/feed.js';
+import { messageCentralProvider, setOtpFetch } from '../lib/auth/otp-providers.js';
 
 let app;
 before(async () => { app = await startApp(); });
-after(async () => { await app.close(); });
+after(async () => { setOtpFetch(null); await app.close(); });
 
-// ---------------------------------------------------------------- Firebase ID tokens
-const PROJECT = 'huddle-test-project';
-const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
-const other = generateKeyPairSync('rsa', { modulusLength: 2048 });
-const keys = async (kid) => (kid === 'kid-1' ? publicKey : null);
-const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-
-function idToken(claims = {}, { kid = 'kid-1', key = privateKey, alg = 'RS256' } = {}) {
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: `https://securetoken.google.com/${PROJECT}`, aud: PROJECT, sub: 'firebase-uid-1', iat: now - 5, exp: now + 3600, auth_time: now - 5,
-    phone_number: '+919812345678', firebase: { sign_in_provider: 'phone', identities: { phone: ['+919812345678'] } }, ...claims,
+// ---------------------------------------------------------------- a fake Message Central VerifyNow API
+const GOOD_CODE = '424242';
+function fakeMessageCentral({ sendCode = 200, down = false, rejectFirstToken = false } = {}) {
+  const state = { tokens: 0, sends: [], checks: [], issued: new Map(), keys: [] };
+  let tokenRejected = !rejectFirstToken;
+  const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const fetchImpl = async (url, opts = {}) => {
+    if (down) throw new TypeError('fetch failed');
+    const u = new URL(url);
+    if (u.pathname === '/auth/v1/authentication/token') {
+      state.tokens += 1;
+      state.keys.push(u.searchParams.get('key'));
+      return json(200, { status: 200, token: `tok-${state.tokens}` });
+    }
+    if (!tokenRejected && opts.headers?.authToken === 'tok-1') {
+      tokenRejected = true;
+      return json(401, { responseCode: 401, message: 'UNAUTHORIZED' });
+    }
+    if (u.pathname === '/verification/v3/send') {
+      state.sends.push(Object.fromEntries(u.searchParams));
+      if (sendCode !== 200) return json(400, { responseCode: sendCode, message: 'ERR', data: null });
+      const id = String(1000 + state.sends.length);
+      state.issued.set(id, { at: Date.now() });
+      return json(200, { responseCode: 200, message: 'SUCCESS', data: { verificationId: id, mobileNumber: u.searchParams.get('mobileNumber'), timeout: '60' } });
+    }
+    if (u.pathname === '/verification/v3/validateOtp') {
+      state.checks.push(Object.fromEntries(u.searchParams));
+      const id = u.searchParams.get('verificationId');
+      if (!state.issued.has(id)) return json(400, { responseCode: 505, message: 'INVALID_VERIFICATION_ID', data: null });
+      if (u.searchParams.get('code') === 'expire') return json(400, { responseCode: 705, message: 'VERIFICATION_EXPIRED', data: null });
+      if (u.searchParams.get('code') !== GOOD_CODE) return json(400, { responseCode: 702, message: 'WRONG_OTP_PROVIDED', data: null });
+      return json(200, { responseCode: 200, message: 'SUCCESS', data: { verificationStatus: 'VERIFICATION_COMPLETED' } });
+    }
+    return json(404, {});
   };
-  const head = b64({ alg, kid, typ: 'JWT' });
-  const body = b64(payload);
-  return `${head}.${body}.${sign('RSA-SHA256', Buffer.from(`${head}.${body}`), key).toString('base64url')}`;
+  return { fetchImpl, state };
 }
 
-test('a genuine Firebase phone token verifies; forged, foreign or malformed tokens do not', async () => {
-  const ok = await verifyFirebaseIdToken(idToken(), { projectId: PROJECT, keys });
-  assert.deepEqual([ok.uid, ok.phone], ['firebase-uid-1', '+919812345678']);
-  const bad = [
-    idToken({}, { key: other.privateKey }), // signed by someone else
-    idToken({}, { kid: 'unknown-kid' }),
-    idToken({ aud: 'another-project' }),
-    idToken({ iss: 'https://securetoken.google.com/another-project' }),
-    idToken({ exp: Math.floor(Date.now() / 1000) - 3600 }),
-    idToken({ firebase: { sign_in_provider: 'password' } }),
-    idToken({ phone_number: undefined }),
-    idToken({}, { alg: 'HS256' }),
-    'not.a.token', 'x', '',
-  ];
-  for (const t of bad) await assert.rejects(verifyFirebaseIdToken(t, { projectId: PROJECT, keys }), (e) => e.code === 'invalid_token');
+const MC = { customerId: 'C-TEST', password: 'test-password-not-real' };
+
+test('the Message Central adapter sends and checks codes through VerifyNow', async () => {
+  const { fetchImpl, state } = fakeMessageCentral({ rejectFirstToken: true });
+  const p = messageCentralProvider(MC, fetchImpl);
+  const started = await p.start('+919812300010');
+  assert.equal(started.providerRef, '1001');
+  assert.equal(started.codeHash, undefined); // Huddle never sees or stores the code
+  assert.deepEqual(state.sends[0], { countryCode: '91', customerId: 'C-TEST', flowType: 'SMS', mobileNumber: '9812300010', otpLength: '6' });
+  assert.equal(state.keys[0], Buffer.from(MC.password).toString('base64'));
+  assert.equal(state.tokens, 2); // the rejected token was refreshed once
+  assert.equal(await p.check('+919812300010', GOOD_CODE, { provider_ref: '1001' }), true);
+  assert.equal(await p.check('+919812300010', '000000', { provider_ref: '1001' }), false);
+  await assert.rejects(p.check('+919812300010', 'expire', { provider_ref: '1001' }), (e) => e.code === 'otp_expired');
+  assert.equal(await p.check('+919812300010', GOOD_CODE, { provider_ref: null }), false);
+  assert.equal(state.tokens, 2); // the token is reused between calls
 });
 
-test('Firebase sign-in opens a Huddle session only for a fresh +91 phone sign-in', async () => {
-  const cfg = { ...app.cfg, otp: { ...app.cfg.otp, provider: 'firebase', firebase: { ...app.cfg.otp.firebase, projectId: PROJECT, apiKey: 'public-web-key', maxAuthAgeSeconds: 600 } } };
-  const { user, session } = await signInWithFirebase(app.db, cfg, { idToken: idToken(), ip: '10.0.0.1' }, { keys });
-  assert.equal(user.phone_e164, '+919812345678');
-  assert.ok(session.token);
-  const stored = (await app.db.query('SELECT firebase_uid FROM users WHERE id = $1', [user.id])).rows[0];
-  assert.equal(stored.firebase_uid, 'firebase-uid-1');
-  const now = Math.floor(Date.now() / 1000);
-  await assert.rejects(signInWithFirebase(app.db, cfg, { idToken: idToken({ auth_time: now - 3600 }), ip: '10.0.0.1' }, { keys }), (e) => e.code === 'stale_token');
-  await assert.rejects(signInWithFirebase(app.db, cfg, { idToken: idToken({ phone_number: '+14155550100' }), ip: '10.0.0.1' }, { keys }), (e) => e.code === 'phone_not_supported');
-  // Sign-in is refused outright when the server is not configured for Firebase.
-  await assert.rejects(signInWithFirebase(app.db, app.cfg, { idToken: idToken(), ip: '10.0.0.1' }, { keys }), (e) => e.code === 'otp_unavailable');
+test('Message Central limits and outages surface as clear, safe errors', async () => {
+  for (const code of [506, 800]) {
+    const p = messageCentralProvider(MC, fakeMessageCentral({ sendCode: code }).fetchImpl);
+    await assert.rejects(p.start('+919812300011'), (e) => e.status === 429);
+  }
+  const down = messageCentralProvider(MC, fakeMessageCentral({ down: true }).fetchImpl);
+  await assert.rejects(down.start('+919812300011'), (e) => e.status === 503 && !/test-password/.test(e.message));
 });
 
-test('the Firebase endpoint rejects junk and is rate-limited per network', async () => {
-  app.cfg.otp.provider = 'firebase';
-  app.cfg.otp.firebase.projectId = PROJECT;
-  app.cfg.otp.firebase.apiKey = 'public-web-key';
+test('production sign-in through Message Central: real code flow, no demo code, nothing stored in plaintext', async () => {
+  const { fetchImpl, state } = fakeMessageCentral();
+  setOtpFetch(fetchImpl);
+  Object.assign(app.cfg.otp, { provider: 'messagecentral', demoAllowed: false, messageCentral: { ...MC, email: '' } });
   const c = client(app.base);
-  assert.equal((await c.post('/api/auth/firebase', { id_token: 'garbage' })).status, 400);
-  assert.equal((await c.post('/api/auth/firebase', { id_token: 'garbage', phone: '9812345678' })).status, 400); // no extra fields
-  const cfg = await c.get('/api/config');
-  assert.equal(cfg.body.otp.provider, 'firebase');
-  assert.deepEqual(Object.keys(cfg.body.otp.firebase).sort(), ['apiKey', 'appId', 'authDomain', 'projectId']);
-  assert.equal(cfg.body.otp.demo, false);
-  // The server-side OTP endpoints are closed in Firebase mode.
-  assert.equal((await c.post('/api/auth/otp/request', { phone: '9812345670' })).status, 400);
-  app.cfg.verifyPerIpPerHour = undefined;
-  for (let i = 0; i < 40; i++) await c.post('/api/auth/firebase', { id_token: 'garbage' });
-  const limited = await c.post('/api/auth/firebase', { id_token: 'garbage' });
-  assert.equal(limited.status, 429);
-  app.cfg.otp.provider = 'demo';
+  assert.equal((await c.get('/api/config')).body.otp.provider, 'messagecentral');
+  const r = await c.post('/api/auth/otp/request', { phone: '98123 00012' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.demo_code, undefined);
+  assert.equal(r.body.provider, 'messagecentral');
+  const row = (await app.db.query(`SELECT code_hash, provider_ref, provider FROM otp_challenges ORDER BY created_at DESC LIMIT 1`)).rows[0];
+  assert.deepEqual(row, { code_hash: null, provider_ref: String(1000 + state.sends.length), provider: 'messagecentral' });
+  const wrong = await c.post('/api/auth/otp/verify', { phone: '9812300012', code: '111111' });
+  assert.equal(wrong.status, 400);
+  assert.equal(wrong.body.error.code, 'wrong_code');
+  const ok = await c.post('/api/auth/otp/verify', { phone: '9812300012', code: GOOD_CODE });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.needs_profile, true);
+  assert.equal((await c.get('/api/me')).status, 200);
+  assert.equal((await c.post('/api/auth/otp/verify', { phone: '9812300012', code: GOOD_CODE })).status, 400); // single use
+  // Not configured (no credentials) means sign-in stays closed, never demo.
+  app.cfg.otp.messageCentral = { customerId: '', password: '', email: '' };
+  assert.equal((await c.get('/api/config')).body.otp.provider, 'unavailable');
+  assert.equal((await client(app.base).post('/api/auth/otp/request', { phone: '9812300013' })).status, 503);
+  Object.assign(app.cfg.otp, { provider: 'demo', demoAllowed: true });
+  setOtpFetch(null);
 });
 
 test('production never offers the demo sign-in and fails closed without a server secret', async () => {

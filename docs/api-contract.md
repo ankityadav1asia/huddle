@@ -12,10 +12,9 @@ with a `Retry-After` header. A private room the caller cannot see answers `404`,
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/health` | `{ ok, db }` |
-| GET | `/api/config` | `otp { provider: firebase\|twilio_verify\|demo\|unavailable, demo, firebase (public web config or null) }`, `notifications { max_per_match }`, push key, demo controls flag, AI availability, chat limits and reactions, moderation levels and the public policy, retention hours |
-| POST | `/api/auth/firebase` | `{ id_token }` (from Firebase Phone Auth) → `{ user, needs_profile }` + session cookie. `400 invalid_token`, `401 stale_token` (sign-in older than 10 min), `403 phone_not_supported` (non +91), `429`, `503 otp_unavailable` |
-| POST | `/api/auth/otp/request` | Server-side OTP providers only (`twilio_verify`; `demo` in local development): `{ phone }` → `{ sent, resend_after, expires_in, provider, demo_code? }`. `demo_code` exists only for the local demo provider; production refuses demo with `503` |
-| POST | `/api/auth/otp/verify` | `{ phone, code }` → `{ user, needs_profile }` + session cookie |
+| GET | `/api/config` | `otp { provider: messagecentral \| twilio_verify \| demo \| unavailable, demo }`, `notifications { max_per_match }`, push key, demo controls flag, AI availability, chat limits and reactions, moderation levels and the public policy, retention hours |
+| POST | `/api/auth/otp/request` | `{ phone }` → `{ sent, resend_after, expires_in, provider, demo_code? }`. The provider (Message Central in production) sends the SMS; `demo_code` exists only for the local demo provider, and production refuses demo with `503`. `429` for limits, `503 otp_unavailable` when sign-in is not configured |
+| POST | `/api/auth/otp/verify` | `{ phone, code }` → `{ user, needs_profile }` + session cookie. `400 wrong_code { attempts_left }`, `400 otp_expired`, `429` after too many attempts |
 
 ## Account
 | Method | Path | Notes |

@@ -27,8 +27,7 @@ const SECURITY = {
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'same-origin',
   'x-frame-options': 'DENY',
-  // Google origins are only for Firebase Phone Auth and its reCAPTCHA bot check.
-  'content-security-policy': "default-src 'self'; script-src 'self' https://www.gstatic.com https://www.google.com https://apis.google.com; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://www.gstatic.com https://www.google.com; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://www.google.com; frame-src https://www.google.com https://recaptcha.google.com https://*.firebaseapp.com; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-src 'none'; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   'strict-transport-security': 'max-age=31536000',
 };
 const PAGES = { '/': 'index.html', '/replay': 'replay.html', '/mod': 'mod.html' };
