@@ -258,7 +258,7 @@ an AI tool that can bypass those checks.
 
 ### Abuse prevention and reliability
 
--   Enforce the confirmed chat rule: one accepted message per authenticated user every 30 seconds, across all rooms/devices/sessions; implement server-side with shared atomic state. AI requests need separate limits.
+-   Enforce the confirmed chat rule: one accepted message per authenticated user every 10 seconds, across all rooms/devices/sessions; implement server-side with shared atomic state. AI requests need separate limits.
 -   Add appropriate per-room rate limits for abuse protection and separate AI-request limits.
 -   Set request, context, and output token limits and reasonable
     timeouts.
@@ -696,7 +696,7 @@ Preserve the core invariant:
 ## Confirmed Demo Rate Limits and Notification Scope
 
 ### Per-user message limit
-- Enforce a server-side limit of **1 message per authenticated user every 30 seconds**.
+- Enforce a server-side limit of **1 message per authenticated user every 10 seconds**.
 - This is a user-level limit, not a connection-level limit: opening multiple tabs/devices must not bypass it.
 - Apply it across the user's active rooms unless the product explicitly changes this rule.
 - Return a clear `429 Too Many Requests` response (or the app's equivalent) with a retry hint; show a concise cooldown state in the UI.
@@ -1331,15 +1331,15 @@ Treat this as a requirement to implement and test, not as proof that phone OTP a
 
 ## Huddle Chat Rate Limit — Confirmed Product Rule
 
-The confirmed chat rule is **one accepted message per authenticated user every 30 seconds**.
+The confirmed chat rule is **one accepted message per authenticated user every 10 seconds** (changed from 30 seconds by the product owner on 2026-11-02; `CHAT_COOLDOWN_SECONDS` can override it per deployment).
 
 - Enforce this rule on the server for every message-send path. Frontend countdowns are only a usability aid and are never the security boundary.
 - The cooldown is user-wide across all rooms, browser tabs, devices, and active sessions. A user must not bypass it by switching rooms, opening another tab, or reconnecting.
 - The server is authoritative. Use an atomic server-side limiter supported by the existing database/backend. Redis may be reused if it is already part of the stack, but do not add Redis solely for this rule or design for multiple backend instances unless the existing deployment requires it.
 - Record/derive the next permitted send time and return a clear retry-after response when the limit is exceeded.
-- Define the exact boundary consistently: if a message is accepted at 10:00:00, the next message is permitted at or after 10:00:30.
+- Define the exact boundary consistently: if a message is accepted at 10:00:00, the next message is permitted at or after 10:00:10.
 - Avoid consuming the cooldown for malformed, unauthenticated, unauthorized, or rejected messages. Apply the cooldown at the appropriate point after validation and required pre-publication safety checks, and make the operation atomic to prevent concurrent sends from bypassing the rule.
-- Test concurrent requests, multiple devices/tabs, room switching, reconnect/retry, multiple backend instances, and exact 30-second boundary behavior.
+- Test concurrent requests, multiple devices/tabs, room switching, reconnect/retry, multiple backend instances, and exact 10-second boundary behavior.
 - Do not confuse this per-user limit with a room-wide throughput limit. No room-wide 10,000-message limit is confirmed; do not implement one without a defined unit and time window.
 
 This section is the authoritative chat rate-limit requirement for the project.
