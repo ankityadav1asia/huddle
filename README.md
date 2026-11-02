@@ -1,95 +1,109 @@
-# Huddle: an AI co-host for live watch-alongs
+# Huddle: Watch Party with an AI Co-host
 
-A mobile prototype built for the Dream11 FDE intern assignment: *build one AI-powered artifact that solves a real problem fans face during a live match.*
+A prototype of a cricket Watch Party: friends join a private room (or the public one), chat while the match plays, see
+verified match data without leaving the room, and get help from an AI Co-host that answers questions, flags the big
+moments and catches you up when you look away.
 
-## The fan problem
+It grew out of the original single-viewer replay demo (still available at `/replay`). The product rules this build
+follows are in [CLAUDE.md](CLAUDE.md); the design is in [docs/architecture.md](docs/architecture.md) and the endpoints
+in [docs/api-contract.md](docs/api-contract.md).
 
-Dream11 has pivoted to a free, second-screen sports app. Paid contests stopped in August 2025 after the real-money gaming ban. In December 2025 the app relaunched around creator-led watch-alongs with chat and polls, and in August 2026 it announced an AI-first platform. Its stated goal is to fix *lonely match viewing*.
+## What works, and what is simulated
 
-The room is the product now, and live chat during a cricket match fails in one of two ways:
-
-- **Chaos.** A creator stream crossed 1 lakh views in 15 minutes. At that size the chat during a wicket or a bowling change is an unreadable firehose of Hinglish and emoji.
-- **Silence.** A small room goes quiet between overs, and a fan watching alone has nobody to react with.
-
-There's a third constraint that the press keeps raising about the pivot: fans may not split their attention between the TV and the phone. Anything we add has to work **in a one-second glance**.
-
-## What Huddle does
-
-Huddle is the AI layer *inside* a watch-along room. It doesn't replace the room.
-
-| Feature | What the fan sees |
+| | Status |
 |---|---|
-| **Room pulse** | One line on how the room feels right now, with a mood bar for each fan base. *"Dube is gone. MI fans buzzing, CSK fans nervous."* |
-| **Moment threads** | When 4+ messages argue about the same moment, the AI opens a thread (`#bowling-change`, `#drs-call`) and tags each message into it. You can tap in or ignore it. |
-| **Smart polls** | Polls fire at the moment of debate, not on a timer. The result becomes a headline: *"71% of this room thinks the bowling change was a mistake."* |
-| **Callbacks** | The AI remembers the room's verdicts. When Tilak takes a wicket right after 71% voted against bowling him, it posts the plot twist. |
-| **Catch me up** | Look away for two overs and you get three bullets: what happened, what involved your players, and what the room argued about. It also triggers when you come back to the tab. |
-| **Fans like you** | Matches you with fans by team, by the players in your social-contest team, and by how you voted. |
-| **Ask @huddle** | Ask anything in English or Hinglish: *"@huddle CSK ko kitne chahiye?"* |
+| Sign in with an Indian mobile number (+91) and a one-time code | **Implemented** with Firebase Phone Auth: Google sends the SMS behind a reCAPTCHA bot check and the server verifies Firebase's signed token. Local development can use an on-screen demo code, which production refuses |
+| Public watch party (up to 100 members, moderation run by Huddle) and private rooms (up to 50, owner picks relaxed / balanced / strict) | **Implemented** |
+| Invite several friends, accept/decline/revoke, expiry, owner and admin roles, leave, remove | **Implemented** |
+| Realtime chat, reactions, polls, presence, reply threads | **Implemented** (long-polling) |
+| One message per person every 30 s, across every room, tab and device | **Implemented** (atomic, server-side) |
+| Match Intelligence: score, overs, batting and bowling cards, fall of wickets, commentary, freshness | **Implemented** on a **simulated** MI v CSK replay (real players, made-up match) |
+| Match Momentum: wickets, dropped catches, run-rate pressure, boundary bursts, result → one alert for everyone in the room | **Implemented** (deterministic rules, deduplicated) |
+| AI Co-host: `@huddle` answers, answers to questions nobody answered, quiet-room polls, Catch Me Up | **Implemented**. Needs an AI key for live answers; without one, alerts and Catch Me Up fall back to summaries built from verified match data |
+| Primary + fallback AI provider with circuit breaker | **Implemented** (Anthropic, OpenRouter, Gemini) |
+| Notifications for big moments when you are not looking at the room (at most 8 per match, the last kept for the result), invitation alerts | **Implemented**, tested with a mocked push service |
+| Mandatory safety baseline, reports, human review queue, appeals | **Implemented** |
+| Messages vanish when the room ends; deleted from the server after 24 h | **Implemented** |
+| Real cricket data feed, real SMS delivery, user blocking, quiet hours | **Planned** |
 
-## The 90-second demo
-
-1. Open the link and join as a CSK fan with Dhoni, Bumrah and Dube as your picks.
-2. Tap **Bowling change**. Hardik gives the 16th over to part-timer Tilak Varma while Bumrah has 2 overs left.
-3. The chat explodes. Within seconds `#bowling-change` appears and a poll opens. *"71% of this room thinks the bowling change was a mistake."*
-4. Two balls later Tilak gets Dube, and Huddle posts the plot twist.
-5. Tap **Look away for 2 overs**, then **Catch me up**.
-6. Type something yourself, or ask `@huddle` a question.
-
-## What's real and what's simulated
-
-- **Simulated:** the match is a fictional MI v CSK chase (real players, a made-up game) replayed ball by ball, and the crowd is scripted Hinglish chat from 32 simulated fans. The app labels it as a replay.
-- **Real:** every pulse line, thread, message tag, poll, callback, catch-up and @huddle answer is generated from the chat and match state as it happens. It runs on Claude when an API key is set. Without a key it runs on an offline engine (keyword clustering plus a Hinglish/emoji sentiment lexicon) that returns the same output shape, so the demo never breaks.
-
-## How it works
-
-```
-replay + crowd ──► room (chat, ball-by-ball)
-                       │  every ~9s, or ~3s after a big moment
-                       ▼
-               one batched AI call per room ──► pulse · mood · threads · tags · poll · callback · for-you
-```
-
-- **One call per room per tick, not one per message.** The app batches up to 80 new messages with the match state, the open threads, recent polls and the viewer's profile. It gets back a single JSON object, enforced with structured outputs. At IPL scale this is the difference between millions of calls a minute and one per room.
-- **Rules detect, the model writes.** Cheap code spots a callback (for example, the bowler the room voted against just took a wicket). The model writes the line. The same split would run in production: a lightweight classifier on every message and the LLM on the room.
-- **Polls hold the story.** The replay pauses briefly while a poll is open, so a result is never spoiled by the next ball.
-- **Safe by default.** The API key stays on the server. Chat is treated as data, never as instructions. A public link is rate-limited, and after repeated failures the app switches to the offline engine.
-
-## If this shipped: what I'd measure
-
-- Thread join rate, and messages per fan per match
-- Time in room, and how many fans stay through the innings break
-- Poll participation, and Catch me up opens per returning fan
-- Whether pulse + threads lower the share of fans who leave in the first 2 minutes of a busy room
+Nothing here is connected to Dream11 systems or to a live match.
 
 ## Run it
 
+Needs Node.js 22.13 or newer (tested on 24).
+
 ```bash
 npm install
-npm start            # http://localhost:3000, offline engine
+npm start
 ```
 
-To use the live AI, copy `.env.example` to `.env` and set one key:
+Open http://localhost:3000. Everything runs locally with no accounts: an embedded Postgres (PGlite) stores data in
+`.data/` (git-ignored). To try a watch party with friends on one machine, sign in as different people in two browser
+profiles (or one normal and one private window).
 
-- `OPENROUTER_API_KEY`: defaults to `google/gemini-3.5-flash-lite`, roughly $0.05 to $0.10 for a full demo run. Set `OPENROUTER_MODEL` to try any other model.
-- `ANTHROPIC_API_KEY`: calls Claude directly through the Anthropic SDK.
-- `GEMINI_API_KEY`: calls Gemini directly, defaulting to `gemini-3.5-flash-lite`. This is the setup the demo was tested with: about 3 to 4 seconds per room update.
+The demo match starts when someone joins a room for it and plays a ball roughly every 10 seconds. With
+`DEMO_CONTROLS` on (the local default) the room's side panel can jump the replay to the bowling change, the DRS call,
+the dropped catch or the last over.
 
-Then run `npm start` again. Add `?offline` to the URL to force the offline engine.
+To turn on the live AI Co-host, copy `.env.example` to `.env` and set one or two keys:
 
-## Deploy (Vercel)
+```bash
+ANTHROPIC_API_KEY=...      # primary (claude-opus-5-5 at low effort by default)
+GEMINI_API_KEY=...         # fallback
+```
 
-1. Push this folder to GitHub and import it in Vercel. `vercel.json` already serves `public/` and deploys `api/ai.js` as a function.
-2. Add `OPENROUTER_API_KEY` (or `ANTHROPIC_API_KEY`) under Project → Settings → Environment Variables, and set a credit limit on the key.
-3. Redeploy and share the URL.
+Choose the order with `AI_PRIMARY` / `AI_FALLBACK`. Keys stay on the server. Moderators (who see the review queue at
+`/mod`) are listed in `MODERATOR_PHONES`.
+
+## Test
+
+```bash
+npm test
+```
+
+81 tests (about 20 s) cover sign-in, room access and isolation, invitations and roles, the 30-second rule (including
+concurrent sends and the exact boundary), moderation levels and the baseline, the match feed and momentum alerts,
+alert fan-out and push eligibility, AI failover and circuit breaking, the Co-host's race with human replies, room
+closure and purge, observability, and log privacy.
+
+`node scripts/load-check.mjs` runs a small load check: 3 rooms of 10 members, a burst of 30 messages and a slow AI
+provider, reporting delivery latency, losses, duplicates and ordering.
+
+## Deploy
+
+Production on Vercel uses Neon Postgres (`DATABASE_URL`, added by the Vercel Marketplace integration), generated
+`HUDDLE_SECRET` / `CRON_SECRET` / `VAPID_*` values, `OTP_PROVIDER=firebase` and the Firebase web config
+(`FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`). In the Firebase console: enable the
+Phone provider, add the site to Authorized domains, set the SMS region policy to India only, and stay on the Blaze plan
+(phone sign-in is billed per SMS). Until the Firebase config is set, the live site keeps sign-in closed.
+
+
+The app is one server plus one Postgres database.
+
+- **Vercel**: `vercel.json` serves `public/`, runs the API as one function (`api/router.js`) and keeps `api/ai.js`
+  for the replay. It needs a Postgres `DATABASE_URL` (for example Neon from the Vercel Marketplace) and
+  `HUDDLE_SECRET`. Optional: AI keys, `VAPID_*` for push, `CRON_SECRET` for the daily sweep. Serverless functions do not
+  run a background worker, so queued work runs while members are connected (their long-polls drive it).
+- **Any Node host with Postgres**: `npm start` with `DATABASE_URL` set runs the worker in-process.
 
 ## Files
 
-- `public/src/app.js`: room UI, replay runner, AI ticks, polls, sheets
-- `public/src/data.js`: match script, Hinglish crowd lines, simulated fans
-- `public/src/local-ai.js`: offline engine
-- `lib/prompts.js`: prompts and JSON schemas for `tick`, `catchup`, `ask`
-- `api/ai.js`: serverless endpoint (OpenRouter, Claude via the Anthropic SDK, or Gemini)
-- `server.js`: local dev server
+| Path | What |
+|---|---|
+| `server.js` | Local server: static files, API, replay endpoint, background worker |
+| `api/router.js`, `api/ai.js` | Vercel functions (Watch Party API, original replay AI endpoint) |
+| `lib/http/` | Router and routes |
+| `lib/auth/` | Phone OTP (demo and Twilio Verify providers), sessions |
+| `lib/rooms/` | Rooms, membership, invitations, the per-room event log, long-polling, lifecycle and purge |
+| `lib/chat/` | Message fast path, reactions, polls, rendering |
+| `lib/moderation/` | Safety gate, lexicon, policy, audit, reports and review |
+| `lib/match/` | Simulated feed, scorecard, momentum rules, ingestion |
+| `lib/ai/`, `lib/cohost/` | Provider adapters, failover orchestrator, task schemas and validation, Co-host behaviours |
+| `lib/notify/` | Notification policy, push delivery |
+| `lib/jobs/` | The job queue, worker, housekeeping |
+| `lib/db/` | Database access and migrations |
+| `public/index.html`, `public/watch/` | Watch Party UI |
+| `public/replay.html`, `public/src/` | The original single-viewer replay demo |
+| `test/` | Automated tests (`node --test`) |
 
-Team names and logos belong to their franchises. They are used here only to make the prototype feel real.
+Team names and logos belong to their franchises and are used only to make the prototype feel real.

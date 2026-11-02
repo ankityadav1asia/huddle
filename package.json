@@ -2,16 +2,20 @@
   "name": "huddle-watch-along",
   "version": "1.0.0",
   "private": true,
-  "description": "Prototype: an AI co-host for live cricket watch-along rooms.",
+  "description": "Huddle Watch Party prototype: private rooms, realtime chat, match intelligence and an AI Co-host for cricket fans.",
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test": "node --test \"test/*.test.js\""
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.3.0"
+    "@anthropic-ai/sdk": "^1.3.0",
+    "@electric-sql/pglite": "0.5.10",
+    "pg": "8.23.1",
+    "web-push": "3.6.7"
   }
 }

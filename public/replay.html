@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#d11f28">
+  <title>Huddle Watch-Along</title>
+  <meta name="description" content="Prototype: an AI co-host for live cricket watch-along rooms.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="stage">
+    <aside class="rail" aria-label="About this prototype">
+      <p class="rail-kicker">Prototype · AI co-host for watch-alongs</p>
+      <h1 class="rail-title">Huddle</h1>
+      <p class="rail-fixture"><img class="logo" src="assets/mi.png" alt="">Mumbai Indians <span>v</span> Chennai Super Kings<img class="logo" src="assets/csk.png" alt=""></p>
+      <p class="rail-lede">Dream11 is now a second-screen app built around creator watch-alongs. Huddle is the AI layer inside that room: it keeps a busy chat readable and a quiet one alive, at a glance, while the match plays on the big screen.</p>
+      <ul class="rail-features">
+        <li><b>Room pulse</b><span>One line on how the room feels, split by fan base.</span></li>
+        <li><b>Moment threads</b><span>Arguments about a big moment get their own thread.</span></li>
+        <li><b>Smart polls</b><span>Asks the room at the right moment and remembers the answer.</span></li>
+        <li><b>Catch me up</b><span>Three bullets when you look away from your phone.</span></li>
+        <li><b>Fans like you</b><span>Matches you on team, players and votes.</span></li>
+      </ul>
+      <div class="rail-controls" data-controls></div>
+      <p class="rail-fine">The match is a simulated MI v CSK replay with real players, and the crowd is scripted Hinglish chat. The AI reads that chat and writes the pulse, threads, polls and catch-ups. Type in the room, in English or Hinglish, or ask <b>@huddle</b> a question.</p>
+    </aside>
+
+    <main class="phone">
+      <div class="app" id="app">
+        <div class="masthead">
+          <header class="top">
+            <div class="top-title">
+              <b class="fixture"><img class="logo" src="assets/mi.png" alt="">MI <span>v</span> CSK<img class="logo" src="assets/csk.png" alt=""></b>
+              <span class="top-sub"><i class="live-dot"></i>LIVE · <span id="viewers">12.4k</span> watching</span>
+            </div>
+            <button class="fans-btn" id="fans-btn" type="button" aria-label="Fans like you">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm7 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM1 20c0-3.3 3.6-6 8-6s8 2.7 8 6v1H1zm16.5 1v-1c0-1.9-.9-3.6-2.3-4.8 4 .2 7.8 2.3 7.8 4.8v1z"/></svg>
+              <span class="fans-count" id="fans-count">0</span>
+            </button>
+            <button class="icon-btn menu-btn" id="menu-btn" type="button" aria-label="Demo controls">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+            </button>
+          </header>
+
+          <section class="score" id="score" aria-live="polite"></section>
+        </div>
+
+        <section class="pulse" id="pulse">
+          <div class="pulse-head">
+            <span class="ai-label"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0l1.9 6.1L16 8l-6.1 1.9L8 16l-1.9-6.1L0 8l6.1-1.9z"/></svg>Room pulse</span>
+            <div class="moods">
+              <span class="mood" data-team="MI"><img class="logo sm" src="assets/mi.png" alt="MI fans"><b class="mood-word">Hopeful</b></span>
+              <span class="mood" data-team="CSK"><img class="logo sm" src="assets/csk.png" alt="CSK fans"><b class="mood-word">Hopeful</b></span>
+            </div>
+          </div>
+          <p class="pulse-text" id="pulse-text">Waiting for the room to warm up.</p>
+          <div class="pulse-foot">
+            <p class="for-you" id="for-you"><span class="for-you-label">For you</span><span id="for-you-text"></span></p>
+            <button class="catchup-btn" id="catchup-btn" type="button">Catch me up</button>
+          </div>
+        </section>
+
+        <nav class="chips" id="chips" aria-label="Threads"></nav>
+
+        <section class="chat" id="chat">
+          <div class="chat-scroll" id="chat-scroll"><div class="feed" id="feed"></div></div>
+          <div class="banner" id="banner" hidden></div>
+          <div class="toast" id="toast" hidden></div>
+          <button class="new-pill" id="new-pill" type="button" hidden>New messages</button>
+        </section>
+
+        <form class="composer" id="composer" autocomplete="off">
+          <input id="say" name="say" maxlength="200" placeholder="Say something, or ask @huddle" aria-label="Message the room">
+          <button class="send" type="submit" aria-label="Send">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5L21 3l-6.5 18-3.2-7.3z"/></svg>
+          </button>
+        </form>
+
+        <div class="sheet-layer" id="sheet-layer" hidden>
+          <div class="sheet-backdrop" data-close></div>
+          <div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
