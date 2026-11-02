@@ -122,6 +122,5 @@ export function railIntro() {
       el('li', {}, el('b', { text: 'AI Co-host' }), el('span', { text: 'Answers @huddle questions from verified match data only, and says so when it cannot.' })),
       el('li', {}, el('b', { text: 'Safe by default' }), el('span', { text: 'Choose relaxed, balanced or strict moderation. Core safety protections are always on.' }))),
     el('p', { class: 'rail-fine', text: 'Demo data: the MI v CSK match is a simulated replay (real players, a made-up game), not a live feed. Messages disappear when a watch party ends.' }),
-    el('p', { class: 'rail-fine' }, el('a', { href: '/replay', text: 'Open the original single-viewer replay demo' })),
   ];
 }

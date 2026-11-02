@@ -797,7 +797,6 @@ function renderRail(state) {
       el('li', { text: room.ai_enabled ? 'AI Co-host on: answers @huddle from verified match data' : 'AI Co-host off in this room' }),
       el('li', { text: `Messages disappear when the watch party ends` })),
     room.match ? el('section', { class: 'rail-section', 'aria-label': 'Match intelligence' }, el('p', { class: 'rail-h', text: 'Match intelligence' }), matchPanel(state)) : null,
-    el('p', { class: 'rail-fine' }, el('a', { href: '/replay', text: 'Original single-viewer replay demo' })),
   );
 }
 

@@ -159,7 +159,6 @@ function openMenu(ctx) {
     el('div', { class: 'menu-list' },
       el('button', { type: 'button', class: 'menu-item', text: 'Alert settings', onclick: () => openNotificationSettings(ctx.config) }),
       el('button', { type: 'button', class: 'menu-item', text: 'Edit profile', onclick: () => { closeSheet(); ctx.editProfile(); } }),
-      el('a', { class: 'menu-item', href: '/replay', text: 'Original replay demo (single viewer)' }),
       ctx.me.is_moderator ? el('a', { class: 'menu-item', href: '/mod', text: 'Moderation queue' }) : null,
       signOutButton(ctx)),
   );
