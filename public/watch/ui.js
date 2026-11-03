@@ -47,7 +47,9 @@ export function aiLabel(text) {
 
 export const initials = (handle = '') => (String(handle).split(/[^a-z0-9]+/i).filter(Boolean).map((s) => s[0]).join('') || String(handle)).slice(0, 2).toUpperCase();
 
-export const teamClass = (team) => (team === 'MI' ? 'mi' : team === 'CSK' ? 'csk' : '');
+// Colours for every team a fan can back (and the simulated fans' sides); styles.css maps t-<code> to them.
+const TEAM_COLOURS = new Set(['MI', 'CSK', 'MCL', 'RBR', 'FER', 'MER', 'GSW', 'LAL', 'EDM', 'TOR']);
+export const teamClass = (team) => (TEAM_COLOURS.has(team) ? `team t-${team.toLowerCase()}` : '');
 
 export function teamLogo(team, cls = '') {
   return el('img', { class: `logo ${cls}`.trim(), src: team?.logo || `assets/${String(team?.code || team).toLowerCase()}.png`, alt: '' });

@@ -157,10 +157,20 @@ function renderMine(ctx, section, rooms) {
 }
 
 // ---------------------------------------------------------------- menu
+// "Cricket: CSK (Dhoni, Bumrah) · F1: Ferrari": what you back in each sport you answered for.
+function backingLine(ctx) {
+  return (ctx.config.sports || []).filter((s) => ctx.me.sports?.[s.sport]).map((s) => {
+    const { team, picks } = ctx.me.sports[s.sport];
+    const names = picks.map((p) => s.players.find((x) => x.name === p)?.short || p);
+    return `${s.label}: ${team ? s.teams.find((t) => t.code === team)?.name || team : 'no team'}${names.length ? ` (${names.join(', ')})` : ''}`;
+  }).join(' · ');
+}
+
 function openMenu(ctx) {
   const s = openSheet({ title: ctx.me.display_name || ctx.me.handle });
   s.body.append(
-    el('p', { class: 'lede', text: `@${ctx.me.handle}${ctx.me.team ? ` · ${ctx.me.team} fan` : ''}${ctx.me.picks?.length ? ` · picked ${ctx.me.picks.join(', ')}` : ''}` }),
+    el('p', { class: 'lede', text: `@${ctx.me.handle}` }),
+    backingLine(ctx) ? el('p', { class: 'fine', text: backingLine(ctx) }) : null,
     el('p', { class: 'fine', text: `Account ID: ${ctx.me.id}` }),
     el('div', { class: 'menu-list' },
       el('button', { type: 'button', class: 'menu-item', text: 'Alert settings', onclick: () => openNotificationSettings(ctx.config) }),
@@ -211,7 +221,7 @@ export function friendPicker({ excludeIds = new Set(), onChange }) {
       onChange?.([...selected.keys()]);
     } }, el('b', { text: `@${u.handle}` }), el('span', { text: u.name || '' }),
     u.demo ? el('small', { class: 'demo-tag', text: 'Demo' }) : null,
-    u.team ? el('small', { text: u.team }) : null));
+    u.teams?.length ? el('small', { text: u.teams.join(' · ') }) : null));
 
   // With an empty search box, offer the labelled demo friends so the invite flow can be tried alone.
   let demo = [];

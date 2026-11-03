@@ -37,6 +37,19 @@ test('the home screen offers one public watch party per sport, and every game ca
   assert.deepEqual(matches.map((m) => m.sport), ['cricket', 'f1', 'basketball', 'hockey']);
 });
 
+test("everyone shows the team they back in the room's sport", async () => {
+  const roomOf = (sport) => rooms.find((r) => r.sport === sport).id;
+  assert.equal((await fan.put('/api/me/sports/f1', { team: 'FER', picks: ['Charles Leclerc'] })).status, 200);
+  const teamIn = async (sport) => (await fan.get(`/api/rooms/${roomOf(sport)}`)).body.members.find((m) => m.id === fan.user.id).team;
+  assert.deepEqual([await teamIn('cricket'), await teamIn('f1'), await teamIn('basketball')], ['CSK', 'FER', null]); // none chosen yet
+  await clearCooldown(app.db, fan.user.id);
+  const sent = await fan.post(`/api/rooms/${roomOf('f1')}/messages`, { client_msg_id: msgId(), text: 'Forza Ferrari!' });
+  assert.equal(sent.status, 201);
+  assert.equal(sent.body.message.sender.team, 'FER');
+  const items = (await fan.get(`/api/rooms/${roomOf('f1')}/events?after=0`)).body.events;
+  assert.ok(items.some((e) => e.type === 'message' && e.data.sender.team === 'FER'));
+});
+
 test('each sport plays to a consistent final score, with its own moment cards and #threads', async () => {
   const finals = {};
   for (const sport of ['f1', 'basketball', 'hockey']) {

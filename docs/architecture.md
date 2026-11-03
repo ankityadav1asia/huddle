@@ -117,7 +117,7 @@ erDiagram
 ### Identity and access
 | Table | Purpose | Key columns |
 |---|---|---|
-| `users` | One row per profile | `handle` (unique, public), `display_name`, `team`, `picks` (up to 3 players from the demo squads, migration `007`); `is_demo` (the labelled demo friends, migration `005`); `phone_e164` (nullable, unused since phone sign-in was removed in migration `004`) |
+| `users` | One row per profile | `handle` (unique, public), `display_name`, `sports` (per sport: the team backed or null, and up to 3 players, migration `010`; `team` and `picks` from migrations `001` and `007` held cricket's choice and are no longer read); `is_demo` (the labelled demo friends, migration `005`); `phone_e164` (nullable, unused since phone sign-in was removed in migration `004`) |
 | `sessions` | Server-side sessions | `token_hash` (SHA-256 of the cookie token), `expires_at`, `revoked_at` |
 
 ### Match Intelligence (shared across rooms; never per room)
@@ -178,7 +178,7 @@ When a room ends, every user-facing read of this content stops at once. The purg
 ## 4. Workflows
 
 ### 4.1 Joining
-1. A new visitor picks a display name, an @handle and optionally a team: `POST /api/auth/guest`. Names and handles
+1. A new visitor picks a display name, an @handle and optionally a team and players per sport: `POST /api/auth/guest`. Names and handles
    pass the same strict safety check as other public labels, handles are unique, and reserved handles (huddle,
    admin, moderator…) are refused.
 2. The server creates the profile and a session. The browser holds a random token in an HttpOnly, SameSite=Lax

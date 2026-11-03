@@ -193,6 +193,13 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .team-opt { display: grid; justify-items: center; gap: 6px; padding: 10px 6px; border: 1.5px solid var(--line); border-radius: var(--r-md); background: var(--card); font-size: 12.5px; font-weight: 700; }
 .team-opt .logo { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 8px; }
 .team-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.team-mark { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--card-2); color: var(--muted); font: 700 13px/1 var(--display); letter-spacing: 0.04em; }
+.team-mark.team { border-color: var(--team); background: var(--team-soft); color: var(--team-ink); }
+.sport-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.sport-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text); font-size: 13px; font-weight: 700; }
+.sport-tab[aria-pressed="true"] { border-color: var(--chrome); background: var(--chrome); color: #fff; }
+.sport-panel { display: grid; gap: 10px; }
+.backing .chip.team { border-color: var(--team); background: var(--team-soft); color: var(--team-ink); font-weight: 700; }
 
 .choice-list { display: grid; gap: 8px; }
 .choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: var(--r-md); background: var(--card); cursor: pointer; }

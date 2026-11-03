@@ -72,10 +72,10 @@ export function client(base) {
   return c;
 }
 
-// Joins as a guest (display name + handle) and returns a client holding that session.
+// Joins as a guest (display name + handle, backing a cricket team) and returns a client holding that session.
 export async function signUp(base, handle, { team = 'CSK' } = {}) {
   const c = client(base);
-  const r = await c.post('/api/auth/guest', { display_name: handle, handle, team });
+  const r = await c.post('/api/auth/guest', { display_name: handle, handle, sports: { cricket: { team } } });
   if (r.status !== 201) throw new Error(`guest join failed: ${JSON.stringify(r.body)}`);
   c.user = r.body.user;
   return c;

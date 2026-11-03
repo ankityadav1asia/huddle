@@ -107,6 +107,7 @@ async function bootstrap(state) {
   rememberSeen(state);
   if (state.room.match) {
     refreshMatch(state);
+    renderBacking(state);
     loadGuide(state);
   } else renderRail(state);
   state.ticker = setInterval(() => tick(state), 1000);
@@ -141,6 +142,7 @@ function buildRoom(state) {
   // From the public watch party: a private room on the same match, with only the people you invite.
   const privateBtn = room.room_type === 'public' && room.match
     ? el('button', { type: 'button', class: 'catchup-btn ghost', text: '+ Private room', onclick: () => openQuickPrivate(state) }) : null;
+  els.backing = el('div', { class: 'guide backing', hidden: true });
   els.guide = el('div', { class: 'guide', hidden: true });
 
   els.feed = el('div', { class: 'feed', role: 'log', 'aria-live': 'polite', 'aria-label': 'Watch party messages' });
@@ -180,7 +182,7 @@ function buildRoom(state) {
       el('div', { class: 'pulse-head' }, els.cohostLabel, els.reconnect),
       els.cohostText,
       el('div', { class: 'pulse-foot cohost-actions' }, catchBtn, els.pollBtn, privateBtn),
-      els.guide),
+      els.backing, els.guide),
     els.threadBar,
     el('section', { class: 'chat' }, els.scroll, els.banner, els.newPill),
     el('div', { class: 'composer-wrap' }, el('div', { class: 'composer-status', 'aria-live': 'polite' }, els.reply, els.error, els.notice2, els.cooldown), form),
@@ -476,6 +478,43 @@ function renderMessage(state, m) {
   return row;
 }
 
+// ---------------------------------------------------------------- who are you backing?
+// The first time you watch a sport, its room asks once which team you back (or none). Your name then carries
+// that team in every room of the sport; players and changes are in Edit profile.
+const myTeam = (state) => state.ctx.me.sports?.[state.room.match?.sport]?.team || null;
+
+function renderBacking(state) {
+  const box = state.els.backing;
+  const sport = state.room.match?.sport;
+  const s = state.ctx.config.sports?.find((x) => x.sport === sport);
+  if (!s || state.ctx.me.sports?.[sport]) {
+    box.hidden = true;
+    return;
+  }
+  const choose = async (team) => {
+    box.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    try {
+      state.ctx.me = (await api.put(`/api/me/sports/${sport}`, { team })).user;
+      if (state !== R) return;
+      box.hidden = true;
+      const mine = state.members.get(state.ctx.me.id);
+      if (mine) mine.team = team;
+      state.membersSheet?.refresh?.();
+      toast(team ? `You're backing ${s.teams.find((t) => t.code === team).name}. Pick your ${s.label} players in Edit profile.`
+        : `Just watching ${s.label}. You can pick a team any time in Edit profile.`);
+    } catch (err) {
+      toast(err.message);
+      box.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    }
+  };
+  box.replaceChildren(
+    el('p', { class: 'guide-line' }, el('b', { text: `Who are you backing in ${s.label}? ` }), 'Your team shows next to your name in its rooms.'),
+    el('div', { class: 'ask-chips', role: 'group', 'aria-label': `${s.label} team` },
+      s.teams.map((t) => el('button', { type: 'button', class: `chip ${teamClass(t.code)}`, text: t.name, onclick: () => choose(t.code) })),
+      el('button', { type: 'button', class: 'chip ask-chip ghost', text: 'Just watching', onclick: () => choose(null) })));
+  box.hidden = false;
+}
+
 // ---------------------------------------------------------------- new to the sport? rules and players
 // Every room following a match tells newcomers they can ask: example questions fill in "@huddle ..." and the
 // checked rules sheet opens even when the AI is off. Answers use the sheet and the moment the question was asked.
@@ -721,7 +760,7 @@ function renderAiMessage(state, m) {
 
 function renderPending(state, p) {
   const row = el('div', { class: `msg you pending${p.failed ? ' failed' : ''}` },
-    avatar({ handle: state.ctx.me.handle, team: state.ctx.me.team }),
+    avatar({ handle: state.ctx.me.handle, team: myTeam(state) }),
     el('div', { class: 'msg-body' },
       el('div', { class: 'msg-meta' }, el('b', { class: 'handle', text: 'You' }), el('span', { class: 'msg-time', text: p.failed ? 'Not sent' : 'Sending…' })),
       el('p', { class: 'msg-text', text: p.text }),

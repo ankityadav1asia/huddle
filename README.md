@@ -13,7 +13,7 @@ runs inside the watch party. The product rules this build follows are in [CLAUDE
 
 | | Status |
 |---|---|
-| Join with a display name and @handle, the team you back and up to 3 players (no phone number or password; the browser stays signed in for 30 days) | **Implemented** |
+| Join with a display name and @handle, and pick the team and up to 3 players you back in each sport (no phone number or password; the browser stays signed in for 30 days). A sport you skipped is asked once, in one tap, in its first room; your team shows next to your name in that sport's rooms | **Implemented** |
 | One public watch party per sport (up to 100 members, moderation run by Huddle) and private rooms (up to 50, owner picks relaxed / balanced / strict) | **Implemented** |
 | **+ Private room** in a public watch party: a private room on the same game in one tap, inviting friends by username | **Implemented** |
 | Invite several friends, accept/decline/revoke, expiry, owner and admin roles, leave, remove | **Implemented** |
@@ -87,7 +87,7 @@ two. Keys stay on the server. Moderators (who see the review queue at
 npm test
 ```
 
-116 tests (under a minute) cover joining and player picks, room access and isolation, invitations and roles (including
+117 tests (under a minute) cover joining and the teams and players fans back in each sport, room access and isolation, invitations and roles (including
 the demo friends), the 10-second message rule (including concurrent sends and the exact boundary), moderation levels
 and the baseline, the match feed and how fast it reaches the room, the four sports' games and their final scores,
 private rooms' own replays and their controls, simulated fans (public rooms only), moment threads, momentum alerts,

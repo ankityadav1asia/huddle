@@ -244,15 +244,24 @@ button { cursor: pointer; }
   font-size: 10.5px; font-weight: 800; text-transform: uppercase;
   background: var(--card-2); border: 2px solid var(--line); color: var(--text);
 }
-.avatar.mi { border-color: var(--mi); background: var(--mi-soft); color: var(--mi); }
-.avatar.csk { border-color: var(--csk); background: var(--csk-soft); color: var(--csk-ink); }
+.avatar.team { border-color: var(--team); background: var(--team-soft); color: var(--team-ink); }
 .avatar.host { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .msg-body { min-width: 0; }
 .msg-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .msg-meta .handle { color: var(--text); font-weight: 700; font-size: 12.5px; }
 .badge { padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 800; letter-spacing: 0.05em; }
-.badge.mi { background: var(--mi-soft); color: var(--mi); }
-.badge.csk { background: var(--csk-soft); color: var(--csk-ink); }
+.badge.team { background: var(--team-soft); color: var(--team-ink); }
+/* Team colours (ui.js teamClass): MI and CSK from the palette above, then F1, NBA and NHL teams. */
+.t-mi { --team: var(--mi); --team-soft: var(--mi-soft); --team-ink: var(--mi); }
+.t-csk { --team: var(--csk); --team-soft: var(--csk-soft); --team-ink: var(--csk-ink); }
+.t-mcl { --team: #ff8000; --team-soft: #fff0e0; --team-ink: #8f4600; }
+.t-rbr { --team: #223971; --team-soft: #e7ebf5; --team-ink: #223971; }
+.t-fer { --team: #dc0000; --team-soft: #fde8e8; --team-ink: #a30000; }
+.t-mer { --team: #00a19c; --team-soft: #e0f4f3; --team-ink: #006b67; }
+.t-gsw { --team: #1d428a; --team-soft: #fff4d1; --team-ink: #1d428a; }
+.t-lal { --team: #552583; --team-soft: #f3ecfa; --team-ink: #552583; }
+.t-edm { --team: #fc4c02; --team-soft: #fff0e8; --team-ink: #9c2f00; }
+.t-tor { --team: #00205b; --team-soft: #e6eaf2; --team-ink: #00205b; }
 .badge.host { background: var(--accent-soft); color: var(--accent); }
 .thread-tag { color: var(--accent); font-size: 11.5px; font-weight: 700; animation: rise 0.3s ease; }
 .msg-text { margin: 1px 0 0; font-size: 14px; overflow-wrap: anywhere; }
