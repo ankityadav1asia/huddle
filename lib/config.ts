@@ -15,7 +15,8 @@ export function loadDotEnv(file = path.join(ROOT, '.env')) {
   }
 }
 
-const env = (name: string, fallback = '') => (process.env[name] ?? '').trim() || fallback;
+// Values pasted into a dashboard sometimes keep the quotes they were copied with: those are dropped too.
+const env = (name: string, fallback = '') => (process.env[name] ?? '').trim().replace(/^(["'])(.*)\1$/, '$2').trim() || fallback;
 const int = (name: string, fallback: number) => {
   const n = Number.parseInt(env(name), 10);
   return Number.isFinite(n) ? n : fallback;

@@ -99,6 +99,12 @@ function httpFailure(res: Response, json: any, provider: string): AIError {
   return new AIError(category, `${provider}: ${msg}`, { status: res.status, retryAfterMs: retryAfterMs(res.headers?.get?.('retry-after')) });
 }
 
+// What a rejected key looks like, without the key: enough to tell a truncated or masked paste from a wrong key.
+function keyShape(key: string): string {
+  const prefix = /^(xai-|sk-or-|sk-|AIza)/.exec(key)?.[1];
+  return `key sent: ${key.length} characters, ${prefix ? `starts "${prefix}"` : 'no known prefix'}${/[\s"'*…]/.test(key) ? ', has spaces, quotes or masking' : ''}`;
+}
+
 // A vendor's settings, as config().ai.providers holds them.
 interface ProviderSettings { apiKey: string; model: string }
 interface AnthropicSettings extends ProviderSettings { effort: string }
@@ -184,7 +190,11 @@ function chatCompletionsAdapter({ name, label, url, headers = {}, extraBody = {}
       // Some models reject strict schemas; the schema is also in the prompt, so ask once more without it.
       let { res, json } = await send(true);
       if (res.status === 400) ({ res, json } = await send(false));
-      if (!res.ok) throw httpFailure(res, json, label);
+      if (!res.ok) {
+        const err = httpFailure(res, json, label);
+        if (err.category === 'authentication_error') err.message += ` (${keyShape(apiKey)})`;
+        throw err;
+      }
       const choice = json?.choices?.[0];
       if (choice?.finish_reason === 'content_filter' || choice?.message?.refusal) throw new AIError('safety_refusal', 'The model declined the request');
       if (choice?.finish_reason === 'length') throw new AIError('bad_response', 'The response was cut off');
