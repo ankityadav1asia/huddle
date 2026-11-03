@@ -310,7 +310,7 @@ button { cursor: pointer; }
 .sheet .lede { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
 .sheet h3 { margin: 16px 0 8px; color: var(--muted); font-size: 11.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .sheet-actions { display: flex; gap: 8px; margin-top: 18px; }
-/* A full-height window (Dream Bot): its own header with a close button, and a body that fills the rest. */
+/* A full-height window (Dream AI): its own header with a close button, and a body that fills the rest. */
 .sheet.full { display: flex; flex-direction: column; height: calc(100% - 20px); max-height: none; overflow: hidden; padding-bottom: 0; }
 .sheet.full::before { margin-bottom: 10px; }
 .sheet.full .sheet-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }

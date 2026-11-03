@@ -47,6 +47,8 @@ const ICONS = {
   bat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.6 2.3l2.1 2.1-3.1 3.1.7.7-9.6 9.6a2.2 2.2 0 0 1-3.1 0l-.9-.9a2.2 2.2 0 0 1 0-3.1l9.6-9.6.7.7z"/><circle cx="5" cy="19" r="2.2"/></svg>',
   ball: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 5.5c2 3.6 2 9.4 0 13M16 5.5c-2 3.6-2 9.4 0 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2 1.6"/></svg>',
   dot: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/></svg>',
+  // Dream AI: a chat bubble with an AI sparkle cut out of it.
+  ai: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M7.5 2h9A3.5 3.5 0 0 1 20 5.5v7a3.5 3.5 0 0 1-3.5 3.5h-5.3l-4.5 3.6c-.6.5-1.5.1-1.5-.7V16A3.5 3.5 0 0 1 4 12.5v-7A3.5 3.5 0 0 1 7.5 2zM12 4.6l1.25 3.15L16.4 9l-3.15 1.25L12 13.4l-1.25-3.15L7.6 9l3.15-1.25z"/></svg>',
 };
 
 export function icon(name: keyof typeof ICONS) {
@@ -134,12 +136,12 @@ export function railIntro() {
   return [
     el('p', { class: 'rail-kicker', text: 'Prototype · Sports watch parties' }),
     el('h1', { class: 'rail-title', text: 'Huddle' }),
-    el('p', { class: 'rail-lede', text: 'Watch parties for cricket, kabaddi, football and basketball fans: invite friends, chat in real time and follow the live scorecard, with an AI Co-host in the chat and Dream Bot for your own questions.' }),
+    el('p', { class: 'rail-lede', text: 'Watch parties for cricket, kabaddi, football and basketball fans: invite friends, chat in real time and follow the live scorecard, with an AI Co-host in the chat and Dream AI for your own questions.' }),
     el('ul', { class: 'rail-features' },
       el('li', {}, el('b', { text: 'Watch parties' }), el('span', { text: 'A public room for every sport run by Huddle, and private rooms you start in one tap and invite friends to by username.' })),
       el('li', {}, el('b', { text: 'Match Centre' }), el('span', { text: 'The full scorecard, commentary, over by over and graphs sit in tabs beside the chat: swipe across, or tap the scorecard.' })),
       el('li', {}, el('b', { text: 'AI Co-host' }), el('span', { text: 'Posts the big moments and quick polls in the chat, and answers the questions nobody else does. Its messages are labelled as AI.' })),
-      el('li', {}, el('b', { text: 'Dream Bot' }), el('span', { text: 'Ask the AI anything about the game, its players or its rules. Only you see the answers, which come from verified match data and a checked rules sheet.' })),
+      el('li', {}, el('b', { text: 'Dream AI' }), el('span', { text: 'Ask the AI anything about the game, its players or its rules. Only you see the answers, which come from verified match data and a checked rules sheet.' })),
       el('li', {}, el('b', { text: 'Safe by default' }), el('span', { text: 'Choose relaxed, balanced or strict moderation. Core safety protections are always on.' }))),
     el('p', { class: 'rail-fine', text: 'Messages disappear when a watch party ends.' }),
   ];

@@ -1,5 +1,5 @@
 /* The watch party screens, loaded after styles.css and built on its tokens and base components: home, the room,
-   Dream Bot, sheets and forms, the rail and the moderation page. */
+   Dream AI, sheets and forms, the rail and the moderation page. */
 
 /* Shell */
 .view { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -53,7 +53,7 @@
 .add-btn .plus .ico { width: 16px; height: 16px; }
 .add-btn:hover .plus { background: var(--accent-soft); }
 .room-panel { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: -12px; overflow: hidden; border-radius: 18px 18px 0 0; background: var(--card); }
-/* The Chat tab: thread chips, the feed and the composer. Positioned for the Dream Bot launcher (bot.css), which rides
+/* The Chat tab: thread chips, the feed and the composer. Positioned for the Dream AI launcher (bot.css), which rides
    just above the composer however tall it grows; room.ts keeps --composer-h. */
 .chat-panel { position: relative; display: flex; flex-direction: column; }
 .chat-panel > .db-launch { bottom: calc(var(--composer-h, 66px) + 10px); }

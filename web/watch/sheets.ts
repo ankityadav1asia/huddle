@@ -17,7 +17,7 @@ export function initSheets() {
   });
 }
 
-// full: a full-height window (Dream Bot), which leaves no backdrop to tap, so it gets a close button.
+// full: a full-height window (Dream AI), which leaves no backdrop to tap, so it gets a close button.
 type SheetOptions = { title?: string; lede?: string; closable?: boolean; onclose?: (() => void) | null; full?: boolean };
 
 // After an await, check isOpen() before writing into body: the sheet may have been closed or replaced.

@@ -1,6 +1,6 @@
 # Huddle — Claude Code Project Instructions
 
-> **Scope lock (updated 3 November 2026):** This is a focused Watch Party prototype. Keep Match Intelligence (the Match Centre), Match Momentum alerts, Catch Me Up, the Dream Bot, in-app invitations, configurable moderation, and primary/fallback AI providers. Do not build video features, push notifications, 100M-user infrastructure, or large-scale distributed worker systems. When detailed sections below appear to suggest otherwise, this scope lock, the “Product decisions” list below it and the “Confirmed product scope” section take precedence.
+> **Scope lock (updated 3 November 2026):** This is a focused Watch Party prototype. Keep Match Intelligence (the Match Centre), Match Momentum alerts, Catch Me Up, the Dream AI, in-app invitations, configurable moderation, and primary/fallback AI providers. Do not build video features, push notifications, 100M-user infrastructure, or large-scale distributed worker systems. When detailed sections below appear to suggest otherwise, this scope lock, the “Product decisions” list below it and the “Confirmed product scope” section take precedence.
 
 ## Product decisions (3 November 2026)
 
@@ -9,7 +9,7 @@ The product owner made these decisions after trying the prototype. Where the det
 - **Room screen**, modelled on JioHotstar's "watch with friends": the live scorecard on top, a strip with Catch me up and Invite friends, then tabs: Chat (the default, with the composer) and the match tabs below. Nothing else sits above the chat.
 - **Match Centre in the room**, modelled on Cricbuzz's match page (updated 3 November 2026): the room's swipeable tabs are Chat, Scorecard, Commentary, Overs (Play by play for the other sports) and Graphs. Tapping the scorecard opens the Scorecard tab; there is no separate window.
 - **AI Co-host in the chat:** momentum alerts, quiet-room polls and answers to questions nobody answered arrive as chat messages labelled AI Co-host. There is no separate co-host panel.
-- **Dream Bot:** a floating AI button above the composer opens a chatbot window where a member asks anything about the match. It is the Co-host's Q&A (same orchestration, context and output validation), and its answers are private to the person asking. Mentioning the AI in chat (`@huddle`) does nothing.
+- **Dream AI:** a floating AI button above the composer opens a chatbot window where a member asks anything about the match. It is the Co-host's Q&A (same orchestration, context and output validation), and its answers are private to the person asking. Mentioning the AI in chat (`@huddle`) does nothing.
 - **No push notifications:** push alerts, alert preferences and the service worker are removed. Invitations show on the home screen; momentum alerts show in the room.
 - **One game per sport** (IPL T20 cricket, PKL kabaddi, ISL football, NBA basketball): every room follows the game in progress for its sport. Private rooms have no replay controls.
 - **Wording:** the app shows no "simulated", "demo", "replay" or "made-up" labels. The match tabs carry exactly one note: "Match data and crowd chat in this prototype are illustrative." AI content stays labelled as AI, and the README and docs still say plainly that the match data are fixtures, not a live feed.
@@ -638,7 +638,7 @@ Keep the prototype responsive during realistic match-day usage. Do not design fo
 - Index message queries by `(room_id, created_at)` and/or `(room_id, sequence_number)` as appropriate.
 - Use cursor pagination only while a room is active; do not expose post-end history.
 - Avoid loading the entire conversation on every message.
-- Avoid calling the AI once per incoming message by default; batch, debounce, or trigger on explicit requests (the Dream Bot, Catch me up) and meaningful events.
+- Avoid calling the AI once per incoming message by default; batch, debounce, or trigger on explicit requests (the Dream AI, Catch me up) and meaningful events.
 - Set AI Co-host response budgets and per-room cooldowns.
 - Use caching only for non-sensitive, correctly scoped data; invalidate room caches on closure.
 - Set database connection pool limits and worker concurrency deliberately.
@@ -648,7 +648,7 @@ Keep the prototype responsive during realistic match-day usage. Do not design fo
 
 ## 6. AI Co-host queue behaviour
 
-- The Co-host should normally respond when a user asks the Dream Bot or explicitly requests a feature, when a sport question goes unanswered, or when a configured match event warrants a response. Mentions in chat do not trigger it.
+- The Co-host should normally respond when a user asks the Dream AI or explicitly requests a feature, when a sport question goes unanswered, or when a configured match event warrants a response. Mentions in chat do not trigger it.
 - Do not create one LLM job for every message.
 - Debounce bursts and batch a small number of eligible messages for summaries where this does not compromise safety.
 - Use a room-scoped context window and retrieve only the minimum authorized messages.
@@ -892,7 +892,7 @@ The AI must:
 Keep normal chat and AI operations separate:
 - `POST /api/rooms/:roomId/messages`: validate user, room membership/status, text-only payload, rate limits and required pre-publication safety checks; persist and broadcast the message.
 - `POST /api/rooms/:roomId/reactions`: accept only an allowlisted emoji/reaction identifier; enforce membership, room status and reaction rate limits.
-- `POST /api/ai/room-message`: answer an explicit question (the Dream Bot, or a question nobody in the room answered) using bounded, authorized room and match context.
+- `POST /api/ai/room-message`: answer an explicit question (the Dream AI, or a question nobody in the room answered) using bounded, authorized room and match context.
 - `POST /api/ai/room-summary`: summarize a bounded time/message window from the current room only.
 - `POST /api/ai/match-insight`: produce a structured match or momentum insight from validated match data.
 - `POST /api/ai/poll`: generate a relevant, non-offensive cricket poll or discussion prompt from current match context.
@@ -1105,7 +1105,7 @@ These are presentation labels, not facts by themselves. Every displayed insight 
 ## AI invocation and latency policy
 
 - Do not call the LLM for every ordinary chat message.
-- Invoke it when a user asks the Dream Bot, selects an AI action, requests a summary/poll, when a sport question goes unanswered, or when a verified match-event rule determines that a useful insight should be generated.
+- Invoke it when a user asks the Dream AI, selects an AI action, requests a summary/poll, when a sport question goes unanswered, or when a verified match-event rule determines that a useful insight should be generated.
 - Normal chat delivery must not wait for LLM completion.
 - Keep deterministic match calculations outside the LLM. The model explains the result; it is not the source of score truth.
 - Cache only safe, room-scoped, short-lived derived context. Include room ID, match ID, data version and expiry in cache keys. Never reuse one room's conversation context in another room.

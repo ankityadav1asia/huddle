@@ -321,7 +321,7 @@ function openCreateRoom(ctx: ReadyCtx, data: RoomLists | null) {
     el('div', { class: 'field' }, el('label', { for: 'room-name', text: 'Room name' }), name),
     pickMatch,
     match ? el('label', { class: 'toggle-row', for: 'follow-match' }, follow,
-      el('span', {}, followTitle, el('small', { text: 'Live scorecard, Match Centre, big-moment alerts, #threads and Dream Bot in the room.' }))) : null,
+      el('span', {}, followTitle, el('small', { text: 'Live scorecard, Match Centre, big-moment alerts, #threads and Dream AI in the room.' }))) : null,
     el('fieldset', { class: 'field' }, el('legend', { text: 'Moderation' }), levels.node,
       el('p', { class: 'field-hint strong', text: 'Mandatory safety protections stay on at every level: threats, hate, sexual harassment and sharing personal details are always blocked.' })),
     el('label', { class: 'toggle-row', for: 'ai-on' }, ai,

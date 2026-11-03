@@ -121,7 +121,7 @@ route('GET', '/api/rooms/:id/match', async ({ db, user, params, query }) => {
   const crowd = room.room_type === 'public' ? await crowdLines(db, { roomId: room.id, matchId: room.match_id, level: policy.level }) : [];
   return { ...snap, crowd };
 });
-// For newcomers: the sport's checked rules sheet, its players and questions to ask Dream Bot.
+// For newcomers: the sport's checked rules sheet, its players and questions to ask Dream AI.
 route('GET', '/api/rooms/:id/guide', async ({ db, user, params }) => {
   const { room } = await roomAccess(db, params.id, user);
   const fixture = await fixtureForMatch(db, room.match_id);

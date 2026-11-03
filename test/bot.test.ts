@@ -7,7 +7,7 @@ import type { GenerateRequest, Provider } from '../lib/ai/providers.ts';
 import { DEMO_FIXTURE, schedule } from '../lib/match/fixture.ts';
 import { ingestDue } from '../lib/match/feed.ts';
 
-// Dream Bot (POST /api/rooms/:id/bot): the Co-host's Q&A, answered to the asker alone.
+// Dream AI (POST /api/rooms/:id/bot): the Co-host's Q&A, answered to the asker alone.
 type Fake = Provider & { requests: GenerateRequest[] };
 function fake(text: string, extra: Record<string, unknown> = {}): Fake {
   const p: Fake = {
@@ -44,7 +44,7 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
-test('Dream Bot answers the asker privately, from the match data, rules and roster; nothing reaches the room', async () => {
+test('Dream AI answers the asker privately, from the match data, rules and roster; nothing reaches the room', async () => {
   const p = fake('CSK need 52 off 34, and Dube just hit a six.');
   const before = await roomCounts();
   const r = await ask(fan, 'Kitne runs chahiye CSK ko?');
@@ -71,7 +71,7 @@ test('an answer with a number the verified data does not have is rejected: an ho
   const r = await ask(fan, 'What does CSK need?');
   assert.equal(r.status, 200);
   assert.equal(p.requests.length, 1);
-  assert.deepEqual(r.body, { answer: "Dream Bot can't answer right now. Latest: CSK 135/2 (14.2) · need 52 off 34.", asked_at: 'Over 14.2', grounding: null, source: 'unavailable' });
+  assert.deepEqual(r.body, { answer: "Dream AI can't answer right now. Latest: CSK 135/2 (14.2) · need 52 off 34.", asked_at: 'Over 14.2', grounding: null, source: 'unavailable' });
   // The same goes for unsafe text.
   fake('Only an idiot would bowl Tilak there.');
   assert.equal((await ask(fan, 'Should Tilak bowl?')).body.source, 'unavailable');
@@ -83,7 +83,7 @@ test('without an AI provider, or with AI switched off in the room, the reply say
   const none = await ask(friend, 'Who is on strike?');
   assert.equal(none.status, 200);
   assert.equal(none.body.source, 'unavailable');
-  assert.match(none.body.answer, /^Dream Bot can't answer right now\. Latest: CSK 135\/2/);
+  assert.match(none.body.answer, /^Dream AI can't answer right now\. Latest: CSK 135\/2/);
   const p = fake('Gaikwad is on strike.');
   assert.equal((await fan.patch(`/api/rooms/${room}/settings`, { ai_enabled: false })).status, 200);
   try {

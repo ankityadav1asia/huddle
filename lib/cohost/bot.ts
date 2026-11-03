@@ -1,4 +1,4 @@
-// Dream Bot (POST /api/rooms/:id/bot): a member asks anything about the room's match and the answer comes back to
+// Dream AI (POST /api/rooms/:id/bot): a member asks anything about the room's match and the answer comes back to
 // them alone; nothing is written to the room's messages or events. It is the Co-host's Q&A: the same orchestrator,
 // match context, rules sheet, roster and output validation (numbers only from verified data). Room chat is not
 // sent: the question is about the match.
@@ -39,7 +39,7 @@ export async function askDreamBot(db: Db, user: SessionUser, roomId: string, bod
 
 async function reply(db: Db, user: SessionUser, room: BotRoom, level: ModerationLevel, question: string): Promise<BotReply> {
   const limit = await userAiToken(db, user.id);
-  if (!limit.ok) throw new HttpError(429, 'rate_limited', 'Dream Bot needs a short break. Ask again in a moment.', { retry_after: limit.retryAfter });
+  if (!limit.ok) throw new HttpError(429, 'rate_limited', 'Dream AI needs a short break. Ask again in a moment.', { retry_after: limit.retryAfter });
   // asked_at is the latest play: the moment the question is about.
   const latest = await one<{ seq: number | null }>(db, 'SELECT max(seq)::int AS seq FROM match_events WHERE match_id = $1', [room.match_id]);
   const mc = await matchContext(db, room);
@@ -52,10 +52,10 @@ async function reply(db: Db, user: SessionUser, room: BotRoom, level: Moderation
   const decision = classify(question, { level });
   if (decision.action === 'reject' || decision.action === 'hold') {
     await recordModeration(db, { roomId: room.id, targetUserId: user.id, eventType: 'bot_question_blocked', severity: decision.risk, categories: decision.categories, level, action: 'not_sent' });
-    return unavailable(decision.action === 'reject' ? `Dream Bot can't answer that. ${decision.reason}` : "Dream Bot can't answer that. Ask it about the match.");
+    return unavailable(decision.action === 'reject' ? `Dream AI can't answer that. ${decision.reason}` : "Dream AI can't answer that. Ask it about the match.");
   }
   const orchestrator = await ai();
-  if (!orchestrator.available || !(await roomAiToken(db, room.id)).ok) return unavailable(`Dream Bot can't answer right now.${headline}`);
+  if (!orchestrator.available || !(await roomAiToken(db, room.id)).ok) return unavailable(`Dream AI can't answer right now.${headline}`);
 
   const grounding = {
     allowedEventIds: new Set<string>([...mc.allowedEventIds, ...(asked?.eventIds || [])]),
@@ -76,7 +76,7 @@ async function reply(db: Db, user: SessionUser, room: BotRoom, level: Moderation
   if (!result.ok) {
     log.info('cohost.bot_unavailable', { room: room.id, category: result.category, reason: result.reason });
     await recordBlockedOutput(db, room.id, result.reason);
-    return unavailable(`Dream Bot can't answer right now.${headline}`);
+    return unavailable(`Dream AI can't answer right now.${headline}`);
   }
   return { answer: result.value.text, asked_at: askedAt, grounding: result.value.grounding.status, source: 'ai' };
 }

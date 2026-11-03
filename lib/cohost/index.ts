@@ -1,5 +1,5 @@
 // The AI Co-host: answers to questions nobody answered, polls from the room's chat and match momentum explanations
-// (its private Q&A, the Dream Bot, is in bot.ts; Catch Me Up in catchup.ts). Each re-checks room state and membership
+// (its private Q&A, the Dream AI, is in bot.ts; Catch Me Up in catchup.ts). Each re-checks room state and membership
 // before publishing, and never publishes unchecked output.
 import { config } from '../config.ts';
 import { one, many, type Db } from '../db/index.ts';

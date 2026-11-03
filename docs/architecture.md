@@ -2,7 +2,7 @@
 
 Huddle is a sports Watch Party prototype for IPL T20 cricket, PKL kabaddi, ISL football and NBA basketball: friends (or the public)
 chat in a room while a game plays, the room shows verified match data, an AI Co-host in the chat answers questions
-nobody answered, flags big moments and catches people up, and Dream Bot answers anyone's own questions privately. It
+nobody answered, flags big moments and catches people up, and Dream AI answers anyone's own questions privately. It
 is one Node.js application written in TypeScript, with one Postgres database. There is no video, no microservice
 split, no Redis and no broker.
 
@@ -21,7 +21,7 @@ live feed), **Planned** (not built).
 | Rules and players help: a checked rules sheet and roster per sport; questions answered from the game as it stood when they were asked | Implemented; live answers need an AI key |
 | Match Momentum Engine (deterministic rules, dedup, fan-out) | Implemented; alerts show in the room (in-app only) |
 | AI Co-host in the chat: unanswered questions, polls on what the room is arguing about, momentum explanations; Catch Me Up | Implemented; live AI needs an API key (provider calls are tested with mocked HTTP) |
-| Dream Bot: private Q&A about the room's game | Implemented; live answers need an AI key |
+| Dream AI: private Q&A about the room's game | Implemented; live answers need an AI key |
 | Primary/fallback AI providers, circuit breaker | Implemented (Anthropic, OpenRouter, Gemini and xAI Grok adapters; OpenRouter and Grok share one chat-completions adapter) |
 | Moderation levels, public policy, mandatory baseline, reports, review queue, appeals | Implemented |
 | Ephemeral rooms (end, revoke, purge after retention) | Implemented |
@@ -43,7 +43,7 @@ flowchart LR
     RT[Long-poll gateway<br/>lib/rooms/realtime.ts]
     W[Worker: one job queue<br/>lib/jobs]
     FEED[Match feed ingestion<br/>lib/match]
-    CO[AI Co-host and Dream Bot<br/>lib/cohost + lib/ai]
+    CO[AI Co-host and Dream AI<br/>lib/cohost + lib/ai]
     MOD[Moderation gate<br/>lib/moderation]
   end
   DB[(Postgres<br/>PGlite locally, Neon/any Postgres hosted)]
@@ -53,7 +53,7 @@ flowchart LR
   UI -- "GET /events?after=seq&wait=1" --> RT
   API --> MOD
   API --> DB
-  API -- "Dream Bot, Catch Me Up, polls" --> CO
+  API -- "Dream AI, Catch Me Up, polls" --> CO
   RT --> DB
   W --> DB
   W --> FEED
@@ -71,7 +71,7 @@ flowchart LR
   (in-process wake-up locally, a 1-second database check across instances). Each poll re-authorises the caller, so
   leaving, removal and room closure cut the stream off immediately.
 - **One job queue** (`jobs` table) for everything slow: AI answers to unanswered questions, quiet-room checks,
-  momentum explanations, polls closing, room auto-end and purge. Chat delivery never waits for it. Dream Bot and Catch
+  momentum explanations, polls closing, room auto-end and purge. Chat delivery never waits for it. Dream AI and Catch
   Me Up are requests the asker waits for; they never write to the room.
 
 ## 2. Where the data lives
@@ -83,7 +83,7 @@ flowchart LR
 | AI provider keys | Server environment only (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`). Never in the browser, logs or job payloads | n/a |
 | Session | Browser: random token in an `HttpOnly; SameSite=Lax` cookie. Server: only its SHA-256 hash in `sessions` | 30 days |
 | Match feed | `match_events` / `match_signals`, shared by every room that follows the match | Kept with the match (fixture data) |
-| Data sent to AI providers | Per request only: verified match facts, the sport's rules sheet and roster, the question; for the Co-host's room tasks also a bounded window of this room's messages with members pseudonymised (`member1`…). Dream Bot sends no room chat. Never handles, other rooms or secrets | Subject to each provider's own terms |
+| Data sent to AI providers | Per request only: verified match facts, the sport's rules sheet and roster, the question; for the Co-host's room tasks also a bounded window of this room's messages with members pseudonymised (`member1`…). Dream AI sends no room chat. Never handles, other rooms or secrets | Subject to each provider's own terms |
 | Logs | stdout JSON lines: ids, categories, timings. Message text, questions, tokens and keys are redacted (`lib/log.ts`) | Hosting log retention |
 | Hosted database backups | The Postgres provider's backups / point-in-time restore | Follow the provider's window. Huddle's purge does not reach backups, so deletion there is not immediate |
 
@@ -139,7 +139,7 @@ labelled commentary and graphs (§4.10) are rebuilt from the same events with th
 ### Rooms and membership
 | Table | Purpose | Key columns |
 |---|---|---|
-| `rooms` | Watch parties | `room_type` public/private, `creator_id` (required for private), `match_id` (the sport's shared game the room follows; a private room may have none), `moderation_level` (private only; a CHECK forbids storing one on public rooms), `status` active/ended/purged, `last_seq` (per-room sequence), `ai_enabled` (the AI Co-host and Dream Bot), `ended_at`, `purge_after` |
+| `rooms` | Watch parties | `room_type` public/private, `creator_id` (required for private), `match_id` (the sport's shared game the room follows; a private room may have none), `moderation_level` (private only; a CHECK forbids storing one on public rooms), `status` active/ended/purged, `last_seq` (per-room sequence), `ai_enabled` (the AI Co-host and Dream AI), `ended_at`, `purge_after` |
 | `room_members` | Membership and roles | PK `(room_id, user_id)`, `role` owner/admin/member (at most one owner per room, unique index), `status` active/left/removed |
 | `room_invitations` | Invitations | `inviter_id`, `invitee_id`, `status` pending/accepted/declined/expired/revoked, `expires_at` (48 h); at most one pending invite per person per room |
 | `room_presence` | Who is in the room now | `last_seen_at` (refreshed by polls), `state` active/inactive (tab visible or hidden) |
@@ -156,7 +156,7 @@ labelled commentary and graphs (§4.10) are rebuilt from the same events with th
 
 When a room ends, every user-facing read of this content stops at once. The purge job deletes all of it
 `MESSAGE_RETENTION_HOURS` later (default 24 h) and nulls the room name; a sweep re-queues any purge that was missed.
-Dream Bot answers are never stored.
+Dream AI answers are never stored.
 
 ### Limits
 | Table | Purpose |
@@ -276,7 +276,7 @@ moderators until reviewed. AI work is only queued here: no LLM call ever sits on
   `grounding.status = rules_sheet`, and `ai_meta.asked_at` names the over or game clock it was asked at.
   `GET /api/rooms/:id/guide` shows newcomers the same sheet, roster and example questions.
 
-### 4.6 Dream Bot
+### 4.6 Dream AI
 `POST /api/rooms/:id/bot {question, client_request_id}` (`lib/cohost/bot.ts`) is the Co-host's Q&A for one person:
 1. Membership and room state are checked (`roomAccess`); a room without a game answers `400 no_match`.
 2. The per-person AI limit applies (`AI_USER_REQUESTS_PER_5_MIN`, the same bucket as poll suggestions): past it,
@@ -399,12 +399,12 @@ A room splits its chat into #threads without anyone managing them (`lib/rooms/th
   labelled JSON data. The model has no tools, so it cannot read other rooms, change settings or act on anyone.
 - **Wording**: the system prompt tells the model never to call the game simulated, a demo or a replay, and to say
   plainly that the match data in this prototype is illustrative when asked whether it is real. AI content stays
-  labelled as AI ("AI Co-host", "Dream Bot").
-- **Input**: text only (multipart and attachments are refused with 415/400), 500-character limit (300 for Dream Bot),
+  labelled as AI ("AI Co-host", "Dream AI").
+- **Input**: text only (multipart and attachments are refused with 415/400), 500-character limit (300 for Dream AI),
   Unicode normalisation, invisible and bidi characters stripped, rendered with `textContent` only. CSP is
   `script-src 'self'`.
 - **Moderation**: the baseline (threats, self-harm encouragement, hate slurs, sexual harassment, personal data) is
-  enforced at every level and in every room type, and on Dream Bot questions. Levels only tune profanity, insults and
+  enforced at every level and in every room type, and on Dream AI questions. Levels only tune profanity, insults and
   spam. Three stopped messages within ten minutes pause posting for two minutes; nobody is banned automatically.
   Members can report, three reports hide a message for human review, and appeals are possible.
 - **Secrets** stay in server env vars; logs are redacted; `ai_calls` stores no prompts.
@@ -416,7 +416,7 @@ A room splits its chat into #threads without anyone managing them (`lib/rooms/th
 - Chat ordering: a concurrency-safe per-room sequence (`UPDATE rooms SET last_seq = last_seq + 1 … RETURNING`).
 - Delivery: at-least-once; clients dedupe by sequence and entity id. No exactly-once promise.
 - Idempotency: `client_msg_id` for messages, unique `dedupe_key` for jobs and signals, unique `(room_id, signal_id)`
-  for insights, a derived key for AI answers, `idempotency_key` for polls, and `client_request_id` for Dream Bot
+  for insights, a derived key for AI answers, `idempotency_key` for polls, and `client_request_id` for Dream AI
   (per instance, for a minute).
 - Jobs: durable (same transaction as the triggering write), retried with exponential backoff and jitter, dead-lettered
   after `max_attempts`, re-check room and membership when they run, and expire instead of delivering late.
@@ -438,8 +438,8 @@ A room splits its chat into #threads without anyone managing them (`lib/rooms/th
 - Authorization is enforced in application code, not Postgres Row Level Security (one server role connects).
 - On serverless hosting, background jobs run while some member is connected (long-poll requests drive them), plus
   a daily Vercel Cron sweep. A dedicated worker process would remove that dependency.
-- Circuit-breaker state, the AI concurrency cap and Dream Bot's repeat cache are per server instance.
-- Provider calls have per-task timeouts (Dream Bot 6 s within a 14 s deadline, momentum and polls 4.5 s within 10 s),
+- Circuit-breaker state, the AI concurrency cap and Dream AI's repeat cache are per server instance.
+- Provider calls have per-task timeouts (Dream AI 6 s within a 14 s deadline, momentum and polls 4.5 s within 10 s),
   so a slow primary leaves the fallback time to answer. A failed call logs `ai.provider_error` with the vendor's
   status and error text (never the key).
 - Live AI providers were not exercised end to end in this environment (no API keys); adapters are tested with mocked

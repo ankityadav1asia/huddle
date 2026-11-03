@@ -1,4 +1,4 @@
-// Dream Bot: a floating AI chat widget in the room. The room mounts dreamBotLauncher(), a glowing orb just above its
+// Dream AI: a floating AI chat widget in the room. The room mounts dreamBotLauncher(), a glowing orb just above its
 // message box; the orb opens a chat window that rises from the bottom of the phone. Ask it anything about the room's
 // game; answers come from POST /api/rooms/:id/bot (verified match data, the sport's rules sheet and roster) and are
 // only ever shown to the person who asked, never posted in the room. Each room's conversation is kept in memory while
@@ -22,7 +22,7 @@ interface Guide { sport_name: string; examples: string[]; rules: { topic: string
 export interface BotOptions {
   roomId: string;
   game: string | null; // the game the room follows
-  ai: boolean; // the room's AI is on; without it, or without a game, Dream Bot can only catch you up
+  ai: boolean; // the room's AI is on; without it, or without a game, Dream AI can only catch you up
   catchUp: () => void;
   situation?: () => string | null; // the live match line, e.g. "CSK 135/2 (14.3) · need 52 off 33"
 }
@@ -64,8 +64,8 @@ const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').match
 // The floating orb the room puts in its chat panel, just above the message box.
 export function dreamBotLauncher(opts: BotOptions): HTMLElement {
   const nudge = el('div', { class: 'db-nudge', 'aria-hidden': 'true', hidden: true, text: 'Ask me anything about this match', onclick: () => launch() });
-  const orb = el('button', { type: 'button', class: 'db-orb', 'aria-label': 'Dream Bot: ask the AI about the game', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => launch() }, icon('spark'));
-  const wrap = el('div', { class: 'db-launch' }, orb, el('span', { class: 'db-tip', 'aria-hidden': 'true', text: 'Ask Dream Bot' }), nudge);
+  const orb = el('button', { type: 'button', class: 'db-orb', 'aria-label': 'Dream AI: ask the AI about the game', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => launch() }, icon('ai'));
+  const wrap = el('div', { class: 'db-launch' }, orb, el('span', { class: 'db-tip', 'aria-hidden': 'true', text: 'Ask Dream AI' }), nudge);
   launchers.set(opts.roomId, orb);
   const hideNudge = () => {
     if (nudge.hidden || nudge.classList.contains('out')) return;
@@ -112,24 +112,24 @@ function mount(chat: Chat): View {
   const head = el('div', { class: 'db-head' },
     avatar('lg'),
     el('div', { class: 'db-id' },
-      el('h2', { id: `db-title-${id}`, class: 'db-name' }, 'Dream Bot', aiLabel('AI')),
+      el('h2', { id: `db-title-${id}`, class: 'db-name' }, 'Dream AI', aiLabel('AI')),
       el('p', { class: 'db-status' }, el('span', { class: 'db-live', 'aria-hidden': 'true' }), 'Match analyst · reads the live scorecard')),
-    el('button', { type: 'button', class: 'db-x', 'aria-label': 'Close Dream Bot', onclick: () => self.close() }, icon('close')),
+    el('button', { type: 'button', class: 'db-x', 'aria-label': 'Close Dream AI', onclick: () => self.close() }, icon('close')),
     context);
 
   const welcomeChips = el('div', { class: 'db-suggest', role: 'group', 'aria-label': 'Suggestions' });
   const welcome = el('div', { class: 'db-welcome' },
     avatar('xl'),
-    el('p', { class: 'db-hello', text: 'Hi, I\'m Dream Bot' }),
+    el('p', { class: 'db-hello', text: 'Hi, I\'m Dream AI' }),
     el('p', { class: 'db-lede', text: asks ? `Ask me anything about ${opts.game}. I answer from verified match data and the sport's rules sheet, and tell you when the data does not say instead of guessing.`
       : opts.game ? 'The AI is off in this room, so I can only catch you up, from match data.'
         : 'This room is not following a game, so I can only catch you up.' }),
     welcomeChips);
-  const log = el('div', { class: 'db-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Your conversation with Dream Bot' });
+  const log = el('div', { class: 'db-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Your conversation with Dream AI' });
   const scroller = el('div', { class: 'db-scroll' }, welcome, log);
 
   const row = el('div', { class: 'db-row', role: 'group', 'aria-label': 'Suggestions', hidden: true });
-  const input = el('input', { class: 'db-input', id: `db-question-${id}`, maxlength: '300', placeholder: 'Ask about the game, a player or a rule', 'aria-label': 'Ask Dream Bot', autocomplete: 'off', enterkeyhint: 'send' });
+  const input = el('input', { class: 'db-input', id: `db-question-${id}`, maxlength: '300', placeholder: 'Ask about the game, a player or a rule', 'aria-label': 'Ask Dream AI', autocomplete: 'off', enterkeyhint: 'send' });
   const send = el('button', { type: 'submit', class: 'db-send', 'aria-label': 'Ask' }, icon('send'));
   const form = el('form', { class: 'db-compose', autocomplete: 'off' }, input, send);
   input.addEventListener('input', () => form.classList.toggle('ready', input.value.trim() !== ''));
@@ -177,7 +177,7 @@ function mount(chat: Chat): View {
   function bubble(t: Turn): HTMLElement {
     if (t.who === 'me') return el('div', { class: 'db-msg me' }, el('p', { class: 'db-bubble' }, el('span', { class: 'sr-only', text: 'You: ' }), t.text));
     const bot = (kind: string, ...body: Child[]) => el('div', { class: `db-msg bot ${kind}` }, avatar(),
-      el('div', { class: 'db-bubble' }, el('span', { class: 'sr-only', text: 'Dream Bot: ' }), body));
+      el('div', { class: 'db-bubble' }, el('span', { class: 'sr-only', text: 'Dream AI: ' }), body));
     const again = (run: () => void) => el('button', { type: 'button', class: 'db-retry', onclick: () => { run(); focusHome(); } }, 'Try again');
     if (t.state === 'pending') {
       return bot('thinking', el('span', { class: 'db-dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i')), el('span', { class: 'db-shimmer', text: 'Thinking' }));
@@ -222,7 +222,7 @@ function mount(chat: Chat): View {
     rules.replaceChildren(
       el('button', { type: 'button', class: 'db-back', onclick: hideRules }, icon('back'), 'Back to chat'),
       title,
-      el('p', { class: 'db-rules-lede', text: 'A short, checked rules sheet. Dream Bot and the AI Co-host answer rule and player questions from it.' }),
+      el('p', { class: 'db-rules-lede', text: 'A short, checked rules sheet. Dream AI and the AI Co-host answer rule and player questions from it.' }),
       el('h4', { text: 'Rules' }),
       el('dl', { class: 'db-rule-list' }, g.rules.map((r) => el('div', {}, el('dt', { text: r.topic }), el('dd', { text: r.text })))),
       el('h4', { text: 'Players' }),
@@ -310,7 +310,7 @@ function trapTab(panel: HTMLElement, e: KeyboardEvent) {
   }
 }
 
-const avatar = (size = '') => el('span', { class: `db-avatar${size ? ` ${size}` : ''}`, 'aria-hidden': 'true' }, icon('spark'));
+const avatar = (size = '') => el('span', { class: `db-avatar${size ? ` ${size}` : ''}`, 'aria-hidden': 'true' }, icon('ai'));
 
 function refresh(chat: Chat) {
   if (view?.chat === chat) view.render();
@@ -321,7 +321,7 @@ async function loadGuide(chat: Chat) {
   try {
     chat.guide = await api.get(`/api/rooms/${chat.roomId}/guide`);
   } catch {
-    chat.guide = undefined; // the examples and rules are extras: Dream Bot works without them
+    chat.guide = undefined; // the examples and rules are extras: Dream AI works without them
   }
   refresh(chat);
 }

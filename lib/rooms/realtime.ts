@@ -156,8 +156,8 @@ export async function roomBootstrap(db: Queryable, user: SessionUser, roomId: st
         : { managed_by: 'room', level: policy.level, description: LEVEL_INFO[policy.level], notice: 'Mandatory safety protections stay on at every level.' },
       retention_notice: `Messages disappear for everyone when the watch party ends and are deleted from our servers within ${config().retention.messageHours} hours.`,
       ai_notice: room.ai_enabled
-        ? 'The AI Co-host (AI) reads recent messages in this room only, to answer questions nobody answers, catch you up and suggest polls. Dream Bot (AI) answers only you, from the match data. Match facts come from the match feed.'
-        : 'The AI Co-host and Dream Bot are off in this room.',
+        ? 'The AI Co-host (AI) reads recent messages in this room only, to answer questions nobody answers, catch you up and suggest polls. Dream AI (AI) answers only you, from the match data. Match facts come from the match feed.'
+        : 'The AI Co-host and Dream AI are off in this room.',
     },
     members,
     // The public watch party's simulated fans (the Match Centre's note covers them); private rooms have none.

@@ -1,5 +1,5 @@
 // The watch party room: the live scorecard, Catch me up and the invite button, then one panel of swipeable tabs: the
-// chat (the AI Co-host's messages, #threads, the composer with its rate limit, and the Dream Bot launcher) and the
+// chat (the AI Co-host's messages, #threads, the composer with its rate limit, and the Dream AI launcher) and the
 // match tabs (match.ts), which a tap on the scorecard opens. The server re-authorises every request; this view never
 // decides who sees what.
 import { api, ApiError, errorMessage, serverNow, newKey, type CreatedRoom, type InviteResult, type ModerationLevel, type Role } from './api.ts';
@@ -264,7 +264,7 @@ interface RoomState {
   // Set by bootstrap() before anything reads them.
   room: Room;
   crowdFans: CrowdFan[];
-  bot: BotOptions; // Dream Bot's, for its launcher and the room menu: bot.ts reads them each time its window opens
+  bot: BotOptions; // Dream AI's, for its launcher and the room menu: bot.ts reads them each time its window opens
   // Set later, if at all.
   ticker?: number;
   onVis?: () => void;
@@ -428,7 +428,7 @@ function buildRoom(state: RoomState) {
     el('div', { class: 'composer-status', 'aria-live': 'polite' }, els.reply, els.error, els.notice, els.cooldown),
     form);
 
-  // The Chat tab's panel is positioned: the Dream Bot launcher sits in its bottom-right corner, just above the
+  // The Chat tab's panel is positioned: the Dream AI launcher sits in its bottom-right corner, just above the
   // composer, however tall the composer grows (the backing prompt, a reply, an error: watch.css reads --composer-h).
   state.bot = {
     roomId: state.id, game: room.match?.title || null, ai: room.ai_enabled,
@@ -506,7 +506,7 @@ function openBot(state: RoomState) {
   openDreamBot(state.bot);
 }
 
-// Where the game stands, in one line for Dream Bot: "CSK 135/2 (14.3) · need 52 off 33", "MBSG 2–1 EBFC · 72' · Second half".
+// Where the game stands, in one line for Dream AI: "CSK 135/2 (14.3) · need 52 off 33", "MBSG 2–1 EBFC · 72' · Second half".
 function situation(state: RoomState): string | null {
   const snap = state.match;
   if (!snap?.score || snap.match.status === 'scheduled') return null;
@@ -901,7 +901,7 @@ function renderBacking(state: RoomState) {
 // A private room on this game, started from the public room: only the people you invite, and no crowd chat.
 function openQuickPrivate(state: RoomState) {
   const me = state.ctx.me;
-  const s = openSheet({ title: 'Start a private room', lede: 'Watch this game with only the people you invite. Big-moment alerts, #threads, the AI Co-host and Dream Bot come with it; the crowd chat stays here.' });
+  const s = openSheet({ title: 'Start a private room', lede: 'Watch this game with only the people you invite. Big-moment alerts, #threads, the AI Co-host and Dream AI come with it; the crowd chat stays here.' });
   const error = el('p', { class: 'form-error', role: 'alert' });
   const name = el('input', { id: 'quick-room-name', maxlength: '40', value: `${me.handle}'s room`.slice(0, 40) });
   const picker = friendPicker({ excludeIds: new Set([me.id]) });
@@ -1352,7 +1352,7 @@ function renderRail(state: RoomState) {
       el('li', { text: mod }),
       el('li', { text: room.ai_enabled ? 'AI Co-host on: big moments, polls and answers in the chat, labelled as AI' : 'AI Co-host off in this room' }),
       room.match ? el('li', { text: 'Swipe from the chat to the full scorecard, commentary and graphs, or tap the scorecard' }) : null,
-      el('li', { text: 'Dream Bot answers your own questions about the game, privately' }),
+      el('li', { text: 'Dream AI answers your own questions about the game, privately' }),
       el('li', { text: 'Messages disappear when the watch party ends' })),
   );
 }
@@ -1404,7 +1404,7 @@ function openRoomMenu(state: RoomState) {
   s.body.append(el('div', { class: 'menu-list' },
     item('Room info', () => openRoomInfo(state)),
     item('Members', () => openMembers(state)),
-    item('Dream Bot', () => { closeSheet(); openBot(state); }),
+    item('Dream AI', () => { closeSheet(); openBot(state); }),
     room.match ? item('Suggest a poll', () => { closeSheet(); suggestPoll(state); }) : null,
     hasSettings ? item('Room settings', () => openSettings(state)) : null,
     room.my_role === 'owner' && room.room_type === 'private'

@@ -60,7 +60,7 @@ export const SCHEMAS: Record<TaskName, JsonSchema> = {
 };
 
 const INSTRUCTIONS: Record<TaskName, string> = {
-  answer: `A member asked a question: in the room chat, where nobody answered it, or privately to Dream Bot. Answer in at most 2 short sentences (max 280 characters).
+  answer: `A member asked a question: in the room chat, where nobody answered it, or privately to Dream AI. Answer in at most 2 short sentences (max 280 characters).
 - SPORT names the game. MATCH_WHEN_ASKED is the game at the moment they asked (its clock and the plays just before); VERIFIED_MATCH_DATA and COMMENTARY are the game now. A question about "this", "that" or "just now" is about MATCH_WHEN_ASKED.
 - A rule question ("what is icing?", "why two free throws?"): explain it in plain words for a newcomer using only RULES_SHEET, tied to MATCH_WHEN_ASKED when it fits; grounding.status "rules_sheet".
 - A player question ("who is X?"): use only ROSTER (team and role) and what they did in this match; nothing else about them; grounding.status "grounded".
