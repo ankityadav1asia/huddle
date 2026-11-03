@@ -14,9 +14,11 @@ interface PublicRoom {
   sport: string;
   match_title: string;
   match_status: string;
+  members: number;
+  max_members: number;
+  online: number;
   joined: boolean;
   full: boolean;
-  watching: number; // people online plus, once the game is live, the crowd
   score: { line: string; sub: string | null; note: string | null } | null; // a live game's scoreboard
 }
 interface MyRoom { id: string; name: string | null; status: string; role: Role; moderation_level: ModerationLevel; members: number; online: number }
@@ -42,7 +44,7 @@ export async function renderHome(ctx: ReadyCtx) {
   const invites = el('section', { class: 'home-section', 'aria-labelledby': 'h-invites' });
   const live = el('section', { class: 'home-section', 'aria-labelledby': 'h-live' });
   const mine = el('section', { class: 'home-section', 'aria-labelledby': 'h-mine' });
-  const create = el('button', { type: 'button', class: 'btn create-btn' }, icon('plus'), 'Private room');
+  const create = el('button', { type: 'button', class: 'btn primary', text: 'Create a private room' });
   let data: RoomLists | null = null; // the /api/rooms response, once loaded
   create.addEventListener('click', () => openCreateRoom(ctx, data));
 
@@ -109,7 +111,7 @@ function renderInvites(ctx: ReadyCtx, section: HTMLElement, invitations: Invitat
   }
 }
 
-const SPORT_LABEL: Partial<Record<string, string>> = { cricket: 'Cricket · T20', f1: 'Formula 1', basketball: 'Basketball · NBA', hockey: 'Ice hockey · NHL' };
+const SPORT_LABEL: Partial<Record<string, string>> = { cricket: 'Cricket · T20', f1: 'Formula 1', basketball: 'Basketball', hockey: 'Ice hockey' };
 const SPORT_TAG: Partial<Record<string, string>> = { f1: 'F1', basketball: 'NBA', hockey: 'NHL' };
 
 // Joining a public watch party (or opening one you are in); a full room says so where it was tapped.
@@ -124,46 +126,38 @@ async function enter(ctx: ReadyCtx, room: PublicRoom, control: HTMLButtonElement
   }
 }
 
-const fixtureMark = (room: PublicRoom) => (room.sport === 'cricket' || !room.sport
-  ? el('span', { class: 'mark-logos' }, teamLogo('MI'), teamLogo('CSK'))
-  : el('span', { class: 'sport-tag', text: SPORT_TAG[room.sport] || room.sport }));
-
-// Live now: each game in progress as a scoreboard card. Up next: the games that start when their first fan joins.
+// One card per public watch party: the sport and its status, the game, a live game's score, then who is in and Join.
 function renderLive(ctx: ReadyCtx, section: HTMLElement, rooms: RoomLists) {
-  const live = rooms.public_rooms.filter((r) => r.match_status === 'live');
-  const next = rooms.public_rooms.filter((r) => r.match_status !== 'live');
-  section.replaceChildren();
-  if (!live.length && !next.length) {
-    section.append(el('h2', { class: 'section-title', id: 'h-live', text: 'Watch parties' }), el('p', { class: 'empty', text: 'No public watch party right now.' }));
+  section.replaceChildren(el('h2', { class: 'section-title', id: 'h-live', text: 'Public watch parties' }));
+  if (!rooms.public_rooms.length) {
+    section.append(el('p', { class: 'empty', text: 'No public watch party right now.' }));
     return;
   }
-  if (live.length) section.append(el('h2', { class: 'section-title', id: 'h-live', text: 'Live now' }));
-  for (const room of live) {
+  for (const room of rooms.public_rooms) {
+    const live = room.match_status === 'live';
     const full = room.full && !room.joined;
     const err = el('p', { class: 'form-error', role: 'alert' });
     const go = el('button', { type: 'button', class: 'btn primary small', text: room.joined ? 'Open' : full ? 'Full' : 'Join', disabled: full });
     go.addEventListener('click', () => enter(ctx, room, go, err));
-    const s = room.score;
-    section.append(el('article', { class: 'card live-card' },
-      el('div', { class: 'live-top' }, el('span', { class: 'card-sport', text: SPORT_LABEL[room.sport] || 'Cricket' }), el('span', { class: 'status-pill live', text: 'Live' })),
-      el('div', { class: 'live-title' }, fixtureMark(room), el('b', { text: room.match_title || 'Match' })),
-      s ? el('p', { class: 'live-score' }, el('b', { text: s.line }), s.sub ? el('span', { text: s.sub }) : null) : null,
-      s?.note ? el('p', { class: 'live-note', text: s.note }) : null,
-      el('div', { class: 'live-foot' }, el('span', { class: 'card-meta', text: `${room.watching} watching` }), go), err));
+    const s = live ? room.score : null;
+    // Where the teams have logos, the logos are the title (the name stays for screen readers).
+    const logos = room.sport === 'cricket' || !room.sport;
+    section.append(el('article', { class: 'card pub-card' },
+      el('div', { class: 'pub-top' },
+        el('span', { class: 'pub-mark' }, logos ? null : el('span', { class: 'sport-tag', text: SPORT_TAG[room.sport] || room.sport }),
+          el('span', { class: 'card-sport', text: SPORT_LABEL[room.sport] || 'Cricket' })),
+        el('span', { class: `status-pill${live ? ' live' : ''}`, text: live ? '● Live' : 'Not started' })),
+      logos
+        ? el('h3', { class: 'card-h pub-logos' }, el('span', { class: 'sr-only', text: room.match_title || 'Match' }), teamLogo('MI'), teamLogo('CSK'))
+        : el('h3', { class: 'card-h', text: room.match_title || 'Match' }),
+      s ? el('p', { class: 'pub-score' }, el('b', { text: s.line }), s.sub ? el('span', { text: s.sub }) : null, s.note ? el('em', { text: s.note }) : null) : null,
+      el('div', { class: 'pub-foot' },
+        el('p', { class: 'card-meta' },
+          el('span', { text: live ? `${room.members}/${room.max_members} members · ${room.online} online` : full ? 'Full' : 'Starts when the first fan joins' }),
+          el('span', { class: 'managed' }, icon('shield'), 'Moderated by Huddle')),
+        go),
+      err));
   }
-  if (!next.length) return;
-  const list = el('ul', { class: 'next-list' });
-  for (const room of next) {
-    const err = el('span', { class: 'form-error', role: 'alert' });
-    const row = el('button', { type: 'button', class: 'next-row', disabled: room.full && !room.joined },
-      fixtureMark(room),
-      el('span', { class: 'next-main' }, el('b', { text: room.match_title || 'Match' }),
-        el('small', { text: room.full && !room.joined ? 'Full' : 'Starts when you join' })),
-      el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
-    row.addEventListener('click', () => enter(ctx, room, row, err));
-    list.append(el('li', {}, row, err));
-  }
-  section.append(el('h2', { class: 'section-title', text: 'Up next' }), list);
 }
 
 function renderMine(ctx: ReadyCtx, section: HTMLElement, rooms: MyRoom[]) {

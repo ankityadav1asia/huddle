@@ -86,12 +86,10 @@ function homeScore(sport: string, sc: any) {
 route('GET', '/api/rooms', async ({ db, user }) => {
   await ensureDemoMatches(db); // one shared game, with its public watch party, per sport
   const listed = await listRooms(db, user);
-  // A live game shows its score on the home screen, and how many are watching: people online plus the crowd.
+  // A live game shows its score on the home screen.
   const public_rooms = await Promise.all(listed.public_rooms.map(async (r) => {
-    if (r.match_status !== 'live' || !r.match_id) return { ...r, score: null, watching: r.online };
-    const snap = await matchSnapshot(db, r.match_id);
-    const fixture = fixtureFor({ fixture_key: snap?.match.fixture_key });
-    return { ...r, score: snap ? homeScore(r.sport, snap.score) : null, watching: r.online + fixture.crowd.fans.length };
+    const snap = r.match_status === 'live' && r.match_id ? await matchSnapshot(db, r.match_id) : null;
+    return { ...r, score: snap ? homeScore(r.sport, snap.score) : null };
   }));
   const rooms = { ...listed, public_rooms };
   const matches = (await many<Pick<MatchRow, 'id' | 'title' | 'status' | 'source' | 'fixture_key'>>(db, `SELECT id, title, status, source, fixture_key FROM matches WHERE status IN ('scheduled', 'live')`))

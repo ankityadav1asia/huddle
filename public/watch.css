@@ -185,28 +185,22 @@ button.thread-tag { padding: 0; border: 0; background: none; cursor: pointer; }
 .card-h { margin: 0; font: 700 22px/1.05 var(--display); overflow-wrap: anywhere; }
 .card-meta { margin: 0; color: var(--muted); font-size: 12.5px; }
 .card-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.mark-logos .logo { width: 22px; height: 22px; border: 1px solid var(--line); }
-.status-pill { margin-left: auto; padding: 2px 8px; border-radius: 999px; background: var(--card-2); color: var(--muted); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.status-pill { margin-left: auto; padding: 3px 10px; border-radius: 999px; background: var(--card-2); color: var(--muted); font-size: 11.5px; font-weight: 700; white-space: nowrap; }
 .status-pill.live { background: #fdecee; color: var(--wicket); }
-.live-card { display: grid; gap: 6px; border-color: var(--brand); }
-.live-top, .live-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.live-title { display: flex; align-items: center; gap: 8px; font-size: 17px; }
-.live-title b { font-family: var(--display); font-weight: 700; }
-.mark-logos { display: inline-flex; gap: 4px; }
-.live-score { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 0; }
-.live-score b { font: 700 30px/1 var(--display); font-variant-numeric: tabular-nums; }
-.live-score span { color: var(--muted); font-size: 13px; }
-.live-note { margin: 0; color: var(--wicket); font-size: 13px; font-weight: 600; }
-.next-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--card); overflow: hidden; }
-.next-list li + li { border-top: 1px solid var(--line); }
-.next-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 14px; border: 0; background: none; text-align: left; }
-.next-row:hover { background: var(--card-2); }
-.next-main { flex: 1; min-width: 0; display: grid; gap: 1px; }
-.next-main b { font-size: 14.5px; }
-.next-main small { color: var(--muted); font-size: 12px; }
-.next-row .chev { color: var(--faint); font-size: 22px; line-height: 1; }
-.create-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; border: 1px solid var(--line); background: var(--card); color: var(--text); }
-.create-btn .ico { width: 14px; height: 14px; }
+.pub-card { display: grid; gap: 8px; }
+.pub-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pub-mark { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.pub-mark .card-sport { white-space: nowrap; }
+.pub-logos { display: flex; gap: 10px; }
+.pub-logos .logo { width: 44px; height: 44px; padding: 3px; border: 1px solid var(--line); border-radius: 12px; }
+.pub-score { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 9px 12px; border-radius: var(--r-md); background: var(--card-2); }
+.pub-score b { font: 700 22px/1 var(--display); font-variant-numeric: tabular-nums; }
+.pub-score span { color: var(--muted); font-size: 13px; }
+.pub-score em { margin-left: auto; color: var(--wicket); font-size: 13px; font-style: normal; font-weight: 700; text-align: right; }
+.pub-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pub-foot .card-meta { display: grid; gap: 3px; }
+.managed { display: flex; align-items: center; gap: 4px; }
+.managed .ico { width: 12px; height: 12px; color: var(--accent); }
 .room-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .room-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--card); text-align: left; }
 .room-row:hover { border-color: var(--accent-line); }
