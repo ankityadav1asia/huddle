@@ -1,29 +1,32 @@
-// Match Centre: a Cricbuzz-style window over the room, opened from its scorecard. Swipeable tabs (Scorecard, Graphs,
-// Commentary, and Overs for cricket or Play by play for kabaddi, football and basketball) show
-// GET /api/rooms/:id/match?detail=1; the room calls update() whenever the match moves on.
+// The room's match tabs, a Cricbuzz-style match page beside the chat: Scorecard, Commentary, Overs (Play by play for
+// kabaddi, football and basketball) and Graphs. They show GET /api/rooms/:id/match?detail=1, fetched the first time a
+// match tab opens; the room calls update() whenever the match moves on.
 import { api, errorMessage } from './api.ts';
 import { el, icon, plural, teamClass, teamLogo, type Child } from './ui.ts';
 
-export interface MatchCentre {
-  update(): void;
-  close(): void;
-  isOpen(): boolean;
+// panels: one per tab, in the order of matchTabNames(), for the room to place in its pager. Each ends with the one
+// note on the match data.
+export interface MatchTabs {
+  panels: HTMLElement[];
+  open(): void; // a match tab is on screen: the first call fetches the detail
+  update(): void; // the match moved on: refetches, once opened, at most about once every 2 s
+  destroy(): void;
 }
+
+export const matchTabNames = (sport: string) => ['Scorecard', 'Commentary', sport === 'cricket' ? 'Overs' : 'Play by play', 'Graphs'];
 
 // The one place in the app that says what the match data are.
 const NOTE = 'Match data and crowd chat in this prototype are illustrative.';
-const REFETCH_MS = 2000; // update() fetches at most about once every 2 s
+const REFETCH_MS = 2000;
 const DASH = '–';
 // Line colours for a series that has no team colour.
 const SPARE = ['#2a78d6', '#eb6834', '#1baf7a'];
 
-type Sport = 'cricket' | 'kabaddi' | 'football' | 'basketball';
-type Status = 'scheduled' | 'live' | 'completed';
 type Innings = 'current' | 'first';
 
 // `logo` when the server sends one; teamLogo() otherwise uses assets/<code>.png.
 interface TeamRef { code: string; name: string; logo?: string }
-interface MatchInfo { title: string; status: Status; sport: string; format?: string | null; teams: TeamRef[] }
+interface MatchInfo { sport: string; format?: string | null; teams: TeamRef[] }
 
 // A commentary line, newest first. `over` is a cricket ball's over.ball ("18.4"), the overs bowled for other cricket
 // lines, and the clock in the other sports ("Q4 5:41", "2H 12:41", "72'"). `symbol` is set on cricket balls only
@@ -36,10 +39,9 @@ interface CricketGraph { kind: 'cricket'; target: number | null; overs: OverPoin
 interface ScoreGraph { kind: 'score'; teams: string[]; points: { label: string; a: number; b: number }[] }
 
 // GET /api/rooms/:id/match?detail=1: only the fields read here. Without detail the server sends no graphs and only
-// the last 10 lines of commentary, which the window shows as they are.
+// the last 10 lines of commentary, which the tabs show as they are.
 interface Detail {
   match: MatchInfo;
-  freshness?: { stale?: boolean } | null;
   score: unknown; // one shape per sport: see viewOf()
   commentary?: Line[] | null;
   graphs?: CricketGraph | ScoreGraph | null;
@@ -115,38 +117,16 @@ function viewOf(d: Detail): View {
   }
 }
 
-// ---- The window ----
+// ---- The tabs ----
 
-let current: MatchCentre | null = null;
 let ids = 0;
 
-// One window at a time: opening another closes the first.
-export function openMatchCentre(roomId: string): MatchCentre {
-  current?.close();
-  current = createCentre(roomId);
-  return current;
-}
-
-function createCentre(roomId: string): MatchCentre {
-  const uid = `mc${++ids}`;
-  const opener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
-  const host = document.getElementById('app') ?? document.querySelector<HTMLElement>('.phone') ?? document.body;
-  const behind = document.getElementById('view'); // the room: inert while the window covers it
-  const behindWasInert = behind?.inert ?? false;
-
+export function mountMatchTabs(roomId: string): MatchTabs {
   let alive = true;
+  let opened = false;
   let data: Detail | null = null;
   let view: View | null = null;
   let signature = '';
-  let built: Sport | null = null;
-  let tabs: HTMLButtonElement[] = [];
-  let panels: HTMLElement[] = [];
-  let pager: HTMLElement | null = null;
-  let active = 0;
-  let target: number | null = null; // the panel a tapped tab is scrolling to
-  let moved = false; // whether the pager has scrolled since that tap
-  let tappedAt = 0;
-  let settleTimer = 0;
   let innings: Innings = 'current';
   const charts: ChartState = { open: new Set(), picks: new Map() };
   let inflight = false;
@@ -155,39 +135,24 @@ function createCentre(roomId: string): MatchCentre {
   let waitTimer = 0;
   let ctrl: AbortController | null = null;
 
-  const title = el('h2', { class: 'mc-title', id: `${uid}-title` });
-  const logos = el('div', { class: 'mc-logos', 'aria-hidden': 'true' }); // the title names the teams
-  const sub = el('p', { class: 'mc-sub' });
-  const status = el('p', { class: 'mc-status' });
-  const notice = el('p', { class: 'mc-notice', role: 'status' });
-  const tablist = el('div', { class: 'mc-tabs', role: 'tablist', 'aria-label': 'Match Centre sections', hidden: true, onkeydown: onTabKey });
-  const body = el('div', { class: 'mc-body' });
-  const root = el('div', { class: 'mc', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': `${uid}-kicker ${uid}-title`, tabindex: '-1', onkeydown: onKey },
-    el('header', { class: 'mc-head' },
-      el('div', { class: 'mc-bar' },
-        el('button', { type: 'button', class: 'mc-back', 'aria-label': 'Close Match Centre', onclick: close }, icon('back')),
-        el('div', { class: 'mc-titles' }, el('p', { class: 'mc-kicker', id: `${uid}-kicker`, text: 'Match Centre' }), title, sub),
-        logos),
-      status, notice, tablist),
-    body,
-    el('p', { class: 'mc-note', text: NOTE }));
-  // A resize (rotation, the laptop frame's zoom) keeps the active panel in place.
-  const resize = new ResizeObserver(() => {
-    if (pager && target === null) pager.scrollLeft = active * pager.clientWidth;
-  });
-
+  const panels = [0, 1, 2, 3].map(() => el('section', { class: 'mc-panel' }));
+  // Each panel: a notice when a refresh fails, the tab's content, and the note at the bottom.
+  const notices = panels.map(() => el('p', { class: 'mc-notice', role: 'status' }));
+  const notes = panels.map(() => el('p', { class: 'mc-note', text: NOTE }));
+  const fill = (i: number, content: Child) => panels[i].replaceChildren(notices[i], ...nodes(content), notes[i]);
+  const notify = (text: string) => notices.forEach((n) => { n.textContent = text; });
   showLoading();
-  host.append(root);
-  if (behind) behind.inert = true;
-  window.addEventListener('hashchange', close); // leaving the room's route leaves its window too
-  root.focus({ preventScroll: true });
-  void load();
 
-  const handle: MatchCentre = { update, close, isOpen: () => alive };
-  return handle;
+  return { panels, open, update, destroy };
+
+  function open() {
+    if (!alive || opened) return;
+    opened = true;
+    void load();
+  }
 
   function update() {
-    if (!alive) return;
+    if (!alive || !opened) return;
     if (inflight) {
       queued = true;
       return;
@@ -200,18 +165,10 @@ function createCentre(roomId: string): MatchCentre {
     void load();
   }
 
-  function close() {
-    if (!alive) return;
+  function destroy() {
     alive = false;
     ctrl?.abort();
     clearTimeout(waitTimer);
-    clearTimeout(settleTimer);
-    resize.disconnect();
-    window.removeEventListener('hashchange', close);
-    root.remove();
-    if (behind && !behindWasInert) behind.inert = false;
-    if (current === handle) current = null;
-    refocus(opener);
   }
 
   async function load() {
@@ -242,151 +199,31 @@ function createCentre(roomId: string): MatchCentre {
   }
 
   function apply(d: Detail) {
-    notice.textContent = '';
-    // The freshness age and the crowd lines change on every call; only a change in the match redraws.
-    const sig = JSON.stringify([d.match, d.score, d.commentary, d.graphs, Boolean(d.freshness?.stale)]);
+    notify('');
+    // The crowd lines and the freshness change on every call; only a change in the match redraws.
+    const sig = JSON.stringify([d.match, d.score, d.commentary, d.graphs]);
     if (sig === signature) return;
     signature = sig;
     data = d;
     view = viewOf(d);
-    title.textContent = d.match.title;
-    logos.replaceChildren(...d.match.teams.slice(0, 2).flatMap((t, i) => (i ? [el('span', { text: 'v' }), teamLogo(t)] : [teamLogo(t)])));
-    sub.replaceChildren(...nodes(subLine(d)));
-    status.textContent = statusLine(view);
-    if (built !== view.sport) build(view.sport);
     panels.forEach((_, i) => render(i));
   }
 
-  // Before the first answer the window shows the error with a retry; after it, the last good view stays up.
+  // Before the first answer each tab shows the error with a retry; after it, the last good view stays up.
   function failed(err: unknown) {
     if (data) {
-      notice.textContent = `Not updated: ${errorMessage(err)}`;
+      notify(`Not updated: ${errorMessage(err)}`);
       return;
     }
-    body.replaceChildren(el('div', { class: 'mc-problem', role: 'alert' },
+    panels.forEach((panel, i) => fill(i, el('div', { class: 'mc-problem', role: 'alert' },
       el('p', { text: errorMessage(err) }),
-      el('button', { type: 'button', class: 'mc-retry', text: 'Try again', onclick: () => { showLoading(); root.focus({ preventScroll: true }); retry(); } })));
+      el('button', { type: 'button', class: 'mc-retry', text: 'Try again', onclick: () => { showLoading(); panel.focus({ preventScroll: true }); retry(); } }))));
   }
 
   function showLoading() {
-    body.replaceChildren(el('div', { class: 'mc-loading', role: 'status' },
-      el('span', { class: 'mc-sr', text: 'Loading the Match Centre…' }),
-      el('div', { class: 'mc-skel' }), el('div', { class: 'mc-skel' }), el('div', { class: 'mc-skel is-short' })));
-  }
-
-  function build(sport: Sport) {
-    built = sport;
-    const names = ['Scorecard', 'Graphs', 'Commentary', sport === 'cricket' ? 'Overs' : 'Play by play'];
-    tabs = names.map((name, i) => el('button', {
-      type: 'button', class: 'mc-tab', role: 'tab', id: `${uid}-tab-${i}`, 'aria-controls': `${uid}-panel-${i}`, text: name,
-      onclick: () => select(i),
-    }));
-    panels = names.map((_, i) => el('section', { class: 'mc-panel', role: 'tabpanel', id: `${uid}-panel-${i}`, 'aria-labelledby': `${uid}-tab-${i}`, tabindex: '0' }));
-    if (pager) resize.unobserve(pager);
-    pager = el('div', { class: 'mc-pager', onscroll: onPagerScroll, onscrollend: settle }, panels);
-    tablist.replaceChildren(...tabs);
-    tablist.hidden = false;
-    body.replaceChildren(pager);
-    resize.observe(pager);
-    mark(Math.min(active, names.length - 1));
-  }
-
-  // The active tab: selected, in the tab order, and the only panel that is not inert (so Tab and screen readers stay
-  // in the panel on screen).
-  function mark(i: number) {
-    const was = active;
-    const moveFocus = was !== i && Boolean(panels[was]?.contains(document.activeElement));
-    active = i;
-    tabs.forEach((t, k) => {
-      t.setAttribute('aria-selected', String(k === i));
-      t.tabIndex = k === i ? 0 : -1;
-    });
-    panels.forEach((p, k) => { p.inert = k !== i; });
-    if (moveFocus) panels[i].focus({ preventScroll: true });
-    const tab = tabs[i];
-    if (tab) {
-      const left = tab.offsetLeft;
-      const right = left + tab.offsetWidth;
-      if (left < tablist.scrollLeft) tablist.scrollLeft = left;
-      else if (right > tablist.scrollLeft + tablist.clientWidth) tablist.scrollLeft = right - tablist.clientWidth;
-    }
-  }
-
-  // A tap or key on a tab scrolls the pager to its panel; the scroll then keeps quiet until it gets there.
-  function select(i: number) {
-    if (!pager) return;
-    mark(i);
-    const width = Math.max(1, pager.clientWidth);
-    if (Math.abs(pager.scrollLeft / width - i) < 0.01) {
-      target = null;
-      return;
-    }
-    target = i;
-    moved = false;
-    tappedAt = Date.now();
-    const still = document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches;
-    pager.scrollTo({ left: i * width, behavior: still ? 'auto' : 'smooth' });
-    armSettle();
-  }
-
-  // A swipe moves the active tab as soon as the next panel is more than half in view.
-  function onPagerScroll() {
-    if (!pager) return;
-    const at = pager.scrollLeft / Math.max(1, pager.clientWidth);
-    if (target === null) {
-      const i = clampIndex(Math.round(at));
-      if (i !== active) mark(i);
-    } else if (Math.abs(at - target) < 0.01) {
-      target = null;
-    } else {
-      moved = true;
-    }
-    armSettle();
-  }
-
-  // scrollend, or a quiet spell where it is not supported, settles on the nearest panel; a tapped tab's smooth
-  // scroll gets longer, so a slow frame does not flick the tabs back.
-  function armSettle() {
-    clearTimeout(settleTimer);
-    settleTimer = window.setTimeout(settle, target === null ? 160 : 700);
-  }
-
-  function settle() {
-    clearTimeout(settleTimer);
-    if (!pager) return;
-    const at = pager.scrollLeft / Math.max(1, pager.clientWidth);
-    // A tapped tab's scroll that has not begun (no frames yet, as in a background tab) is still on its way; a swipe
-    // that cut into it wins.
-    if (target !== null && Math.abs(at - target) >= 0.01 && !moved && Date.now() - tappedAt < 3000) {
-      armSettle();
-      return;
-    }
-    target = null;
-    const i = clampIndex(Math.round(at));
-    if (i !== active) mark(i);
-  }
-
-  function clampIndex(i: number) {
-    return Math.max(0, Math.min(tabs.length - 1, i));
-  }
-
-  function onTabKey(e: KeyboardEvent) {
-    const n = tabs.length;
-    const from = tabs.findIndex((t) => t === e.target);
-    const at = from < 0 ? active : from;
-    const next = e.key === 'ArrowRight' ? (at + 1) % n : e.key === 'ArrowLeft' ? (at - 1 + n) % n
-      : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;
-    if (next < 0) return;
-    e.preventDefault();
-    select(next);
-    tabs[next].focus();
-  }
-
-  function onKey(e: KeyboardEvent) {
-    if (e.key !== 'Escape' || e.defaultPrevented) return;
-    e.preventDefault();
-    e.stopPropagation(); // one Escape closes one window
-    close();
+    panels.forEach((_, i) => fill(i, el('div', { class: 'mc-loading', role: 'status' },
+      el('span', { class: 'mc-sr', text: 'Loading the match…' }),
+      el('div', { class: 'mc-skel' }), el('div', { class: 'mc-skel' }), el('div', { class: 'mc-skel is-short' }))));
   }
 
   // Redraws one panel, keeping its reading position (the first keyed block at or below the top stays put) and the
@@ -404,7 +241,7 @@ function createCentre(roomId: string): MatchCentre {
       console.error(err);
       content = empty('This section could not be shown.');
     }
-    panel.replaceChildren(...nodes(content));
+    fill(i, content);
     if (anchor) {
       const again = panel.querySelector<HTMLElement>(`[data-key="${CSS.escape(anchor.key)}"]`);
       if (again) panel.scrollTop = topIn(again, panel) - anchor.offset;
@@ -415,21 +252,10 @@ function createCentre(roomId: string): MatchCentre {
   function panelContent(i: number, d: Detail, v: View): Child {
     const lines = (d.commentary ?? []).filter((c) => c.text);
     if (i === 0) return scorecard(v, d.match, innings, (which) => { innings = which; render(0); });
-    if (i === 1) return graphsPanel(v, d.match, charts);
-    if (i === 2) return commentary(lines);
-    return v.sport === 'cricket' ? oversPanel(lines, v.graph, v.score) : playByPlay(lines);
+    if (i === 1) return commentary(lines);
+    if (i === 2) return v.sport === 'cricket' ? oversPanel(lines, v.graph, v.score) : playByPlay(lines);
+    return graphsPanel(v, d.match, charts);
   }
-}
-
-// Focus goes back to whatever opened the window, or to its replacement if the room has redrawn it.
-function refocus(opener: HTMLElement | null) {
-  if (!opener) return;
-  let back: HTMLElement | null = opener.isConnected ? opener : null;
-  if (!back && opener.id) back = document.getElementById(opener.id);
-  if (!back && opener.classList.length) {
-    back = document.querySelector<HTMLElement>(`${opener.tagName.toLowerCase()}${[...opener.classList].map((c) => `.${CSS.escape(c)}`).join('')}`);
-  }
-  back?.focus({ preventScroll: true });
 }
 
 interface Anchor { key: string; offset: number }
@@ -501,39 +327,6 @@ const named = (team: string | TeamRef, name: Child) => el('span', { class: 'mc-n
 function minuteOf(label: string): { at: number; base: number } | null {
   const m = /^(\d{1,3})(?:\+(\d{1,2}))?'$/.exec(label.trim());
   return m ? { at: Number(m[1]) + Number(m[2] ?? 0), base: Number(m[1]) } : null;
-}
-
-// ---- Header lines ----
-
-function subLine(d: Detail): Child[] {
-  const st = d.match.status;
-  const parts: Child[] = [];
-  if (d.match.format) parts.push(d.match.format);
-  parts.push(st === 'live' ? el('span', { class: 'mc-live', text: 'Live' }) : st === 'scheduled' ? 'Starting soon' : 'Finished');
-  if (st === 'live' && d.freshness?.stale) parts.push('may be out of date');
-  return parts.flatMap((p, i) => (i ? [' · ', p] : [p]));
-}
-
-// The red line under the header: the result, or what the game needs now.
-function statusLine(v: View): string {
-  if (v.score.result) return v.score.result;
-  if (v.sport === 'cricket') {
-    const s = v.score;
-    if (!s.target) return `${s.batting} ${s.runs}-${s.wickets} (${s.overs} Ov)`;
-    if (s.chase_won) return `${s.batting} have won`;
-    return `${s.batting} need ${plural(s.need_runs, 'run')} in ${plural(s.need_balls, 'ball')}`;
-  }
-  const [a, b] = v.score.teams;
-  const ahead = a && b && a.score !== b.score ? (a.score > b.score ? a : b) : null;
-  const lead = !a || !b ? '' : !ahead ? `Tied ${a.score}-${b.score}`
-    : v.sport === 'football' ? `${ahead.name} lead ${Math.max(a.score, b.score)}-${Math.min(a.score, b.score)}`
-    : `${ahead.name} lead by ${Math.abs(a.score - b.score)}`;
-  if (v.sport === 'kabaddi') {
-    const s = v.score;
-    const raider = s.teams.find((t) => t.code === s.raiding)?.name ?? s.raiding;
-    return [gameClock(v), lead, s.do_or_die ? `Do-or-die raid: ${raider}` : `${raider} to raid`].filter(Boolean).join(' · ');
-  }
-  return [gameClock(v), lead].filter(Boolean).join(' · ');
 }
 
 // Where a game stands: "Q4 5:41", "Second half 12:41", "72' · Second half"; at the end, Final or Full time.

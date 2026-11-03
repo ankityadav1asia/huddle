@@ -137,7 +137,7 @@ export function railIntro() {
     el('p', { class: 'rail-lede', text: 'Watch parties for cricket, kabaddi, football and basketball fans: invite friends, chat in real time and follow the live scorecard, with an AI Co-host in the chat and Dream Bot for your own questions.' }),
     el('ul', { class: 'rail-features' },
       el('li', {}, el('b', { text: 'Watch parties' }), el('span', { text: 'A public room for every sport run by Huddle, and private rooms you start in one tap and invite friends to by username.' })),
-      el('li', {}, el('b', { text: 'Match Centre' }), el('span', { text: 'Tap the scorecard for the full scorecard, graphs, commentary and over by over.' })),
+      el('li', {}, el('b', { text: 'Match Centre' }), el('span', { text: 'The full scorecard, commentary, over by over and graphs sit in tabs beside the chat: swipe across, or tap the scorecard.' })),
       el('li', {}, el('b', { text: 'AI Co-host' }), el('span', { text: 'Posts the big moments and quick polls in the chat, and answers the questions nobody else does. Its messages are labelled as AI.' })),
       el('li', {}, el('b', { text: 'Dream Bot' }), el('span', { text: 'Ask the AI anything about the game, its players or its rules. Only you see the answers, which come from verified match data and a checked rules sheet.' })),
       el('li', {}, el('b', { text: 'Safe by default' }), el('span', { text: 'Choose relaxed, balanced or strict moderation. Core safety protections are always on.' }))),

@@ -1,7 +1,7 @@
-/* Match Centre (web/watch/match.ts): a Cricbuzz-style window over the room. A green app bar and innings headers,
-   a red status line and red wickets, white cards, compact tables with tabular numbers, and tab panels side by side
-   in a horizontal scroll-snap pager. Every class starts with mc-. */
-.mc {
+/* The room's tabs and match tabs (web/watch/tabs.ts and match.ts), Cricbuzz-style: green underlined tabs, green
+   innings headers, red wickets, white cards on a grey ground, compact tables with tabular numbers, and the tab panels
+   side by side in a horizontal scroll-snap pager. Every class starts with mc-. */
+.room-panel {
   --mc-green: #0b7a5c;
   --mc-green-deep: #075c45;
   --mc-green-soft: #e8f4ef;
@@ -10,91 +10,58 @@
   --mc-six: #12804a;
   --mc-head-row: #eef1f4;
   --mc-pill: #dde6e2;
-  position: absolute;
-  inset: 0;
-  z-index: 6; /* over the room's banners and toast, under the sheets (10) */
-  display: flex;
-  flex-direction: column;
-  background: var(--bg, #f2f3f6);
-  color: var(--text, #15171c);
-  font: 14px/1.4 var(--body, system-ui, sans-serif);
-  outline: none;
-  animation: mc-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-@keyframes mc-in { from { transform: translateX(28px); opacity: 0; } }
 
 .mc-sr {
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
 
-/* Header: app bar, status line, refresh notice and tabs */
-.mc-head { flex: none; background: var(--card, #fff); box-shadow: 0 1px 0 var(--line, #e2e5ea); position: relative; z-index: 1; }
-.mc-bar {
-  display: flex; align-items: center; gap: 10px;
-  padding: max(14px, env(safe-area-inset-top, 0px)) 16px 11px 14px;
-  background: var(--mc-green); color: #fff;
-}
-.mc-back {
-  flex: none; display: grid; place-items: center; width: 34px; height: 34px;
-  border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.16); color: #fff;
-}
-.mc-back svg { width: 18px; height: 18px; fill: currentColor; }
-.mc-back:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-.mc-titles { flex: 1; min-width: 0; display: grid; gap: 1px; }
-.mc-logos { flex: none; display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; opacity: 0.95; }
-.mc-logos:empty { display: none; }
-.mc-logos .logo { width: 32px; height: 32px; padding: 2px; border-radius: 8px; }
-.mc-kicker { margin: 0; font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; opacity: 0.85; }
-.mc-title { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 21px/1.05 var(--display, sans-serif); letter-spacing: 0.02em; }
-.mc-sub { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.88); }
-.mc-sub:empty { display: none; }
-.mc-live { display: inline-flex; align-items: center; gap: 5px; color: #fff; }
-.mc-live::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #ff5a5f; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85); }
-
-.mc-status { margin: 0; padding: 9px 16px 8px; color: var(--mc-red); font-size: 13.5px; font-weight: 600; line-height: 1.3; }
-.mc-status:empty { display: none; }
-.mc-notice { margin: 0; padding: 6px 16px; background: #fff6e2; color: #6e4700; font-size: 12.5px; }
-.mc-notice:empty { padding: 0; }
-
+/* The tab bar: scrolls sideways when the tabs do not fit */
 .mc-tabs {
-  position: relative; display: flex; overflow-x: auto; scrollbar-width: none;
-  padding: 0 4px; border-top: 1px solid var(--line, #e2e5ea);
+  flex: none; position: relative; display: flex; overflow-x: auto; scrollbar-width: none;
+  padding: 2px 6px 0; border-bottom: 1px solid var(--line, #e2e5ea);
 }
 .mc-tabs::-webkit-scrollbar { display: none; }
 .mc-tab {
-  flex: 1 0 auto; padding: 11px 8px 8px; border: 0; border-bottom: 3px solid transparent; background: none;
+  flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 11px 7px 8px; border: 0; border-bottom: 3px solid transparent; background: none;
   color: var(--muted, #626a77); font-size: 14px; font-weight: 600; white-space: nowrap;
 }
 .mc-tab[aria-selected='true'] { color: var(--mc-green); border-bottom-color: var(--mc-green); font-weight: 700; }
 .mc-tab:focus-visible { outline-offset: -3px; }
+/* The Chat tab's count of new messages while another tab is open */
+.tab-count {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--wicket, #d92d3a); color: #fff; font-size: 10.5px; font-weight: 800; font-variant-numeric: tabular-nums;
+}
 
-/* Body: the swipeable pager, one panel per tab */
-.mc-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* The swipeable pager: one full-width panel per tab */
 .mc-pager {
   flex: 1; min-height: 0; display: flex;
   overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
   overscroll-behavior-x: contain; scrollbar-width: none;
 }
 .mc-pager::-webkit-scrollbar { display: none; }
+.mc-pager > * { flex: 0 0 100%; min-width: 0; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; }
+.mc-pager > :focus-visible { outline: 2px solid var(--chrome, #1c3b8c); outline-offset: -2px; }
 .mc-panel {
   position: relative; /* the offset parent for keeping the reading position across updates */
-  flex: 0 0 100%; min-width: 0; height: 100%;
+  display: flex; flex-direction: column;
   overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; overflow-anchor: none;
-  scroll-snap-align: start; scroll-snap-stop: always;
-  padding: 10px 8px 18px;
+  padding: 10px 8px 12px; background: var(--bg, #f2f3f6); font-size: 14px;
 }
+.mc-panel > * { flex: none; }
 .mc-panel > * + * { margin-top: 10px; }
-.mc-panel:focus-visible { outline: 2px solid var(--chrome, #1c3b8c); outline-offset: -2px; }
 
-/* Bottom note: the only place in the app that says what the match data are */
-.mc-note {
-  flex: none; margin: 0; padding: 7px 16px calc(8px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid var(--line, #e2e5ea); background: var(--card, #fff);
-  color: var(--muted, #626a77); font-size: 11px; text-align: center;
-}
+/* A refresh problem on top, and at the bottom the only place in the app that says what the match data are */
+.mc-notice { margin: 0; padding: 7px 12px; border-radius: 10px; background: #fff6e2; color: #6e4700; font-size: 12.5px; }
+.mc-notice:empty { display: none; }
+.mc-notice:empty + * { margin-top: 0; }
+.mc-panel > .mc-note { margin: auto 0 0; padding: 18px 8px 0; color: var(--muted, #626a77); font-size: 11px; text-align: center; }
 
 /* Loading, empty and error states */
+.mc-loading { display: grid; gap: 10px; }
 .mc-loading { padding: 10px 8px; display: grid; gap: 10px; }
 .mc-skel {
   height: 120px; border-radius: 10px;
@@ -106,7 +73,7 @@
 .mc-empty { padding: 28px 18px; border-radius: 10px; background: var(--card, #fff); text-align: center; color: var(--muted, #626a77); font-size: 13px; }
 .mc-empty p { margin: 0; }
 .mc-empty .mc-empty-title { margin-bottom: 4px; color: var(--text, #15171c); font-size: 15px; font-weight: 700; }
-.mc-problem { margin: 10px 8px; padding: 22px 18px; border-radius: 10px; background: var(--card, #fff); text-align: center; }
+.mc-problem { padding: 22px 18px; border-radius: 10px; background: var(--card, #fff); text-align: center; }
 .mc-problem p { margin: 0 0 12px; font-weight: 600; }
 .mc-retry {
   padding: 8px 18px; border-radius: 999px; border: 1px solid var(--mc-green);
@@ -145,7 +112,6 @@
 .mc-table tfoot th, .mc-table tfoot td { border-top: 1px solid var(--line, #e2e5ea); border-bottom: 0; text-align: left; }
 .mc-table .mc-total > * { font-weight: 700; }
 .mc-table .mc-total td { font-weight: 500; }
-.mc-table abbr { text-decoration: none; }
 .mc-name { display: block; font-weight: 600; color: var(--text, #15171c); }
 .mc-how { display: block; margin-top: 1px; color: var(--muted, #626a77); font-size: 11.5px; font-weight: 400; line-height: 1.3; }
 .mc-strong { font-weight: 700; }
@@ -194,7 +160,6 @@
 .mc-com-over { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.35; }
 .mc-com-item.is-wicket .mc-com-over { color: var(--mc-red); }
 .mc-com-text { margin: 0; font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
-.mc-com-label { font-weight: 700; }
 .mc-com-note { padding: 8px 10px; border-left: 3px solid var(--mc-green); border-radius: 0 6px 6px 0; background: var(--mc-green-soft); font-size: 13px; line-height: 1.45; }
 .mc-com-note b { display: block; margin-bottom: 1px; color: var(--mc-green-deep); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
 .mc-com-note p { margin: 0; overflow-wrap: anywhere; }
@@ -264,6 +229,5 @@
 .mc-data summary:focus-visible { outline-offset: -2px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .mc { animation: none; }
   .mc-skel { animation: none; }
 }

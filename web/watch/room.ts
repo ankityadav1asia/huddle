@@ -1,12 +1,14 @@
-// The watch party room: the live scorecard (tap it for the Match Centre), who is watching, then the chat, with the AI
-// Co-host's messages and #threads, and the composer with its rate limit and Dream Bot. The server re-authorises every
-// request; this view never decides who sees what.
+// The watch party room: the live scorecard, Catch me up and the invite button, then one panel of swipeable tabs: the
+// chat (the AI Co-host's messages, #threads, the composer with its rate limit, and the Dream Bot launcher) and the
+// match tabs (match.ts), which a tap on the scorecard opens. The server re-authorises every request; this view never
+// decides who sees what.
 import { api, ApiError, errorMessage, serverNow, newKey, type CreatedRoom, type InviteResult, type ModerationLevel, type Role } from './api.ts';
 import { el, icon, aiLabel, initials, teamClass, teamLogo, clock, clockSeconds, ago, plural, toast, setRail, railIntro, type Child } from './ui.ts';
 import { openSheet, closeSheet, sheetActions, confirmSheet } from './sheets.ts';
 import { friendPicker, levelChooser, LEVEL_NAMES } from './home.ts';
-import { openMatchCentre } from './match.ts';
-import { openDreamBot } from './bot.ts';
+import { mountMatchTabs, matchTabNames, type MatchTabs } from './match.ts';
+import { swipeTabs, type SwipeTabs } from './tabs.ts';
+import { dreamBotLauncher, openDreamBot, type BotOptions } from './bot.ts';
 import { openCatchUp } from './catchup.ts';
 import type { ReadyCtx } from './app.ts';
 
@@ -126,7 +128,7 @@ interface RoomPoll {
   reset?: boolean;
 }
 
-// GET /api/rooms/:id/match: what the scorecard shows. The Match Centre fetches its own detail.
+// GET /api/rooms/:id/match: what the scorecard shows. The match tabs fetch their own detail.
 interface MatchSnapshot {
   match: { id: string; status: 'scheduled' | 'live' | 'completed'; sport: string; teams: { code: string; name: string; logo?: string }[] };
   freshness: { age_seconds: number | null; stale: boolean };
@@ -208,6 +210,8 @@ interface RoomEls {
   // watching strip
   watchers: HTMLButtonElement;
   add: HTMLButtonElement;
+  // tabs: the Chat tab's unread count
+  unread: HTMLElement;
   // chat
   threadBar: HTMLDivElement;
   scroll: HTMLDivElement;
@@ -256,14 +260,18 @@ interface RoomState {
   threads: Map<string, ThreadState>;
   activeThread: string;
   booted: boolean;
+  unread: number; // new messages while another tab is open
   // Set by bootstrap() before anything reads them.
   room: Room;
   crowdFans: CrowdFan[];
+  bot: BotOptions; // Dream Bot's, for its launcher and the room menu: bot.ts reads them each time its window opens
   // Set later, if at all.
   ticker?: number;
   onVis?: () => void;
   membersSheet?: { refresh: () => void };
-  centre?: ReturnType<typeof openMatchCentre>;
+  tabs?: SwipeTabs;
+  matchTabs?: MatchTabs; // when the room follows a game
+  composerSize?: ResizeObserver;
 }
 
 let R: RoomState | null = null;
@@ -293,13 +301,15 @@ export function leaveRoom() {
   clearInterval(state.ticker);
   for (const t of state.crowdTimers) clearTimeout(t);
   if (state.onVis) document.removeEventListener('visibilitychange', state.onVis);
-  if (state.centre?.isOpen()) state.centre.close();
+  state.tabs?.destroy();
+  state.matchTabs?.destroy();
+  state.composerSize?.disconnect();
   rememberSeen(state);
 }
 
 export async function renderRoom(ctx: ReadyCtx, roomId: string) {
   leaveRoom();
-  // Cast: room and crowdFans arrive in bootstrap(), and els fills up in buildRoom(), before anything reads them. The
+  // Cast: room and crowdFans arrive in bootstrap(), and bot and els in buildRoom(), before anything reads them. The
   // presence cast only types its empty lists, which would otherwise be never[].
   const state = {
     id: roomId, ctx, active: true, abort: new AbortController(), items: new Map(), seqSeen: new Set(),
@@ -307,7 +317,7 @@ export async function renderRoom(ctx: ReadyCtx, roomId: string) {
     match: null, matchFetchedAt: 0, matchRev: null, matchBusy: false, matchAgain: false, stick: true,
     hiddenAt: 0, hiddenCursor: 0, catchupSince: null, loopToken: 0, els: {},
     crowdOn: crowdPref(), crowdSeen: new Set(), crowdTimers: new Set(), crowdN: 0,
-    threads: new Map(), activeThread: 'all', booted: false,
+    threads: new Map(), activeThread: 'all', booted: false, unread: 0,
   } as RoomState;
   R = state;
   const view = document.getElementById('view');
@@ -371,8 +381,9 @@ async function bootstrap(state: RoomState) {
 // A public watch party goes by its game ("MI v CSK"); a private room keeps the name its owner gave it.
 const roomTitle = (room: Room) => (room.room_type === 'public' && room.match?.title) || room.name || 'Watch party';
 
-// Top to bottom: the header and the live scorecard, the invite button, then the chat (thread chips, messages and
-// the composer) filling the rest of the screen.
+// Top to bottom: the header and the live scorecard, Catch me up and the invite button, then a white panel filling
+// the rest of the screen: the tab bar (Chat and, with a game, the match tabs) over the swipeable panels. The Chat tab
+// holds the thread chips, the messages and the composer; the match tabs use the full height.
 function buildRoom(state: RoomState) {
   const room = state.room;
   const els = state.els;
@@ -380,7 +391,7 @@ function buildRoom(state: RoomState) {
   els.sub = el('span', { class: 'room-sub' });
   els.reconnect = el('span', { class: 'reconnect-pill', hidden: true, text: 'Reconnecting…' });
   const menu = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Room menu', onclick: () => openRoomMenu(state) }, icon('dots'));
-  els.score = el('button', { type: 'button', class: 'score score-btn', 'aria-label': 'Open the Match Centre', hidden: !room.match, onclick: () => openCentre(state) },
+  els.score = el('button', { type: 'button', class: 'score score-btn', 'aria-label': 'Show the full scorecard', hidden: !room.match, onclick: () => state.tabs?.select(1) },
     el('div', { class: 'skeleton' }));
   const catchUpBtn = el('button', { type: 'button', class: 'catch-btn', onclick: () => openCatch(state, null) }, icon('spark'), 'Catch me up');
   els.add = el('button', { type: 'button', class: 'add-btn', onclick: () => addFriends(state) },
@@ -408,13 +419,34 @@ function buildRoom(state: RoomState) {
   els.error = el('div', { class: 'send-error', role: 'alert', hidden: true });
   els.notice = el('p', { class: 'send-notice', hidden: true });
   els.cooldown = el('div', { class: 'cooldown', hidden: true }, el('span', { class: 'cooldown-text' }), el('span', { class: 'cooldown-bar' }, el('i')));
-  const bot = el('button', { type: 'button', class: 'bot-btn', 'aria-label': 'Dream Bot: ask the AI about the game, privately', onclick: () => openBot(state) },
-    icon('spark'), el('span', { class: 'bot-btn-text', text: 'Dream Bot' }));
-  const form = el('form', { class: 'composer', autocomplete: 'off' }, bot, els.input, els.send);
+  const form = el('form', { class: 'composer', autocomplete: 'off' }, els.input, els.send);
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     submitMessage(state);
   });
+  const composer = el('div', { class: 'composer-wrap' }, els.backing,
+    el('div', { class: 'composer-status', 'aria-live': 'polite' }, els.reply, els.error, els.notice, els.cooldown),
+    form);
+
+  // The Chat tab's panel is positioned: the Dream Bot launcher sits in its bottom-right corner, just above the
+  // composer, however tall the composer grows (the backing prompt, a reply, an error: watch.css reads --composer-h).
+  state.bot = {
+    roomId: state.id, game: room.match?.title || null, ai: room.ai_enabled,
+    catchUp: () => openCatch(state, state.catchupSince),
+    situation: () => situation(state),
+  };
+  const chatPanel = el('div', { class: 'chat-panel' }, els.threadBar, el('div', { class: 'chat' }, els.scroll, els.banner, els.newPill),
+    composer, dreamBotLauncher(state.bot));
+  state.composerSize = new ResizeObserver(() => chatPanel.style.setProperty('--composer-h', `${composer.offsetHeight}px`));
+  state.composerSize.observe(composer);
+  const match = room.match ? mountMatchTabs(state.id) : undefined;
+  state.matchTabs = match;
+  const tabs = swipeTabs('Chat and match', ['Chat', ...(room.match ? matchTabNames(room.match.sport) : [])],
+    [chatPanel, ...(match?.panels ?? [])], (i) => onTab(state, i));
+  state.tabs = tabs;
+  tabs.tablist.hidden = !match; // a room without a game has only the chat
+  els.unread = el('b', { class: 'tab-count', 'aria-hidden': 'true', hidden: true });
+  tabs.tabs[0].append(els.unread);
 
   document.getElementById('view')?.replaceChildren(
     el('div', { class: 'masthead room-head' },
@@ -423,14 +455,32 @@ function buildRoom(state: RoomState) {
         menu),
       els.score,
       el('div', { class: 'watch-strip' }, catchUpBtn, els.add)),
-    el('section', { class: 'room-panel', 'aria-label': 'Chat' },
-      els.threadBar,
-      el('div', { class: 'chat' }, els.scroll, els.banner, els.newPill),
-      el('div', { class: 'composer-wrap' }, els.backing,
-        el('div', { class: 'composer-status', 'aria-live': 'polite' }, els.reply, els.error, els.notice, els.cooldown),
-        form)),
+    el('div', { class: 'room-panel' }, tabs.tablist, tabs.pager),
   );
   applyRoomInfo(state);
+}
+
+// A match tab's first opening fetches the match detail; coming back to the chat clears its unread count.
+function onTab(state: RoomState, i: number) {
+  if (i === 0) setUnread(state, 0);
+  else state.matchTabs?.open();
+}
+
+// New messages while another tab is open: a small red count on the Chat tab.
+function setUnread(state: RoomState, n: number) {
+  state.unread = n;
+  const badge = state.els.unread;
+  badge.hidden = !n;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  const tab = state.tabs?.tabs[0];
+  if (n) tab?.setAttribute('aria-label', `Chat, ${plural(n, 'new message')}`);
+  else tab?.removeAttribute('aria-label');
+}
+
+// What counts as a new message for that count: anything posted in the chat by someone else.
+function isNewMessage<K extends FeedType>(type: K, data: FeedData[K]) {
+  if (type === 'message') return !(data as ChatMessage).mine;
+  return type === 'crowd' || type === 'poll' || type === 'insight';
 }
 
 function applyRoomInfo(state: RoomState) {
@@ -442,6 +492,8 @@ function applyRoomInfo(state: RoomState) {
   const pub = room.room_type === 'public';
   els.add.hidden = pub ? !room.match : !room.can_manage;
   els.add.setAttribute('aria-label', pub ? 'Invite friends to a private room on this game' : 'Invite friends to this room');
+  state.bot.game = room.match?.title || null;
+  state.bot.ai = room.ai_enabled;
   updatePresence(state);
 }
 
@@ -450,18 +502,36 @@ function addFriends(state: RoomState) {
   else openInvites(state);
 }
 
-function openCentre(state: RoomState) {
-  if (!state.room.match || state.centre?.isOpen()) return;
-  state.centre = openMatchCentre(state.id);
+function openBot(state: RoomState) {
+  openDreamBot(state.bot);
 }
 
-function openBot(state: RoomState) {
-  openDreamBot({
-    roomId: state.id,
-    game: state.room.match?.title || null,
-    ai: state.room.ai_enabled,
-    catchUp: () => openCatch(state, state.catchupSince),
-  });
+// Where the game stands, in one line for Dream Bot: "CSK 135/2 (14.3) · need 52 off 33", "MBSG 2–1 EBFC · 72' · Second half".
+function situation(state: RoomState): string | null {
+  const snap = state.match;
+  if (!snap?.score || snap.match.status === 'scheduled') return null;
+  const sport = snap.match.sport || 'cricket';
+  if (sport === 'cricket') {
+    const s: CricketScore = snap.score;
+    const now = `${s.batting} ${s.runs}/${s.wickets} (${s.overs})`;
+    if (s.result) return `${now} · ${s.result}`;
+    if (s.chase_won) return `${now} · ${s.batting} have won`;
+    return s.target ? `${now} · need ${s.need_runs} off ${s.need_balls}` : now;
+  }
+  const line = (s: { result: string | null; teams: SideScore[] }, when: string) => {
+    const [a, b] = s.teams;
+    return a && b ? `${a.code} ${a.score}–${b.score} ${b.code} · ${s.result || when}` : null;
+  };
+  if (sport === 'kabaddi') {
+    const s: KabaddiScore = snap.score;
+    return line(s, `${s.half === 1 ? '1st half' : '2nd half'} ${s.clock}`);
+  }
+  if (sport === 'football') {
+    const s: FootballScore = snap.score;
+    return line(s, `${s.minute} · ${s.period}`);
+  }
+  const s: BasketballScore = snap.score;
+  return line(s, `${s.period} ${s.clock}`);
 }
 
 // Catch me up: the match so far, or (after time away) what this person missed. A #thread in it opens that thread.
@@ -548,7 +618,7 @@ async function loop(state: RoomState, token: number) {
       if (r.match_rev != null && r.match_rev !== state.matchRev) {
         state.matchRev = r.match_rev;
         refreshMatch(state);
-        if (state.centre?.isOpen()) state.centre.update();
+        state.matchTabs?.update(); // only once a match tab has been opened
       }
     } catch (err) {
       if ((err instanceof Error && err.name === 'AbortError') || !state.active || state !== R) return;
@@ -642,6 +712,7 @@ function upsertItem<K extends FeedType>(state: RoomState, type: K, data: FeedDat
   if (state.booted && thread && (type === 'message' || type === 'crowd')) bumpThread(state, thread);
   trimFeed(state);
   if (node.hidden) return;
+  if (state.booted && state.tabs && state.tabs.active() !== 0 && isNewMessage(type, data)) setUnread(state, state.unread + 1);
   if (state.stick) scrollToBottom(state);
   else if (state.els.newPill) state.els.newPill.hidden = false;
 }
@@ -985,7 +1056,9 @@ function renderThreadBar(state: RoomState) {
   }));
 }
 
+// From a chip or a #tag in the chat, or from Catch me up on any tab: the chat comes into view on that thread.
 function setThread(state: RoomState, id: string) {
+  state.tabs?.select(0);
   state.activeThread = state.threads.has(id) ? id : 'all';
   const t = state.threads.get(state.activeThread);
   for (const e of state.items.values()) e.node.hidden = !shown(state, e);
@@ -1278,7 +1351,8 @@ function renderRail(state: RoomState) {
     el('ul', { class: 'rail-facts' },
       el('li', { text: mod }),
       el('li', { text: room.ai_enabled ? 'AI Co-host on: big moments, polls and answers in the chat, labelled as AI' : 'AI Co-host off in this room' }),
-      room.match ? el('li', { text: 'Tap the scorecard for the Match Centre; Dream Bot answers your own questions, privately' }) : null,
+      room.match ? el('li', { text: 'Swipe from the chat to the full scorecard, commentary and graphs, or tap the scorecard' }) : null,
+      el('li', { text: 'Dream Bot answers your own questions about the game, privately' }),
       el('li', { text: 'Messages disappear when the watch party ends' })),
   );
 }
@@ -1330,6 +1404,7 @@ function openRoomMenu(state: RoomState) {
   s.body.append(el('div', { class: 'menu-list' },
     item('Room info', () => openRoomInfo(state)),
     item('Members', () => openMembers(state)),
+    item('Dream Bot', () => { closeSheet(); openBot(state); }),
     room.match ? item('Suggest a poll', () => { closeSheet(); suggestPoll(state); }) : null,
     hasSettings ? item('Room settings', () => openSettings(state)) : null,
     room.my_role === 'owner' && room.room_type === 'private'

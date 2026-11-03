@@ -1,0 +1,254 @@
+/* Dream Bot: the floating AI orb above the room's message box, and the chat window it opens from the bottom of the
+   phone. Loaded after the other stylesheets and built on styles.css's tokens. The AI's colours run from Huddle's
+   green through teal to violet. */
+.db-launch, .db-layer {
+  --db-grad: linear-gradient(135deg, #0fbf8a 0%, #14b3c8 45%, #7655ff 100%);
+  --db-violet: #6a4ff0;
+  --db-ink: #11163a;
+  --db-surface: #f5f6fb;
+  --db-edge: #e4e6f0;
+}
+
+/* Launcher: a glowing orb, bottom right of the chat panel, clear of the message box and its send button */
+.db-launch { position: absolute; right: 12px; bottom: 76px; z-index: 3; width: 52px; height: 52px; pointer-events: none; }
+.db-orb {
+  position: relative; display: grid; place-items: center; width: 52px; height: 52px; padding: 0;
+  border: 0; border-radius: 50%; color: #fff; pointer-events: auto;
+  background: radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 44%), var(--db-grad);
+  box-shadow: 0 8px 22px rgba(92, 72, 230, 0.36), 0 2px 6px rgba(15, 191, 138, 0.3), inset 0 -4px 10px rgba(40, 20, 120, 0.28);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  animation: db-glow 3.2s ease-in-out infinite;
+}
+.db-orb .ico { width: 22px; height: 22px; filter: drop-shadow(0 1px 2px rgba(30, 14, 90, 0.4)); animation: db-twinkle 3.2s ease-in-out infinite; }
+.db-orb::before {
+  content: ''; position: absolute; inset: -1px; border-radius: 50%; pointer-events: none;
+  border: 2px solid rgba(38, 200, 196, 0.6); animation: db-ring 2.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+.db-orb:hover { transform: translateY(-2px) scale(1.04); }
+.db-orb:active { transform: scale(0.94); }
+.db-orb:focus-visible { outline: 3px solid var(--db-violet); outline-offset: 3px; }
+.db-orb[aria-expanded="true"]::before { animation: none; opacity: 0; }
+.db-tip {
+  position: absolute; right: 62px; top: 50%; padding: 6px 11px; border-radius: 999px;
+  background: var(--db-ink); color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(17, 22, 58, 0.25); opacity: 0; transform: translate(6px, -50%);
+  transition: opacity 0.15s ease, transform 0.15s ease; pointer-events: none;
+}
+.db-orb:focus-visible + .db-tip { opacity: 1; transform: translate(0, -50%); }
+@media (hover: hover) {
+  .db-orb:hover + .db-tip { opacity: 1; transform: translate(0, -50%); }
+}
+.db-launch:has(.db-nudge:not([hidden])) .db-tip { display: none; }
+.db-nudge {
+  position: absolute; right: 64px; bottom: 4px; width: max-content; max-width: 176px; padding: 9px 12px;
+  border: 1px solid transparent; border-radius: 16px 16px 4px 16px; cursor: pointer; pointer-events: auto;
+  background: linear-gradient(#fff, #fff) padding-box, var(--db-grad) border-box;
+  color: var(--db-ink); font-size: 13px; font-weight: 700; line-height: 1.3;
+  box-shadow: 0 10px 26px rgba(92, 72, 230, 0.22);
+  transform-origin: 100% 100%; animation: db-nudge-in 0.4s cubic-bezier(0.2, 0.9, 0.25, 1.2) both;
+}
+.db-nudge.out { animation: db-nudge-out 0.24s ease forwards; }
+
+/* Window: a chat panel rising from the bottom of the phone over a dimmed backdrop */
+.db-layer { position: absolute; inset: 0; z-index: 9; display: flex; flex-direction: column; justify-content: flex-end; }
+.db-backdrop { position: absolute; inset: 0; background: rgba(12, 14, 34, 0.5); backdrop-filter: blur(2px); animation: db-fade 0.22s ease; }
+.db-panel {
+  position: relative; height: 82%; display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 28px 28px 0 0; background: var(--db-surface); outline: none;
+  box-shadow: 0 -18px 50px rgba(20, 16, 60, 0.35);
+  animation: db-up 0.4s cubic-bezier(0.2, 0.9, 0.25, 1.04);
+}
+.db-layer.closing { pointer-events: none; }
+.db-layer.closing .db-panel { animation: db-down 0.2s ease-in forwards; }
+.db-layer.closing .db-backdrop { animation: db-fade-out 0.2s ease forwards; }
+
+/* Header: the orb, name, AI pill, status and the live match line */
+.db-head {
+  flex: none; position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+  gap: 12px; padding: 20px 14px 14px 16px; color: #fff;
+  background:
+    radial-gradient(110% 140% at 0% 0%, rgba(15, 191, 138, 0.38), transparent 55%),
+    radial-gradient(110% 140% at 100% 0%, rgba(118, 85, 255, 0.5), transparent 55%),
+    linear-gradient(160deg, #0f1533 0%, #1b1447 100%);
+}
+.db-head::before { content: ''; position: absolute; top: 7px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: rgba(255, 255, 255, 0.28); }
+.db-id { min-width: 0; }
+.db-name { margin: 0; display: flex; align-items: center; gap: 8px; font: 700 24px/1 var(--display); letter-spacing: 0.01em; }
+.db-name .ai-label { padding: 3px 7px 3px 6px; border: 1px solid rgba(127, 240, 207, 0.4); border-radius: 999px; background: rgba(127, 240, 207, 0.12); color: #7ff0cf; font-size: 10px; }
+.db-name .ai-label svg { width: 9px; height: 9px; fill: #7ff0cf; }
+.db-status { margin: 5px 0 0; display: flex; align-items: center; gap: 6px; color: rgba(255, 255, 255, 0.74); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-live { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #2ee6a6; box-shadow: 0 0 0 3px rgba(46, 230, 166, 0.2); animation: db-blink 2s ease-in-out infinite; }
+.db-x { flex: none; align-self: start; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.12); color: #fff; }
+.db-x:hover { background: rgba(255, 255, 255, 0.22); }
+.db-x .ico { width: 14px; height: 14px; }
+.db-x:focus-visible { outline-color: #9f8bff; }
+.db-ctx {
+  grid-column: 1 / -1; margin: 0; display: flex; align-items: center; gap: 9px; padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 12px; background: rgba(255, 255, 255, 0.08);
+  font-size: 13px; font-weight: 600; line-height: 1.3; font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+}
+.db-ctx-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--db-grad); box-shadow: 0 0 10px rgba(38, 200, 196, 0.8); }
+
+/* The orb as an avatar */
+.db-avatar {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: #fff;
+  background: radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 46%), var(--db-grad);
+  box-shadow: 0 3px 10px rgba(118, 85, 255, 0.28);
+}
+.db-avatar .ico { width: 13px; height: 13px; }
+.db-avatar.lg { width: 44px; height: 44px; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1), 0 0 22px rgba(38, 200, 196, 0.5); }
+.db-avatar.lg .ico { width: 19px; height: 19px; }
+.db-avatar.xl { width: 64px; height: 64px; box-shadow: 0 0 0 6px rgba(118, 85, 255, 0.08), 0 12px 30px rgba(92, 72, 230, 0.32); animation: db-glow 3.2s ease-in-out infinite; }
+.db-avatar.xl .ico { width: 27px; height: 27px; }
+
+/* Body: the conversation, or the welcome before it */
+.db-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.db-scroll { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 18px 14px 12px; overflow-y: auto; overscroll-behavior: contain; }
+.db-welcome { margin: auto 0; display: grid; justify-items: center; gap: 6px; padding: 6px 4px 10px; text-align: center; animation: db-rise 0.4s ease both; }
+.db-hello {
+  margin: 10px 0 0; font: 700 27px/1.05 var(--display); letter-spacing: 0.01em;
+  background: linear-gradient(90deg, #0b8f69, #1488a8 45%, #5b3fe0); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.db-lede { margin: 0; max-width: 31em; color: var(--muted); font-size: 13.5px; text-wrap: pretty; }
+.db-suggest { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
+
+/* Suggestions: prompt chips with a gradient edge */
+.db-chip {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 8px 13px;
+  border: 1px solid transparent; border-radius: 999px; text-align: left;
+  background: linear-gradient(#fff, #fff) padding-box, linear-gradient(135deg, rgba(15, 191, 138, 0.6), rgba(118, 85, 255, 0.6)) border-box;
+  color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.3;
+  box-shadow: 0 1px 2px rgba(21, 23, 28, 0.05); transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.db-chip .ico { width: 11px; height: 11px; color: var(--db-violet); }
+.db-chip:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(118, 85, 255, 0.18); }
+.db-chip:disabled { opacity: 0.5; cursor: default; }
+.db-chip.catch { background: linear-gradient(135deg, #e3f7ee, #e6f3fa) padding-box, linear-gradient(135deg, rgba(15, 191, 138, 0.7), rgba(20, 179, 200, 0.7)) border-box; color: var(--accent-deep); font-weight: 700; }
+.db-chip.catch .ico { color: var(--accent); }
+.db-chip.rules { border: 1px dashed #c4cad3; background: transparent; color: var(--muted); box-shadow: none; }
+.db-chip.rules .ico { color: var(--faint); }
+.db-suggest .db-chip { animation: db-rise 0.35s ease both; }
+.db-suggest .db-chip:nth-child(2) { animation-delay: 0.05s; }
+.db-suggest .db-chip:nth-child(3) { animation-delay: 0.1s; }
+.db-suggest .db-chip:nth-child(4) { animation-delay: 0.15s; }
+.db-suggest .db-chip:nth-child(n+5) { animation-delay: 0.2s; }
+.db-chip-wait {
+  width: 150px; height: 34px; border-radius: 999px;
+  background: linear-gradient(90deg, #eceef5, #f8f8fc, #eceef5); background-size: 200% 100%; animation: db-sheen 1.3s linear infinite;
+}
+.db-chip-wait.short { width: 104px; }
+.db-row {
+  flex: none; display: flex; gap: 6px; padding: 2px 14px 8px; overflow-x: auto; scrollbar-width: none;
+  mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+}
+.db-row::-webkit-scrollbar { display: none; }
+.db-row .db-chip { flex: none; padding: 6px 11px; font-size: 12.5px; white-space: nowrap; }
+.db-row .db-chip-wait { flex: none; height: 30px; }
+
+/* Conversation: yours on the right, Dream Bot's on the left with the orb */
+.db-log { display: flex; flex-direction: column; gap: 12px; }
+.db-msg { display: flex; align-items: flex-end; gap: 8px; animation: db-rise 0.28s ease both; }
+.db-msg.me { justify-content: flex-end; }
+.db-bubble { margin: 0; max-width: 84%; padding: 10px 13px; border-radius: 18px; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.db-bubble p { margin: 0; }
+.db-msg.me .db-bubble { border-bottom-right-radius: 6px; background: linear-gradient(135deg, #1c3b8c, #3553c9); color: #fff; box-shadow: 0 4px 12px rgba(28, 59, 140, 0.22); }
+.db-msg.bot .db-bubble { border: 1px solid var(--db-edge); border-bottom-left-radius: 6px; background: #fff; box-shadow: 0 2px 10px rgba(21, 23, 28, 0.05); }
+.db-msg.bot .db-avatar { margin-bottom: 2px; }
+.db-answer { white-space: pre-line; }
+.db-prov { display: flex; align-items: center; gap: 6px; margin-top: 8px !important; padding-top: 7px; border-top: 1px dashed var(--db-edge); color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.db-prov::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.db-prov.data::before { background: var(--accent); box-shadow: 0 0 0 3px rgba(15, 157, 99, 0.15); }
+.db-prov.rules::before { background: var(--db-violet); box-shadow: 0 0 0 3px rgba(106, 79, 240, 0.15); }
+.db-prov.none::before { background: #d99a00; box-shadow: 0 0 0 3px rgba(217, 154, 0, 0.15); }
+.db-msg.muted .db-bubble { border-style: dashed; background: #eef0f5; color: var(--muted); box-shadow: none; }
+.db-msg.error .db-bubble { border-color: #f6c9cd; background: #fdecee; color: #b4232f; box-shadow: none; }
+.db-wait { margin-top: 4px !important; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.db-retry {
+  display: inline-flex; align-items: center; margin-top: 8px; padding: 5px 13px;
+  border: 1px solid var(--db-edge); border-radius: 999px; background: #fff; color: var(--db-violet); font-size: 12.5px; font-weight: 700;
+}
+.db-retry:hover { border-color: var(--db-violet); }
+.db-msg.error .db-retry { border-color: #f6c9cd; color: #b4232f; }
+
+/* Thinking: bouncing gradient dots and a shimmering label, while the orb breathes */
+.db-msg.thinking .db-bubble { display: inline-flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.db-msg.thinking .db-avatar { animation: db-think 1.6s ease-in-out infinite; }
+.db-dots { display: inline-flex; gap: 4px; }
+.db-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--db-grad); animation: db-bounce 1.1s ease-in-out infinite; }
+.db-dots i:nth-child(2) { animation-delay: 0.14s; }
+.db-dots i:nth-child(3) { animation-delay: 0.28s; }
+.db-shimmer {
+  font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em;
+  background: linear-gradient(90deg, #8a91a0 0%, #8a91a0 35%, var(--db-violet) 50%, #8a91a0 65%, #8a91a0 100%);
+  background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: db-sheen 1.6s linear infinite;
+}
+
+/* Input: a pill with a gradient send button */
+.db-foot { flex: none; padding: 6px 12px calc(10px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--db-edge); background: #fff; }
+.db-foot .db-row { margin: 0 -12px; }
+.db-compose {
+  display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 16px;
+  border: 1px solid #dcdfea; border-radius: 999px; background: var(--db-surface);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.db-compose:focus-within { border-color: #8f7bff; background: #fff; box-shadow: 0 0 0 3px rgba(118, 85, 255, 0.16); }
+.db-input { flex: 1; min-width: 0; height: 40px; padding: 0; border: 0; background: none; outline: none; font-size: 16px; }
+.db-input::placeholder { color: var(--faint); font-size: 14.5px; }
+.db-send {
+  flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%;
+  background: var(--db-grad); color: #fff; box-shadow: 0 4px 12px rgba(118, 85, 255, 0.32); opacity: 0.6;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.db-send .ico { width: 17px; height: 17px; }
+.db-compose.ready .db-send { opacity: 1; }
+.db-compose.ready .db-send:hover { transform: scale(1.06); }
+.db-send:disabled { opacity: 0.35; box-shadow: none; cursor: default; }
+.db-send:focus-visible { outline: 3px solid var(--db-violet); outline-offset: 2px; }
+.db-fine { margin: 6px 0 0; color: var(--faint); font-size: 11px; text-align: center; }
+
+/* Rules and players, inside the window */
+.db-rules { flex: 1; min-height: 0; padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px)); overflow-y: auto; overscroll-behavior: contain; animation: db-rise 0.25s ease; }
+.db-back { display: inline-flex; align-items: center; gap: 4px; padding: 6px 13px 6px 8px; border: 1px solid var(--db-edge); border-radius: 999px; background: #fff; font-size: 13px; font-weight: 700; }
+.db-back .ico { width: 14px; height: 14px; }
+.db-rules-title { margin: 14px 0 4px; font: 700 23px/1.1 var(--display); text-wrap: balance; }
+.db-rules-title:focus { outline: none; }
+.db-rules-lede { margin: 0; color: var(--muted); font-size: 13px; }
+.db-rules h4 { margin: 18px 0 8px; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.db-rule-list { display: grid; gap: 8px; margin: 0; }
+.db-rule-list div { padding: 10px 12px; border: 1px solid var(--db-edge); border-radius: 12px; background: #fff; }
+.db-rule-list dt { font-size: 13.5px; font-weight: 700; }
+.db-rule-list dd { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+.db-roster { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--db-edge); border-radius: 12px; background: #fff; }
+.db-roster li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; padding: 9px 12px; border-bottom: 1px solid var(--db-edge); font-size: 13.5px; }
+.db-roster li:last-child { border-bottom: 0; }
+.db-roster span { color: var(--muted); font-size: 12.5px; }
+
+@keyframes db-glow {
+  0%, 100% { box-shadow: 0 8px 22px rgba(92, 72, 230, 0.36), 0 2px 6px rgba(15, 191, 138, 0.3), inset 0 -4px 10px rgba(40, 20, 120, 0.28); }
+  50% { box-shadow: 0 8px 30px rgba(92, 72, 230, 0.5), 0 0 18px rgba(20, 179, 200, 0.45), inset 0 -4px 10px rgba(40, 20, 120, 0.28); }
+}
+@keyframes db-ring { 0% { transform: scale(1); opacity: 0.75; } 100% { transform: scale(1.55); opacity: 0; } }
+@keyframes db-twinkle { 0%, 100% { transform: scale(1) rotate(0deg); } 50% { transform: scale(1.12) rotate(45deg); } }
+@keyframes db-nudge-in { from { opacity: 0; transform: translateX(8px) scale(0.9); } }
+@keyframes db-nudge-out { to { opacity: 0; transform: translateX(8px) scale(0.92); } }
+@keyframes db-fade { from { opacity: 0; } }
+@keyframes db-fade-out { to { opacity: 0; } }
+@keyframes db-up { from { transform: translateY(100%); } }
+@keyframes db-down { to { transform: translateY(100%); } }
+@keyframes db-rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes db-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes db-bounce { 0%, 70%, 100% { transform: translateY(0); opacity: 0.45; } 35% { transform: translateY(-4px); opacity: 1; } }
+@keyframes db-sheen { from { background-position: 110% 0; } to { background-position: -110% 0; } }
+@keyframes db-think { 0%, 100% { box-shadow: 0 3px 10px rgba(118, 85, 255, 0.28); } 50% { box-shadow: 0 0 0 4px rgba(118, 85, 255, 0.14), 0 0 16px rgba(38, 200, 196, 0.55); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .db-orb, .db-orb .ico, .db-avatar, .db-live, .db-dots i, .db-shimmer, .db-chip-wait { animation: none !important; }
+  .db-orb::before { display: none; }
+  .db-shimmer { background: none; color: var(--muted); }
+  .db-orb, .db-chip, .db-tip, .db-send { transition: none; }
+}
+@media (forced-colors: active) {
+  .db-hello, .db-shimmer { background: none; color: CanvasText; }
+  .db-orb, .db-avatar, .db-send { border: 1px solid ButtonText; }
+}

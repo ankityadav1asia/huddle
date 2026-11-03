@@ -336,9 +336,10 @@ sequenceDiagram
   DB->>DB: room_purge job deletes messages, reactions, polls, insights, threads, room_events; room.status='purged', name=NULL
 ```
 
-### 4.10 Match Centre
+### 4.10 Match Centre (the room's match tabs)
 `GET /api/rooms/:id/match` is the scorecard the room screen shows: the sport's scoreboard, freshness, the last 10 plays
-and, in public rooms, the crowd's lines. With `?detail=1` (the Match Centre window) `lib/match/centre.ts` replays the
+and, in public rooms, the crowd's lines. With `?detail=1` (fetched when a match tab is first opened, then on each new
+play) `lib/match/centre.ts` replays the
 run's ingested events through the sport's engine (fewer than 100 items, so on every request) and adds:
 - **Commentary**: every play, newest first (at most 300), each with `over` set. Each engine's `describe` decides it:
   cricket gives a ball its over.ball and symbol (`0`–`6`, `W`, `wd`) and an event the overs bowled; the feed's end of
