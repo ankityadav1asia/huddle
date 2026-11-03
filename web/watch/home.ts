@@ -111,8 +111,10 @@ function renderInvites(ctx: ReadyCtx, section: HTMLElement, invitations: Invitat
   }
 }
 
-const SPORT_LABEL: Partial<Record<string, string>> = { cricket: 'Cricket · T20', f1: 'Formula 1', basketball: 'Basketball', hockey: 'Ice hockey' };
+const SPORT_LABEL: Partial<Record<string, string>> = { cricket: 'IPL T20', f1: 'Formula 1', basketball: 'Basketball', hockey: 'Ice hockey' };
 const SPORT_TAG: Partial<Record<string, string>> = { f1: 'F1', basketball: 'NBA', hockey: 'NHL' };
+// The two sides' logos (public/assets), where a sport has them: the logos are then the card's title.
+const TEAM_LOGOS: Partial<Record<string, [string, string]>> = { cricket: ['MI', 'CSK'], basketball: ['GSW', 'LAL'] };
 
 // Joining a public watch party (or opening one you are in); a full room says so where it was tapped.
 async function enter(ctx: ReadyCtx, room: PublicRoom, control: HTMLButtonElement, err: HTMLElement) {
@@ -141,15 +143,15 @@ function renderLive(ctx: ReadyCtx, section: HTMLElement, rooms: RoomLists) {
     go.addEventListener('click', () => enter(ctx, room, go, err));
     const s = live ? room.score : null;
     // Where the teams have logos, the logos are the title (the name stays for screen readers).
-    const logos = room.sport === 'cricket' || !room.sport;
+    const logos = TEAM_LOGOS[room.sport || 'cricket'];
     section.append(el('article', { class: 'card pub-card' },
       el('div', { class: 'pub-top' },
-        el('span', { class: 'pub-mark' }, logos ? null : el('span', { class: 'sport-tag', text: SPORT_TAG[room.sport] || room.sport }),
+        el('span', { class: 'pub-mark' }, logos && room.sport === 'cricket' ? null : el('span', { class: 'sport-tag', text: SPORT_TAG[room.sport] || room.sport }),
           el('span', { class: 'card-sport', text: SPORT_LABEL[room.sport] || 'Cricket' })),
         el('span', { class: `status-pill${live ? ' live' : ''}`, text: live ? '● Live' : 'Not started' })),
       logos
         ? el('h3', { class: 'card-h pub-logos' }, el('span', { class: 'sr-only', text: room.match_title || 'Match' }),
-          teamLogo('MI'), el('span', { class: 'pub-v', 'aria-hidden': 'true', text: 'v' }), teamLogo('CSK'))
+          teamLogo(logos[0]), el('span', { class: 'pub-v', 'aria-hidden': 'true', text: 'v' }), teamLogo(logos[1]))
         : el('h3', { class: 'card-h', text: room.match_title || 'Match' }),
       s ? el('p', { class: 'pub-score' }, el('b', { text: s.line }), s.sub ? el('span', { text: s.sub }) : null, s.note ? el('em', { text: s.note }) : null) : null,
       el('div', { class: 'pub-foot' },

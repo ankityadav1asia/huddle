@@ -123,7 +123,7 @@ export const CRICKET: CricketFixture = {
   sportName: 'cricket',
   title: 'MI v CSK',
   teams: SIDES,
-  format: 'T20',
+  format: 'IPL T20',
   sourceLabel: 'Ball-by-ball match feed',
   initial: START,
   items: SCRIPT,

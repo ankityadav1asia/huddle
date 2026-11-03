@@ -881,7 +881,7 @@ function graphsPanel(v: View, m: MatchInfo, charts: ChartState): Child {
     const overs = [...g.overs].sort((a, b) => a.over - b.over);
     const sorted = { ...g, overs };
     // The x axis runs to the end of the innings, so the overs still to come show as room on the right.
-    const limit = /^T(\d+)$/i.exec(m.format ?? '')?.[1];
+    const limit = /\bT(\d+)$/i.exec(m.format ?? '')?.[1]; // "IPL T20": 20 overs
     const lastOver = limit ? Number(limit) : m.format === 'ODI' ? 50 : overs[overs.length - 1].over;
     // The last entry is the over in progress until its sixth legal ball.
     const live = !v.score.result && overs[overs.length - 1].over > v.score.balls / 6 ? v.score.balls : null;
