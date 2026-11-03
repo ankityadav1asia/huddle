@@ -8,11 +8,15 @@ State-changing requests must be `Content-Type: application/json`; multipart, fil
 Errors: `{ "error": { "code": "…", "message": "safe text", "retry_after"?: seconds, … } }`. Rate limits answer `429`
 with a `Retry-After` header. A private room the caller cannot see answers `404`, exactly like a missing room.
 
+The games are fixtures: one scripted game per sport (real team and player names, made-up games), played as a
+timestamped feed. Nothing the API returns for people to read calls them simulated, a demo or a replay; the Match
+Centre carries the one note that the match data and crowd chat are illustrative (the browser shows it).
+
 ## Public
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/health` | `{ ok, db }` |
-| GET | `/api/config` | `auth { mode: guest, available }`, `notifications { max_per_match }`, push key, demo controls flag, AI availability, chat limits and reactions, moderation levels and the public policy, retention hours, `sports [{ sport, label, title, teams [{ code, name, logo? }], players [{ name, short, team }] }]` and `max_picks` (3): what a fan can back in each sport |
+| GET | `/api/config` | `auth { mode: guest, available }`, `ai` (availability), `chat` (limits and reactions), `moderation` (levels and the public policy), `retention_hours`, `sports [{ sport, label, title, teams [{ code, name, logo? }], players [{ name, short, team }] }]` and `max_picks` (3): what a fan can back in each sport, and `crowd { fans }` |
 | POST | `/api/auth/guest` | `{ handle?, sports? }`, usually `{}`: without a `handle` the server picks one (`fan_` and digits). `sports` is keyed by sport: `{ "<sport>": { team: code \| null, picks?: [names] } }`, a team from that sport (else `400 invalid_team`) and up to 3 different players from it (else `400 invalid_picks`); an unknown sport is `400 invalid_sport` → `201 { user, needs_profile: false }` + session cookie. `400` invalid or unsafe username, `409 handle_taken`, `429` too many new profiles from this network, `503` server not configured |
 
 ## Account
@@ -23,45 +27,44 @@ with a `Retry-After` header. A private room the caller cannot see answers `404`,
 | GET | `/api/me` | `{ user: { id, handle, sports, is_moderator }, needs_profile }`. A sport missing from `sports` was never answered (its rooms ask once); `team: null` means the fan backs nobody there |
 | PUT | `/api/me/profile` | `{ handle, sports? }` (usernames are 3–20 of a-z 0-9 _). Each sport sent replaces that sport's choice (leaving out its `picks` keeps them, `[]` clears them), `null` forgets it, and sports left out are kept |
 | PUT | `/api/me/sports/:sport` | `{ team: code \| null, picks? }` → `{ user }`: one sport's choice, as a room asks it ("Who are you backing?") |
-| GET / PUT | `/api/me/notifications` | `{ push_momentum, push_answers, push_invites }` (+ `push_subscribed`, `push_available`, `vapid_public_key` on GET) |
-| POST / DELETE | `/api/me/push-subscriptions` | Browser `PushSubscription.toJSON()` / remove all |
-| GET | `/api/me/invitations` | Pending, unexpired invitations to active rooms |
-| GET | `/api/users/search?q=` | Username prefix (≥2 chars), max 10, public fields only: `{ users: [{ id, handle, teams, demo }] }` (`teams`: the codes they back, one per sport), real profiles first |
-| GET | `/api/users/demo` | The labelled demo friends to invite, each with `demo: true` (nobody signs in as them, so their invitations stay pending). `DEMO_USERS=false` empties this list and leaves them out of search |
+| GET | `/api/me/invitations` | Pending, unexpired invitations to active rooms: the home screen's list (the only place invitations show) |
+| GET | `/api/users/search?q=` | Username prefix (≥2 chars), max 10, public fields only: `{ users: [{ id, handle, teams }] }` (`teams`: the codes they back, one per sport) |
 
 ## Rooms
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/rooms` | `{ public_rooms (live or upcoming matches only, one per sport in the order cricket, f1, basketball, hockey; each with `sport`, members, online, max_members, full, joined), my_rooms, matches [{ id, title, status, source, sport, sport_name }] }` (ensures each sport's shared simulated game, its public room and the demo friends exist; a finished game gets a fresh run) |
-| POST | `/api/rooms` | Private room: `{ name, match_id?, own_replay?, moderation_level?, ai_enabled?, invitee_ids? }` → `201 { room_id, invitations: [{ user_id, result }] }`. `match_id` is a shared simulated game (any sport); with `own_replay: true` the room gets its own copy of it instead, waiting for its host to press Start. The public room's **+ Private room** button sends `{ name, match_id, own_replay, invitee_ids }` for the game that room follows |
-| GET | `/api/rooms/:id` | Bootstrap for members: room details and notices (`room.match { id, title, status, sport, sport_name }`), members (each with the `team` they back in this room's sport, as message senders carry it too), `simulated_fans [{ handle, team }]` (the sport's 200 simulated fans in a public room; `[]` in private rooms), the last ~60 items, `threads [{ id, slug, title, about, source: moment\|discussion, messages, created_at, last_active_at }]`, `cursor`, presence, `cooldown_until`, `match_rev`. Ended rooms return `{ room: { status: 'ended' }, items: [] }` |
+| GET | `/api/rooms` | `{ public_rooms (live or upcoming matches only, one per sport in the order cricket, f1, basketball, hockey; each with `sport`, `match_id`, members, online, max_members, full, joined), my_rooms, matches [{ id, title, status, source, sport, sport_name }] }` (ensures each sport's shared game and its public room exist; a finished game gets a fresh run) |
+| POST | `/api/rooms` | Private room: `{ name, match_id?, moderation_level?, ai_enabled?, invitee_ids? }` → `201 { room_id, invitations: [{ user_id, result }] }`. `match_id` is the shared game of a sport (from `matches`, or a public room's `match_id`): the room follows that game, like the sport's public watch party; a finished game is `400 invalid_match`. `own_replay` no longer exists (`400 unexpected_field`) |
+| GET | `/api/rooms/:id` | Bootstrap for members: room details and notices (`room.match { id, title, status, sport, sport_name }`, `ai_notice`, `retention_notice`), members (each with the `team` they back in this room's sport, as message senders carry it too), `simulated_fans [{ handle, team }]` (the sport's 200 crowd personas in a public room; `[]` in private rooms), the last ~60 items, `threads [{ id, slug, title, about, source: moment\|discussion, messages, created_at, last_active_at }]`, `cursor`, presence, `cooldown_until`, `match_rev`. Ended rooms return `{ room: { status: 'ended' }, items: [] }` |
 | GET | `/api/rooms/:id/events?after=<seq>&wait=1&vis=visible\|hidden&rev=<match_rev>` | Long-poll (≤20 s). `{ room, events: [{ seq, type, data }], cursor, presence, match_rev }`; returns early on new room events, or (with `rev`) as soon as the match moves on from that version; `reset: true` when the cursor is ahead; ended rooms return their status and no events |
-| GET | `/api/rooms/:id/match` | Match Intelligence: `{ match (source_label, sport, sport_name, fixture_key), freshness { updated_at, age_seconds, stale }, score, commentary [{ event_id, over, text, occurred_at }], moments (demo), replay { own, paused, speed (0.5, 1 or 2), moments [{ id, label, passed }], can_control }, crowd [{ id, at, fan, team, text, thread }], rev }`. `score` depends on the sport: cricket (scorecard, rates, batters, bowling_card, fall_of_wickets, partnership, this_over, team_stats, result); f1 (lap, total_laps, safety_car, leader, order [{ pos, code, name, team, gap, tyre, pits }], fastest_lap, result); basketball (period, clock, teams [{ code, name, score, team_fouls, leaders }], last_play, result); hockey (period, clock, teams [{ code, name, score, shots }], power_play, empty_net, goals, penalties, last_play, result). `over` in commentary is the over.ball or the game clock. `crowd` is the simulated fans' lines for the plays of the last 45 s, in public rooms only (`[]` in private rooms), the same for everyone in the room; clients show each line at `at`. `own` is a private room's own replay; `can_control` is true for its owner and admins |
-| GET | `/api/rooms/:id/guide` | Members: help for newcomers to the room's sport: `{ sport, sport_name, title, rules [{ topic, text }], roster [{ name, team, role }], examples }`. The rules sheet and roster are the checked material the Co-host answers rule and player questions from |
-| POST | `/api/rooms/:id/replay` | A private room's own replay, owner and admins only: `{ action: start\|pause\|resume\|speed\|restart\|jump, speed?: 0.5\|1\|2, moment? }` → `{ ok, jumped_to? }`. Jumping ahead backfills skipped balls without alerts; jumping back, or restarting, starts a fresh run (6 per room per hour, then 429). 403 in the public room, 409 `not_controllable` in a room following the shared replay, 409 `replay_state` for a control that does not fit (pausing a paused replay) |
+| GET | `/api/rooms/:id/match` | Match Intelligence: `{ match { id, title, teams, format, status, source, source_label, sport, sport_name, fixture_key }, freshness { updated_at, age_seconds, stale }, score, commentary, crowd [{ id, at, fan, team, text, thread }], rev }`. `commentary` is the last 10 plays, newest first: `[{ event_id, kind, over, symbol, label, text, occurred_at }]` (`over` is the over.ball or the game clock, `null` for a cricket event; `symbol` is a cricket ball's). `score` depends on the sport: cricket (scorecard, rates, `batters [{ name, short, runs, balls, fours, sixes, strike_rate, on_strike }]`, bowler, bowling_card, `fall_of_wickets [{ name, r, b, fours, sixes, how, score, over }]`, partnership, this_over, team_stats, result); f1 (lap, total_laps, safety_car, leader, order [{ pos, code, name, team, gap, tyre, pits }], fastest_lap, result); basketball (period, clock, teams [{ code, name, score, team_fouls, leaders }], last_play, result); hockey (period, clock, teams [{ code, name, score, shots }], power_play, empty_net, goals, penalties, last_play, result). `crowd` is the crowd personas' lines for the plays of the last 45 s, in public rooms only (`[]` in private rooms), the same for everyone in the room; clients show each line at `at`. The `replay` and `moments` fields are gone |
+| GET | `/api/rooms/:id/match?detail=1` | The Match Centre: everything above, with `commentary` replaced by **every** play of the game, newest first (at most 300), each `{ event_id, kind, over, symbol, label, text, occurred_at }` with `over` always set: in cricket the over.ball for a ball ("18.4"; a wide sits at the next legal ball) and the overs bowled for an event or an over's end ("18.0"); in the other sports the clock ("Q4 2:31", "P3 15:21", "Lap 50"). `symbol` is set on cricket balls only: "0"–"6", "W", "wd" (and "nb"). An over's end (`kind: overend`) has `label: "End of over"` and a line like "End of over 15: 16 runs. CSK 144/2." Plus `graphs`, by sport — cricket: `{ kind: 'cricket', target: number \| null, overs: [{ over (1-based), runs, wickets, total }] }` (the overs of the feed; wides count in the over they were bowled in; `total` is the innings total at the over's end, the over in progress last; the feed starts after 14 overs, so the first is over 15 and `total` includes the runs before it); basketball and hockey: `{ kind: 'score', teams: [codeA, codeB], points: [{ label (the clock), a, b }] }` (the score at the start, after each change and now); F1: `{ kind: 'gaps', drivers (codes of the top 3 now), laps: [{ lap, gaps: { code: seconds to the leader } }] }` (each lap as it ended) |
+| GET | `/api/rooms/:id/guide` | Members: help for newcomers to the room's sport: `{ sport, sport_name, title, rules [{ topic, text }], roster [{ name, team, role }], examples }`. The rules sheet and roster are the checked material the AI Co-host and Dream Bot answer rule and player questions from |
 | POST | `/api/rooms/:id/join` | Public rooms only; `409 room_full` at `PUBLIC_ROOM_MAX_MEMBERS` (100) |
 | POST | `/api/rooms/:id/leave` | Not for owners |
 | POST | `/api/rooms/:id/end` | Private: owner. Public: platform moderators |
-| PATCH | `/api/rooms/:id/settings` | Private, owner/admin: `{ moderation_level?, ai_enabled? }`. Public rooms: `403` |
+| PATCH | `/api/rooms/:id/settings` | Private, owner/admin: `{ moderation_level?, ai_enabled? }`. Public rooms: `403`. `ai_enabled: false` turns the AI Co-host and Dream Bot off for the room |
 | GET / POST | `/api/rooms/:id/invitations` | Owner/admin: list with statuses / `{ invitee_ids }` |
 | PUT | `/api/rooms/:id/members/:userId/role` | Owner: `{ role: admin \| member }`; never your own role |
 | DELETE | `/api/rooms/:id/members/:userId` | Owner/admin removes a member (not the owner; admins cannot remove admins) |
 
-## Chat, reactions, polls, Co-host
+## Chat, reactions, polls, AI Co-host, Dream Bot
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/rooms/:id/messages` | `{ client_msg_id, text (≤500), reply_to?, thread_id? }` → `201 { message, status: visible\|held, cooldown_until, notice? }`. `thread_id` posts into a thread of this room (`400 invalid_thread` otherwise); without it the message joins a thread whose topic it mentions, or a big moment from the last 30 s. Messages carry `thread { id, title }` or `null`. `422 message_rejected { message, categories, moderation_event_id }`, `429 cooldown { retry_after, cooldown_until }`, `429 moderation_pause`, `410 room_ended`. A retry with the same `client_msg_id` returns the original (`duplicate: true`) |
+| — | A question nobody answers | A question about the room's sport (a question mark or question word, and one of that sport's terms) gets an AI Co-host answer in the chat after `UNANSWERED_QUESTION_DELAY_SECONDS` (25) unless a human replies first (a reply, or an `@handle` of the asker). The answer is a message with `sender.type: 'ai'` and `ai { label: 'AI Co-host', … }`; the question stores the play it was sent at (`match_seq`), and the answer is built from the game as it stood then, the rules sheet and the roster; `ai.asked_at` is the over or clock and `ai.grounding.status` one of `grounded`, `rules_sheet`, `insufficient_data`, `not_applicable`. An answer the AI cannot give is dropped (the question's `answer_state` becomes `cancelled`). Mentioning `@huddle` does nothing |
 | PUT | `/api/rooms/:id/messages/:mid/reactions` | `{ emoji: 🔥\|😂\|😮\|👏\|😢\|🏏, on: boolean }` |
 | POST | `/api/rooms/:id/messages/:mid/report` | `{ reason: harassment\|hate\|threat\|spam\|personal_info\|sexual\|misinformation\|other, note? }` |
 | POST | `/api/rooms/:id/polls/suggest` | `{ client_request_id }` → `{ poll_id, source: ai\|template }`; one open poll per room |
 | POST | `/api/rooms/:id/polls/:pid/vote` | `{ option }` |
-| POST | `/api/rooms/:id/catchup` | `{ since_seq? }` → `{ headline, match_points, room_points, source: ai\|match_data, data_as_of, stale, note? }` (to the requester only) |
-| — | `@huddle` in a message | Queues an AI answer; a question about the room's sport without a mention is answered after 25 s if no human replies first. The message stores the play it was sent at (`match_seq`), and the answer is built from the game as it stood then, the rules sheet and the roster; its `ai_meta` carries `asked_at` (the over or clock) and `grounding.status` (`grounded`, `rules_sheet`, `insufficient_data`, `not_applicable`) |
+| POST | `/api/rooms/:id/catchup` | `{ since_seq? }` → `{ headline, match_points, room_points, source: ai\|match_data, data_as_of, stale, source_label, note?, label? }` (to the requester only) |
+| POST | `/api/rooms/:id/bot` | Dream Bot, members only: `{ question (1–300 chars), client_request_id (/^[A-Za-z0-9_-]{8,64}$/) }` → `200 { answer, asked_at, grounding, source }`. The answer goes to the asker only: nothing is written to the room's messages or events. It is the Co-host's Q&A on the room's game: the latest state, the recent commentary, the sport's rules sheet and roster (no room chat), with the same output validation (every number must come from that verified data). `asked_at` is the over or clock of the latest play (`null` before the first); `grounding` is `grounded`, `rules_sheet`, `insufficient_data` or `not_applicable` (`null` when unavailable); `source: 'ai'`, or `'unavailable'` with a short honest answer when the AI is not configured, busy, over the room's budget, switched off in the room or its answer is rejected ("Dream Bot can't answer right now. Latest: CSK 157/3 (15.5) · need 30 off 25."), and when the question itself breaks the chat's safety baseline (it is never sent to an AI provider). A retry with the same `client_request_id` within a minute returns the same reply. `400 no_match` for a room without a game, `429 rate_limited { retry_after }` past the per-person AI limit (`AI_USER_REQUESTS_PER_5_MIN`, 6), `410 room_ended` |
 
-Event `type`s: `message`, `message_update` (reactions, moderation, answer state), `poll`, `insight` (match moment:
-`{ label, priority, fact, explanation, trigger, source_event_id, occurred_at }`), `member`, `room` (settings changed).
+Event `type`s: `message`, `message_update` (reactions, moderation, answer state), `poll`, `insight` (a match moment,
+which clients show as an AI Co-host message: `{ label, priority, trigger, fact, explanation, source_event_id,
+occurred_at }`), `member`, `thread`, `room` (settings changed).
 
-## Invitations, moderation, demo, operations
+## Invitations, moderation, operations
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/invitations/:id/accept` · `/decline` | Invitee only; `410` when expired; `409` when already used |
@@ -70,14 +73,20 @@ Event `type`s: `message`, `message_update` (reactions, moderation, answer state)
 | GET | `/api/mod/queue` | Moderators: held messages and open reports |
 | POST | `/api/mod/messages/:mid` | Moderators: `{ action: approve \| remove \| dismiss }` |
 | POST | `/api/mod/appeals/:rid` | Moderators: `{ action: uphold \| overturn }` |
-| POST | `/api/demo/matches/:id/jump` | `DEMO_CONTROLS` only: `{ moment }` jumps the shared simulated replay (skipped balls never alert); 403 for a private room's own replay |
-| POST | `/api/demo/matches` | `DEMO_CONTROLS` only: start a new MI v CSK run when the last one finished (every sport also gets a fresh run when `/api/rooms` loads) |
 | GET | `/api/ops/metrics` | Moderators: delivery latency, job timings and queue state, AI outcomes/latency/tokens/fallbacks (last hour), moderation counts, purge status |
 | GET | `/api/cron/sweep` | Vercel Cron with `Authorization: Bearer $CRON_SECRET` |
 
-`match_rev` in the room bootstrap and long-poll responses is opaque: it changes with every new ball and with every
-replay control, and clients refetch `/api/rooms/:id/match` when it does. Clients pass the one they have as `rev`, so a
-quiet room still gets each ball (and the simulated fans' lines for it) within about a second. Opening a room (the
-bootstrap) counts the viewer as online straight away. `/api/config` gives `chat.cooldown_seconds` (10 by default,
-`CHAT_COOLDOWN_SECONDS`) and `crowd.fans`, the number of simulated fans in each public watch party (200). Simulated
-games play at `DEMO_SPEED` (0.5 by default): a ball, lap or play roughly every `DEMO_BALL_SECONDS / DEMO_SPEED` seconds.
+## Removed on 3 November 2026
+These now answer `404`: `POST /api/rooms/:id/replay` (private rooms' own replay), `POST /api/demo/matches/:id/jump` and
+`POST /api/demo/matches` (demo controls), `GET/PUT /api/me/notifications` and `POST/DELETE /api/me/push-subscriptions`
+(push notifications), `GET /api/users/demo` (demo friends). `GET /api/config` no longer has `notifications`, `push` or
+`demo_controls`; search results no longer have `demo`; the match snapshot no longer has `replay` or `moments`;
+`POST /api/rooms` refuses `own_replay`; and `@huddle` in a message no longer asks the AI anything.
+
+`match_rev` in the room bootstrap and long-poll responses is opaque: it changes with every new ball, the game's status
+and pace, and a room moving to another game, and clients refetch `/api/rooms/:id/match` when it does. Clients pass
+the one they have as `rev`, so a quiet room still gets each ball (and the crowd's lines for it) within about a second.
+Opening a room (the bootstrap) counts the viewer as online straight away. `/api/config` gives `chat.cooldown_seconds`
+(10 by default, `CHAT_COOLDOWN_SECONDS`) and `crowd.fans`, the number of crowd personas in each public watch party
+(200). The games play at `DEMO_SPEED` (0.5 by default): a ball, lap or play roughly every `DEMO_BALL_SECONDS /
+DEMO_SPEED` seconds.

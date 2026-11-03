@@ -1,11 +1,11 @@
 // Cricket: the scripted MI v CSK chase. Its big moments come from the momentum rules (momentum.ts), not the script.
-import type { CrowdCue, FactsInput, Fixture, MomentThread, PollTemplate, Team } from '../fixture.ts';
-import { START, SCRIPT, MOMENTS, TEAMS, SQUADS, CROWD, FANS, otherTeam, shortName, type CricketItem, type CricketStart } from '../demo-script.ts';
-import { initialState, applyItem, snapshot, rates, type CricketScore, type CricketState } from '../scorecard.ts';
+import type { CrowdCue, FactsInput, Fixture, Graphs, MomentThread, PlayLabel, PollTemplate, Team } from '../fixture.ts';
+import { START, SCRIPT, TEAMS, SQUADS, CROWD, FANS, otherTeam, shortName, type CricketItem, type CricketStart } from '../demo-script.ts';
+import { initialState, applyItem, snapshot, rates, oversText, type BallRecord, type CricketScore, type CricketState } from '../scorecard.ts';
 import { detectSignals } from '../momentum.ts';
 import { makeFans } from '../fans.ts';
 
-// `initial` is the scorecard the replay starts from.
+// `initial` is the scorecard the feed starts from.
 export interface CricketFixture extends Fixture<CricketState, CricketItem, CricketScore> { initial: CricketStart }
 
 const SIDES: Team[] = [TEAMS.MI, TEAMS.CSK];
@@ -42,16 +42,47 @@ function facts(snap: FactsInput<CricketScore>) {
   return {
     headline: `${s.batting} ${s.runs}/${s.wickets} (${s.overs})${s.result ? ` · ${s.result}` : s.need_runs ? ` · need ${s.need_runs} off ${s.need_balls}` : ''}`,
     match: snap.match.title, sport: 'cricket', format: snap.match.format, status: snap.match.status,
-    source: snap.match.source, source_note: snap.match.source_label,
+    source_note: snap.match.source_label,
     batting: s.batting, bowling: s.bowling, score: `${s.runs}/${s.wickets}`, overs: s.overs, target: s.target,
     need_runs: s.need_runs, balls_left: s.need_balls, current_run_rate: s.crr, required_run_rate: s.rrr,
     first_innings: s.first_innings, result: s.result,
-    batters: s.batters.map((b) => `${b.name} ${b.runs} (${b.balls})${b.on_strike ? ' on strike' : ''}`),
+    batters: s.batters.map((b) => `${b.name} ${b.runs} (${b.balls}), ${b.fours} fours, ${b.sixes} sixes${b.on_strike ? ', on strike' : ''}`),
     bowler: s.bowler ? `${s.bowler.name} ${s.bowler.figures}` : null,
     bowling_card: s.bowling_card.map((b) => `${b.name} ${b.figures}`),
-    fall_of_wickets: s.fall_of_wickets.map((w) => `${w.name} ${w.r} (${w.b}) ${w.how}${w.score ? ` at ${w.score}` : ''}${w.over ? ` in ${w.over} ov` : ''}`),
+    fall_of_wickets: s.fall_of_wickets.map((w) => `${w.name} ${w.r} (${w.b}) ${w.how}, ${w.fours} fours, ${w.sixes} sixes${w.score ? `, at ${w.score}` : ''}${w.over ? ` in ${w.over} ov` : ''}`),
     this_over: s.this_over.join(' '),
   };
+}
+
+// A ball sits at its over.ball and an event at the overs bowled so far. The feed's end of an over has no text, so its
+// line sums up that over's deliveries (all still in ball_log, which keeps the last 18).
+function describe(item: CricketItem, prev: CricketState, next: CricketState, ball: BallRecord | null): PlayLabel {
+  if (ball) return { over: ball.label, symbol: ball.symbol };
+  const over = oversText(next.balls);
+  if (item.kind !== 'overend') return { over, symbol: null };
+  const done = Math.floor(next.balls / 6);
+  const balls = prev.ball_log.filter((b) => b.label.startsWith(`${done - 1}.`));
+  const runs = balls.reduce((sum, b) => sum + b.runs, 0);
+  const wickets = balls.filter((b) => b.wicket).length;
+  const lost = wickets ? `, ${wickets} wicket${wickets === 1 ? '' : 's'}` : '';
+  return { over, symbol: null, label: 'End of over', text: `End of over ${done}: ${runs} run${runs === 1 ? '' : 's'}${lost}. ${next.batting} ${next.runs}/${next.wkts}.` };
+}
+
+// Runs and wickets per over of the feed (wides count in the over they were bowled in), with the innings total at the
+// end of each; the over in progress is the last entry. Overs before the feed started have no ball-by-ball data.
+function graphs(states: CricketState[]): Graphs {
+  const overs = new Map<number, { over: number; runs: number; wickets: number; total: number }>();
+  for (let i = 1; i < states.length; i++) {
+    const [before, after] = [states[i - 1], states[i]];
+    if (after.balls === before.balls && after.runs === before.runs && after.wkts === before.wkts) continue; // not a delivery
+    const over = Math.floor(before.balls / 6) + 1;
+    const bar = overs.get(over) || { over, runs: 0, wickets: 0, total: 0 };
+    bar.runs += after.runs - before.runs;
+    bar.wickets += after.wkts - before.wkts;
+    bar.total = after.runs;
+    overs.set(over, bar);
+  }
+  return { kind: 'cricket', target: states[states.length - 1].target, overs: [...overs.values()] };
 }
 
 function templatePoll(state: CricketState): PollTemplate {
@@ -93,11 +124,10 @@ export const CRICKET: CricketFixture = {
   title: 'MI v CSK',
   teams: SIDES,
   format: 'T20',
-  sourceLabel: 'Simulated replay · demo data, not a live feed',
+  sourceLabel: 'Ball-by-ball match feed',
   initial: START,
   items: SCRIPT,
-  moments: MOMENTS.map((m) => ({ ...m, index: SCRIPT.findIndex((s) => s.moment === m.id) })).filter((m) => m.index >= 0),
-  engine: { initialState, applyItem, snapshot, detectSignals, facts, templatePoll, threadForItem },
+  engine: { initialState, applyItem, snapshot, detectSignals, facts, templatePoll, threadForItem, describe, graphs },
   crowd: {
     lines: CROWD,
     fans: makeFans(['MI', 'CSK'], ['sixes', 'yorkers', 'whistles', 'paltan', 'covers', 'thala', 'boom', 'spin', 'chepauk', 'wankhede'], { keep: FANS, seed: 'cricket' }),
@@ -113,7 +143,7 @@ export const CRICKET: CricketFixture = {
     { topic: 'Run rate', text: 'Current run rate (CRR) is runs per over so far. Required run rate (RRR) is the runs still needed divided by the overs left.' },
     { topic: 'Wickets', text: 'A batter is out bowled, caught, LBW, run out or stumped, among others. Losing 10 wickets ends the innings.' },
     { topic: 'LBW', text: 'Leg before wicket: out if the ball hits the batter (usually the pad) and would have gone on to hit the stumps, with conditions on where it pitched and hit.' },
-    { topic: 'DRS', text: 'The Decision Review System lets a team challenge an on-field decision. TV replays and ball-tracking decide; on "umpire\'s call" the on-field decision stands.' },
+    { topic: 'DRS', text: 'The Decision Review System lets a team challenge an on-field decision. The third umpire checks the TV footage and ball-tracking; on "umpire\'s call" the on-field decision stands.' },
     { topic: 'Boundaries', text: 'A four is the ball reaching the boundary rope along the ground; a six clears the rope without bouncing.' },
     { topic: 'Wides and no-balls', text: 'A wide or no-ball gives the batting side one extra run and the ball must be bowled again. After a front-foot no-ball the next ball is a free hit.' },
     { topic: 'Powerplay', text: 'In the first 6 overs only 2 fielders may stand outside the 30-yard circle, so batters attack early.' },

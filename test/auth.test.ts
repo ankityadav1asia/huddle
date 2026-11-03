@@ -135,6 +135,6 @@ test('user search returns public profile fields only', async () => {
   await signUp(app.base, 'kavya_kc');
   const r = await a.get('/api/users/search?q=kav');
   assert.equal(r.body.users.length, 1);
-  assert.deepEqual(Object.keys(r.body.users[0]).sort(), ['demo', 'handle', 'id', 'teams']);
+  assert.deepEqual(Object.keys(r.body.users[0]).sort(), ['handle', 'id', 'teams']);
   assert.deepEqual(r.body.users[0].teams, ['CSK']);
 });

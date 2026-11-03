@@ -93,6 +93,7 @@ async function boot() {
   fitPhone();
   addEventListener('resize', fitPhone);
   initSheets();
+  dropServiceWorker();
   try {
     ctx.config = await api.get('/api/config');
   } catch (err) {
@@ -100,11 +101,14 @@ async function boot() {
     return;
   }
   addEventListener('hashchange', route);
-  // A notification click on an already-open tab asks the page to navigate.
-  navigator.serviceWorker?.addEventListener?.('message', (e) => {
-    if (e.data?.type === 'open' && typeof e.data.url === 'string' && e.data.url.startsWith('/')) location.href = e.data.url;
-  });
   await route();
+}
+
+// Push alerts are gone: unregister the service worker an earlier version registered for them.
+function dropServiceWorker() {
+  try {
+    navigator.serviceWorker?.getRegistrations().then((regs) => Promise.all(regs.map((r) => r.unregister()))).catch(() => {});
+  } catch { /* no service worker access on this page (insecure or sandboxed) */ }
 }
 
 boot();

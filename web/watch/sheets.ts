@@ -1,5 +1,5 @@
 // Bottom sheets (dialogs). One open at a time; Escape and the backdrop close it; focus returns to the opener.
-import { el } from './ui.ts';
+import { el, icon } from './ui.ts';
 
 let token = 0;
 let dismissable = true;
@@ -17,10 +17,11 @@ export function initSheets() {
   });
 }
 
-type SheetOptions = { title?: string; lede?: string; closable?: boolean; onclose?: (() => void) | null };
+// full: a full-height window (Dream Bot), which leaves no backdrop to tap, so it gets a close button.
+type SheetOptions = { title?: string; lede?: string; closable?: boolean; onclose?: (() => void) | null; full?: boolean };
 
 // After an await, check isOpen() before writing into body: the sheet may have been closed or replaced.
-export function openSheet({ title, lede, closable = true, onclose = null }: SheetOptions = {}) {
+export function openSheet({ title, lede, closable = true, onclose = null, full = false }: SheetOptions = {}) {
   token += 1;
   const mine = token;
   dismissable = closable;
@@ -28,9 +29,14 @@ export function openSheet({ title, lede, closable = true, onclose = null }: Shee
   onClose = onclose;
   const s = sheet();
   s.replaceChildren();
+  s.className = full ? 'sheet full' : 'sheet';
   const id = `sheet-title-${mine}`;
   s.setAttribute('aria-labelledby', id);
-  if (title) s.append(el('h2', { id, text: title }));
+  const heading = title ? el('h2', { id, text: title }) : null;
+  if (full) {
+    s.append(el('div', { class: 'sheet-head' }, heading,
+      closable ? el('button', { type: 'button', class: 'sheet-x', 'aria-label': 'Close', onclick: closeSheet }, icon('close')) : null));
+  } else if (heading) s.append(heading);
   if (lede) s.append(el('p', { class: 'lede', text: lede }));
   const body = el('div', { class: 'sheet-body' });
   s.append(body);
@@ -42,7 +48,7 @@ export function openSheet({ title, lede, closable = true, onclose = null }: Shee
     if (first) first.focus();
     else s.focus({ preventScroll: true });
   });
-  return { body, isOpen: () => token === mine && !layer().hidden };
+  return { body, heading, isOpen: () => token === mine && !layer().hidden };
 }
 
 export function closeSheet() {

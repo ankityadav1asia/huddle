@@ -1,11 +1,11 @@
-// The scripted MI v CSK chase (CSK chasing 187): a made-up match with real players, labelled as a simulated replay
-// wherever it appears. The moderation tests use its crowd lines as a corpus of ordinary cricket banter.
+// The scripted MI v CSK chase (CSK chasing 187): fixture data, a made-up match with real players. The moderation
+// tests use its crowd lines as a corpus of ordinary cricket banter.
 import type { CrowdCue } from './fixture.ts';
 
-export interface BatterLine { r: number; b: number } // runs, balls faced
+export interface BatterLine { r: number; b: number; fours: number; sixes: number } // runs, balls faced, boundaries
 export interface BowlerLine { b: number; r: number; w: number } // balls, runs conceded, wickets
 
-// The scorecard when the replay starts; scorecard.ts builds its state from it.
+// The scorecard when the feed starts; scorecard.ts builds its state from it.
 export interface CricketStart {
   batting: string;
   bowling: string;
@@ -18,11 +18,12 @@ export interface CricketStart {
   bowler: string;
   batters: Record<string, BatterLine>;
   bowlers: Record<string, BowlerLine>;
-  outs: { name: string; r: number; b: number; how: string }[];
+  outs: (BatterLine & { name: string; how: string })[];
 }
 
 interface Wicket { out: string; how: string; next: string }
-// What a ball or event may carry for the crowd and the replay (see SCRIPT).
+// What a ball or event may carry for the crowd and the feed clock (see SCRIPT). `moment` names a point in the script
+// that threads and tests refer to.
 interface Cues { crowd?: CrowdCue; pause?: number; moment?: string }
 interface BallItem extends Cues {
   kind: 'ball';
@@ -67,7 +68,7 @@ export const SQUADS: Record<string, string[]> = {
 const CALLED: Record<string, string> = { 'Tilak Varma': 'Tilak', 'Hardik Pandya': 'Hardik', 'Rohit Sharma': 'Rohit', 'Suryakumar Yadav': 'Surya', 'Ruturaj Gaikwad': 'Ruturaj', 'Sanju Samson': 'Sanju' };
 export const shortName = (name: string) => CALLED[name] || name.split(' ').slice(-1)[0];
 
-// The replay starts after 14 overs of the chase.
+// The feed starts after 14 overs of the chase.
 export const START: CricketStart = {
   batting: 'CSK',
   bowling: 'MI',
@@ -79,8 +80,8 @@ export const START: CricketStart = {
   striker: 'Ruturaj Gaikwad',
   bowler: 'Mitchell Santner',
   batters: {
-    'Shivam Dube': { r: 41, b: 24 },
-    'Ruturaj Gaikwad': { r: 22, b: 17 },
+    'Shivam Dube': { r: 41, b: 24, fours: 2, sixes: 3 },
+    'Ruturaj Gaikwad': { r: 22, b: 17, fours: 2, sixes: 1 },
   },
   bowlers: {
     'Jasprit Bumrah': { b: 12, r: 14, w: 1 },
@@ -91,8 +92,8 @@ export const START: CricketStart = {
     'Tilak Varma': { b: 0, r: 0, w: 0 },
   },
   outs: [
-    { name: 'Ayush Mhatre', r: 14, b: 11, how: 'c Rickelton b Bumrah' },
-    { name: 'Sanju Samson', r: 44, b: 32, how: 'c Naman Dhir b Chahar' },
+    { name: 'Ayush Mhatre', r: 14, b: 11, fours: 2, sixes: 0, how: 'c Rickelton b Bumrah' },
+    { name: 'Sanju Samson', r: 44, b: 32, fours: 4, sixes: 2, how: 'c Naman Dhir b Chahar' },
   ],
 };
 
@@ -183,13 +184,6 @@ export const SCRIPT: CricketItem[] = [
     crowd: { key: 'csk_win', n: 28, spread: 10000, mi: 0.4 },
   }),
   E('result', 'Result', 'CSK win by 6 wickets off the final ball.', { pause: 3000 }),
-];
-
-export const MOMENTS = [
-  { id: 'bowling-change', label: 'Bowling change' },
-  { id: 'drs', label: 'DRS call' },
-  { id: 'drop', label: 'Dropped catch' },
-  { id: 'last-over', label: 'Last over' },
 ];
 
 // Simulated chat, the way fans actually type it. {need} and {balls} are filled from the scorecard.

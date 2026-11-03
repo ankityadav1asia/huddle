@@ -12,7 +12,7 @@ const MEMBERS = Number(process.argv[3]) || 10;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))]; };
 
-const app = await startApp((cfg) => { cfg.cohost.unansweredDelaySeconds = 3; cfg.ai.maxConcurrency = 3; });
+const app = await startApp((cfg) => { cfg.cohost.unansweredDelaySeconds = 0; cfg.ai.maxConcurrency = 3; });
 const AI_DELAY = 4000;
 let aiCalls = 0;
 setAi(createOrchestrator({
@@ -22,7 +22,7 @@ setAi(createOrchestrator({
     async generate() {
       aiCalls += 1;
       await sleep(AI_DELAY);
-      return { content: { type: 'answer', text: 'CSK are chasing 187 in this replay.', language: 'english', confidence: 'low', grounding: { status: 'grounded', sourceEventIds: [] }, needsHumanReview: false }, provider: 'slow', model: 'slow-test', requestId: null, latencyMs: AI_DELAY, usage: { input: null, output: null } };
+      return { content: { type: 'answer', text: 'CSK are chasing 187.', language: 'english', confidence: 'low', grounding: { status: 'grounded', sourceEventIds: [] }, needsHumanReview: false }, provider: 'slow', model: 'slow-test', requestId: null, latencyMs: AI_DELAY, usage: { input: null, output: null } };
     },
   }],
 }));
@@ -63,13 +63,14 @@ const loops = rooms.flatMap((room) => room.members.map(async (c) => {
 }));
 await sleep(1000);
 
-// Burst: everyone sends at once (one message each, the per-user rule allows exactly that), a third mention @huddle.
+// Burst: everyone sends at once (one message each, the per-user rule allows exactly that); a third ask a cricket question
+// nobody answers, which the slow AI answers (UNANSWERED_QUESTION_DELAY_SECONDS is 0 here, so its calls start at once).
 console.log(`Burst: ${ROOMS * MEMBERS} messages within ~1 s, ${Math.ceil(ROOMS * MEMBERS / 3)} of them ask the slow AI...`);
 const sends: Promise<any>[] = [];
 let i = 0;
 for (const room of rooms) {
   for (const c of room.members) {
-    const text = i % 3 === 0 ? `@huddle what does CSK need? (${i})` : `burst message ${i}`;
+    const text = i % 3 === 0 ? `What does CSK need? (${i})` : `burst message ${i}`;
     i += 1;
     sends.push((async () => {
       const t = Date.now();

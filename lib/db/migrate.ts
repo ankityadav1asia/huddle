@@ -8,8 +8,9 @@ import type { Db } from './index.ts';
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
 const LOCK_KEY = 4815162342;
 
-export async function migrate(db: Db) {
-  const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+// upTo: stop after the migration with this number (tests build a database as an older release left it).
+export async function migrate(db: Db, { upTo = Infinity } = {}) {
+  const files = readdirSync(dir).filter((f) => f.endsWith('.sql') && Number.parseInt(f, 10) <= upTo).sort();
   await db.tx(async (q) => {
     await q.query('SELECT pg_advisory_xact_lock($1)', [LOCK_KEY]);
     await q.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (

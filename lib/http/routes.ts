@@ -1,28 +1,26 @@
 // HTTP API (JSON). The acting user always comes from the session cookie; see docs/api-contract.md.
 import { route, reply } from './router.ts';
-import { config, type Config } from '../config.ts';
+import { config } from '../config.ts';
 import { one, many } from '../db/index.ts';
 import type { MatchRow } from '../db/rows.ts';
-import { HttpError, forbidden, notFound, badRequest, onlyKeys, safeEqual } from '../util.ts';
+import { HttpError, forbidden, notFound, safeEqual } from '../util.ts';
 import { sessionCookie, clearSessionCookie, revokeSession, revokeAllSessions } from '../auth/sessions.ts';
-import { publicMe, createGuest, updateProfile, setSportChoice, searchUsers, ensureDemoFriends, demoFriends, MAX_PICKS } from '../users.ts';
+import { publicMe, createGuest, updateProfile, setSportChoice, searchUsers, MAX_PICKS } from '../users.ts';
 import { CROWD_SIZE } from '../match/fans.ts';
 import { crowdLines } from '../match/crowd.ts';
 import {
-  roomAccess, isAdminRole, listRooms, createPrivateRoom, inviteToRoom, roomInvitations, myInvitations, respondToInvitation,
+  roomAccess, listRooms, createPrivateRoom, inviteToRoom, roomInvitations, myInvitations, respondToInvitation,
   revokeInvitation, joinPublicRoom, leaveRoom, setMemberRole, removeMember, updateRoomSettings,
 } from '../rooms/service.ts';
-import { controlRoomReplay } from '../rooms/replay.ts';
 import { endRoomByUser } from '../rooms/lifecycle.ts';
 import { pollEvents, roomBootstrap, parseAfter } from '../rooms/realtime.ts';
 import { sendMessage } from '../chat/messages.ts';
 import { setReaction, votePoll } from '../chat/interactions.ts';
 import { REACTIONS } from '../chat/hydrate.ts';
 import { catchUp, suggestPoll } from '../cohost/index.ts';
-import { ensureDemoMatch, ensureDemoMatches, matchSnapshot, jumpToMoment } from '../match/feed.ts';
+import { askDreamBot } from '../cohost/bot.ts';
+import { ensureDemoMatches, matchSnapshot } from '../match/feed.ts';
 import { fixtureFor, fixtureForMatch, sportRank, SPORTS } from '../match/fixture.ts';
-import { getPrefs, setPrefs, saveSubscription, removeSubscriptions } from '../notify/index.ts';
-import { pushAvailable } from '../notify/push.ts';
 import { reportMessage, appeal, moderationQueue, moderate, resolveAppeal } from '../moderation/reports.ts';
 import { publicPolicy, LEVEL_INFO, LEVELS } from '../moderation/policy.ts';
 import { aiStatus } from '../ai/index.ts';
@@ -40,14 +38,11 @@ route('GET', '/api/config', async () => {
   const cfg = config();
   return {
     auth: { mode: 'guest', available: Boolean(cfg.secret) },
-    notifications: { max_per_match: cfg.notify.maxPerMatch },
-    push: { available: pushAvailable(), vapid_public_key: pushAvailable() ? cfg.push.publicKey : null },
-    demo_controls: cfg.demoControls,
     ai: aiStatus(),
     chat: { cooldown_seconds: cfg.chat.cooldownSeconds, max_length: cfg.chat.maxLength, reactions: REACTIONS },
     moderation: { levels: LEVELS.map((l) => ({ id: l, description: LEVEL_INFO[l] })), public: publicPolicy() },
     retention_hours: cfg.retention.messageHours,
-    // The teams and players a fan can back in each sport (demo data, like the games).
+    // The teams and players a fan can back in each sport (fixture data, like the games).
     sports: Object.values(SPORTS),
     max_picks: MAX_PICKS,
     crowd: { fans: CROWD_SIZE }, // the simulated fans who chat along with each public watch party
@@ -72,19 +67,13 @@ route('POST', '/api/auth/logout-all', async ({ db, user }) => {
 route('GET', '/api/me', async ({ user }) => ({ user: publicMe(user), needs_profile: !user.handle }), { profile: false });
 route('PUT', '/api/me/profile', async ({ db, user, body }) => ({ user: await updateProfile(db, user, body) }), { profile: false });
 route('PUT', '/api/me/sports/:sport', async ({ db, user, body, params }) => ({ user: await setSportChoice(db, user, params.sport, body) }));
-route('GET', '/api/me/notifications', async ({ db, user }) => getPrefs(db, user));
-route('PUT', '/api/me/notifications', async ({ db, user, body }) => setPrefs(db, user, body));
-route('POST', '/api/me/push-subscriptions', async ({ db, user, body }) => saveSubscription(db, user, body));
-route('DELETE', '/api/me/push-subscriptions', async ({ db, user }) => removeSubscriptions(db, user));
 route('GET', '/api/me/invitations', async ({ db, user }) => myInvitations(db, user));
-route('GET', '/api/users/search', async ({ db, cfg, user, query }) => searchUsers(db, user, query, { includeDemo: cfg.demoFriends }));
-route('GET', '/api/users/demo', async ({ db, cfg, user }) => (cfg.demoFriends ? demoFriends(db, user) : { users: [] }));
+route('GET', '/api/users/search', async ({ db, user, query }) => searchUsers(db, user, query));
 
-route('GET', '/api/rooms', async ({ db, cfg, user }) => {
-  await ensureDemoMatches(db); // one shared simulated game, with its public watch party, per sport
-  if (cfg.demoFriends) await ensureDemoFriends(db);
+route('GET', '/api/rooms', async ({ db, user }) => {
+  await ensureDemoMatches(db); // one shared game, with its public watch party, per sport
   const rooms = await listRooms(db, user);
-  const matches = (await many<Pick<MatchRow, 'id' | 'title' | 'status' | 'source' | 'fixture_key'>>(db, `SELECT id, title, status, source, fixture_key FROM matches WHERE status IN ('scheduled', 'live') AND room_id IS NULL`))
+  const matches = (await many<Pick<MatchRow, 'id' | 'title' | 'status' | 'source' | 'fixture_key'>>(db, `SELECT id, title, status, source, fixture_key FROM matches WHERE status IN ('scheduled', 'live')`))
     .sort((a, b) => sportRank(a.fixture_key) - sportRank(b.fixture_key))
     .map(({ fixture_key: key, ...m }) => ({ ...m, sport: fixtureFor({ fixture_key: key }).sport, sport_name: fixtureFor({ fixture_key: key }).sportName }));
   return { ...rooms, matches };
@@ -101,23 +90,23 @@ route('GET', '/api/rooms/:id/events', async ({ db, cfg, user, params, query }) =
   pump: cfg.worker.inline ? null : (budgetMs) => pump(db, { budgetMs, maxJobs: 4 }),
 }));
 
-route('GET', '/api/rooms/:id/match', async ({ db, user, params }) => {
-  const { room, role, policy } = await roomAccess(db, params.id, user);
+// detail=1: the Match Centre, with every play of the game labelled and the graphs.
+route('GET', '/api/rooms/:id/match', async ({ db, user, params, query }) => {
+  const { room, policy } = await roomAccess(db, params.id, user);
   if (!room.match_id) throw notFound('This room is not following a match.');
-  const snap = await matchSnapshot(db, room.match_id);
+  const snap = await matchSnapshot(db, room.match_id, { detail: query.detail === '1' });
   if (!snap) throw notFound('This room is not following a match.');
   // Simulated fans fill the public watch party only; a private room holds just the people invited.
-  const crowd = room.room_type === 'public' ? await crowdLines(db, { roomId: room.id, matchId: room.match_id, speed: snap.replay.speed, level: policy.level }) : [];
-  return { ...snap, replay: { ...snap.replay, can_control: snap.replay.own && room.room_type === 'private' && isAdminRole(role) }, crowd };
+  const crowd = room.room_type === 'public' ? await crowdLines(db, { roomId: room.id, matchId: room.match_id, level: policy.level }) : [];
+  return { ...snap, crowd };
 });
-// For newcomers: the sport's checked rules sheet, its players and questions to ask @huddle.
+// For newcomers: the sport's checked rules sheet, its players and questions to ask Dream Bot.
 route('GET', '/api/rooms/:id/guide', async ({ db, user, params }) => {
   const { room } = await roomAccess(db, params.id, user);
   const fixture = await fixtureForMatch(db, room.match_id);
   if (!fixture) throw notFound('This room is not following a match.');
   return { sport: fixture.sport, sport_name: fixture.sportName, title: fixture.title, rules: fixture.rules, roster: fixture.roster, examples: fixture.examples };
 });
-route('POST', '/api/rooms/:id/replay', async ({ db, user, params, body }) => controlRoomReplay(db, user, params.id, body));
 
 route('POST', '/api/rooms/:id/join', async ({ db, user, params }) => joinPublicRoom(db, user, params.id));
 route('POST', '/api/rooms/:id/leave', async ({ db, user, params }) => leaveRoom(db, user, params.id));
@@ -134,6 +123,7 @@ route('POST', '/api/rooms/:id/messages/:mid/report', async ({ db, user, params, 
 route('POST', '/api/rooms/:id/polls/suggest', async ({ db, user, params, body }) => suggestPoll(db, user, params.id, body));
 route('POST', '/api/rooms/:id/polls/:pid/vote', async ({ db, user, params, body }) => votePoll(db, user, params.id, params.pid, body));
 route('POST', '/api/rooms/:id/catchup', async ({ db, user, params, body }) => catchUp(db, user, params.id, body));
+route('POST', '/api/rooms/:id/bot', async ({ db, user, params, body }) => askDreamBot(db, user, params.id, body));
 
 route('POST', '/api/invitations/:id/accept', async ({ db, user, params }) => respondToInvitation(db, user, params.id, 'accept'));
 route('POST', '/api/invitations/:id/decline', async ({ db, user, params }) => respondToInvitation(db, user, params.id, 'decline'));
@@ -143,24 +133,6 @@ route('POST', '/api/appeals', async ({ db, user, body }) => appeal(db, user, bod
 route('GET', '/api/mod/queue', async ({ db, user }) => moderationQueue(db, user));
 route('POST', '/api/mod/messages/:mid', async ({ db, user, params, body }) => moderate(db, user, params.mid, body));
 route('POST', '/api/mod/appeals/:rid', async ({ db, user, params, body }) => resolveAppeal(db, user, params.rid, body));
-
-function requireDemo(cfg: Config) {
-  if (!cfg.demoControls) throw forbidden('Demo controls are switched off on this server.');
-}
-route('POST', '/api/demo/matches/:id/jump', async ({ db, cfg, body, params }) => {
-  requireDemo(cfg);
-  onlyKeys(body, ['moment']);
-  if (typeof body.moment !== 'string') throw badRequest('Pick a moment.');
-  // A private room's own replay is moved only by that room's owner and admins (POST /api/rooms/:id/replay).
-  if ((await one<Pick<MatchRow, 'room_id'>>(db, 'SELECT room_id FROM matches WHERE id = $1', [params.id]))?.room_id) {
-    throw forbidden('This replay belongs to a private room; its host controls it from the room.');
-  }
-  return jumpToMoment(db, params.id, body.moment);
-});
-route('POST', '/api/demo/matches', async ({ db, cfg }) => {
-  requireDemo(cfg);
-  return { match_id: await ensureDemoMatch(db) };
-});
 
 // Last-hour aggregates for the ops view.
 interface AiCallStats {

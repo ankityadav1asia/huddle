@@ -11,6 +11,10 @@ export function cached<T>(roomId: string, key: string, ttlMs: number, compute: (
   return value;
 }
 
+export function forget(roomId: string, key: string) {
+  store.delete(`room:${roomId}:${key}`);
+}
+
 export function clearRoomContext(roomId: string) {
   const prefix = `room:${roomId}:`;
   for (const k of store.keys()) if (k.startsWith(prefix)) store.delete(k);

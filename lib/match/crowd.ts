@@ -5,24 +5,27 @@ import { one, many, type Queryable } from '../db/index.ts';
 import type { MatchEventRow, MatchRow, ModerationLevel } from '../db/rows.ts';
 import { fixtureFor } from './fixture.ts';
 import { seeded } from './fans.ts';
+import { paceOf } from './feed.ts';
 import { classify } from '../moderation/classifier.ts';
 
 const WINDOW_SECONDS = 45;
 
-interface CrowdRequest { roomId: string; matchId: string; speed?: number; level?: ModerationLevel }
+interface CrowdRequest { roomId: string; matchId: string; level?: ModerationLevel }
 // One simulated fan's line, as GET /api/rooms/:id/match sends it.
 interface CrowdLine { id: string; at: string; fan: string; team: string; text: string; thread: string | null }
 
-// Lines for the plays of the last WINDOW_SECONDS (plays skipped by a jump get none), each with the moment it is
-// due: `at` = when the play happened plus its place in the burst, scaled by the replay speed. Lines the room's
-// moderation level would not allow are left out. Cues that react to the latest big moment carry its #thread.
-export async function crowdLines(db: Queryable, { roomId, matchId, speed = 1, level = 'balanced' }: CrowdRequest): Promise<CrowdLine[]> {
+// Lines for the plays of the last WINDOW_SECONDS, each with the moment it is due: `at` = when the play happened plus
+// its place in the burst, scaled by the game's pace. Lines the room's moderation level would not allow are left out.
+// Cues that react to the latest big moment carry its #thread.
+export async function crowdLines(db: Queryable, { roomId, matchId, level = 'balanced' }: CrowdRequest): Promise<CrowdLine[]> {
   const recent = await many<Pick<MatchEventRow, 'seq' | 'occurred_at'>>(db,
     `SELECT seq, occurred_at FROM match_events
-      WHERE match_id = $1 AND NOT backfilled AND occurred_at > now() - make_interval(secs => $2) ORDER BY seq`,
+      WHERE match_id = $1 AND occurred_at > now() - make_interval(secs => $2) ORDER BY seq`,
     [matchId, WINDOW_SECONDS]);
   if (!recent.length) return [];
-  const fixture = fixtureFor(await one<Pick<MatchRow, 'fixture_key'>>(db, 'SELECT fixture_key FROM matches WHERE id = $1', [matchId]));
+  const match = await one<Pick<MatchRow, 'fixture_key' | 'ball_interval_ms'>>(db, 'SELECT fixture_key, ball_interval_ms FROM matches WHERE id = $1', [matchId]);
+  const fixture = fixtureFor(match);
+  const speed = match ? paceOf(match) : 1;
   const { engine, crowd } = fixture;
   const [sideA, sideB] = fixture.teams.map((t) => t.code);
   const due = new Map(recent.map((r) => [r.seq, new Date(r.occurred_at).getTime()]));

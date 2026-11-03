@@ -9,10 +9,8 @@ import { checkName } from '../moderation/classifier.ts';
 import { LEVELS, effectivePolicy, type Policy } from '../moderation/policy.ts';
 import { appendEvent, RoomEndedError } from './events.ts';
 import { notifyRoom } from '../realtime/bus.ts';
-import { enqueue } from '../jobs/queue.ts';
 import { recordModeration } from '../moderation/audit.ts';
 import { startMatchIfScheduled } from '../match/feed.ts';
-import { createRoomReplay } from '../match/replay.ts';
 import { fixtureFor, sportRank } from '../match/fixture.ts';
 
 export type MemberStatus = 'active' | 'left' | 'removed';
@@ -99,32 +97,26 @@ async function inviteMany(q: Queryable, room: Pick<RoomRow, 'id'>, inviter: Pick
        RETURNING id`,
       [newId('inv'), room.id, inviter.id, inviteeId, cfg.rooms.inviteTtlHours]);
     if (!inv) { results.push({ user_id: inviteeId, result: 'already_invited' }); continue; }
-    // Invitation alert: in-app (the invitee's home list) and, if they opted in, a generic push.
-    await enqueue(q, { type: 'push_invite', dedupeKey: `invite:${inv.id}`, payload: { invitation_id: inv.id }, priority: 4, expiresInSeconds: 3600 });
+    // The invitee sees it in their home screen's invitation list (GET /api/me/invitations).
     results.push({ user_id: inviteeId, result: 'invited', invitation_id: inv.id });
   }
   return results;
 }
 
-// own_replay: the room gets its own copy of the match's simulated replay, which its owner and admins control
-// (lib/rooms/replay.ts). Without it the room follows the shared replay, like the public watch party.
+// match_id: the shared game of a sport, which the room follows like that sport's public watch party.
 export async function createPrivateRoom(db: Db, user: SessionUser, body: RequestBody) {
-  onlyKeys(body, ['name', 'match_id', 'own_replay', 'moderation_level', 'invitee_ids', 'ai_enabled']);
+  onlyKeys(body, ['name', 'match_id', 'moderation_level', 'invitee_ids', 'ai_enabled']);
   const name = cleanText(body.name, { max: 40, field: 'Room name' });
   if (!checkName(name)) throw badRequest('Choose a different room name.', 'name_rejected');
   const level = body.moderation_level ?? 'balanced';
   if (!LEVELS.includes(level)) throw badRequest('Moderation must be relaxed, balanced or strict.', 'invalid_moderation_level');
   if (body.ai_enabled !== undefined && typeof body.ai_enabled !== 'boolean') throw badRequest('ai_enabled must be true or false.');
-  if (body.own_replay !== undefined && typeof body.own_replay !== 'boolean') throw badRequest('own_replay must be true or false.');
   let matchId: string | null = null;
-  let shared: Pick<MatchRow, 'id' | 'status' | 'fixture_key'> | null = null;
   if (body.match_id !== undefined && body.match_id !== null) {
     requireId(body.match_id, 'mat', 'match_id');
-    shared = await one<Pick<MatchRow, 'id' | 'status' | 'fixture_key'>>(db, 'SELECT id, status, fixture_key FROM matches WHERE id = $1 AND room_id IS NULL', [body.match_id]);
-    if (!shared || (shared.status === 'completed' && !body.own_replay)) throw badRequest('That match is not available.', 'invalid_match');
-    if (!body.own_replay) matchId = shared.id;
-  } else if (body.own_replay) {
-    throw badRequest('Pick a match for the room to replay.', 'invalid_match');
+    const match = await one<Pick<MatchRow, 'id' | 'status'>>(db, 'SELECT id, status FROM matches WHERE id = $1', [body.match_id]);
+    if (!match || match.status === 'completed') throw badRequest('That match is not available.', 'invalid_match');
+    matchId = match.id;
   }
   const invitees = parseInvitees(body.invitee_ids, user.id);
 
@@ -137,10 +129,6 @@ export async function createPrivateRoom(db: Db, user: SessionUser, body: Request
       `INSERT INTO rooms (id, name, room_type, creator_id, match_id, moderation_level, ai_enabled)
        VALUES ($1, $2, 'private', $3, $4, $5, $6) RETURNING *`,
       [newId('room'), name, user.id, matchId, level, body.ai_enabled ?? true]))!;
-    if (shared && body.own_replay) {
-      // Waits for the host to press Start, so friends can arrive first.
-      await q.query('UPDATE rooms SET match_id = $2 WHERE id = $1', [room.id, await createRoomReplay(q, room.id, shared.fixture_key)]);
-    }
     await q.query(`INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'owner')`, [room.id, user.id]);
     await appendEvent(q, room.id, 'member', user.id);
     await recordModeration(q, { roomId: room.id, actorId: user.id, eventType: 'policy_set', severity: 'low', level, action: 'room_created' });

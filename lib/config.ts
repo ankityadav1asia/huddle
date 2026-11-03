@@ -28,7 +28,7 @@ const bool = (name: string, fallback: boolean) => {
 const list = (name: string) => env(name).split(',').map((s) => s.trim()).filter(Boolean);
 
 const HOSTED = Boolean(process.env.VERCEL);
-// Production never auto-generates a secret (it fails closed instead), forces Secure cookies and defaults demo controls off.
+// Production never auto-generates a secret (it fails closed instead) and forces Secure cookies.
 const PRODUCTION = HOSTED || process.env.NODE_ENV === 'production';
 
 // The server secret keys the HMACs for rate-limit keys and network hashes; it signs nothing client-visible.
@@ -79,7 +79,6 @@ export function readConfig() {
 
     retention: {
       messageHours: int('MESSAGE_RETENTION_HOURS', 24),
-      deliveryHours: int('DELIVERY_RETENTION_HOURS', 24),
       moderationDays: int('MODERATION_RETENTION_DAYS', 30),
       aiLogDays: int('AI_LOG_RETENTION_DAYS', 7),
     },
@@ -110,30 +109,14 @@ export function readConfig() {
       },
     },
 
-    notify: {
-      // Big-moment notifications per person per match: enough to bring people back, never a stream.
-      maxPerMatch: Math.min(10, Math.max(1, int('MATCH_ALERTS_PER_USER', 8))),
-      minGapSeconds: int('MATCH_ALERT_MIN_GAP_SECONDS', 90),
-      priorities: ['high', 'medium'],
-    },
-
-    push: {
-      publicKey: env('VAPID_PUBLIC_KEY'),
-      privateKey: env('VAPID_PRIVATE_KEY'),
-      subject: env('VAPID_SUBJECT', 'mailto:huddle-demo@example.com'),
-      ttlSeconds: 120,
-    },
-
     match: {
-      // Demo fixture pacing: seconds between deliveries in the scripted replay feed at 1x.
+      // Fixture pacing: seconds between deliveries in a scripted game's feed at 1x.
       ballSeconds: int('DEMO_BALL_SECONDS', 10),
-      // The pace new replays start at (0.5, 1 or 2). Half speed by default, so a demo is easy to follow.
+      // The pace shared games play at (0.5, 1 or 2). Half speed by default, so a game is easy to follow.
       defaultSpeed: [0.5, 1, 2].includes(Number(env('DEMO_SPEED', '0.5'))) ? Number(env('DEMO_SPEED', '0.5')) : 0.5,
       staleAfterSeconds: 90,
       freshnessSeconds: 45,
     },
-    demoControls: bool('DEMO_CONTROLS', !PRODUCTION),
-    demoFriends: bool('DEMO_USERS', true), // seeded, labelled demo profiles to invite (no one can sign in as them)
     publicModerationLevel: env('PUBLIC_MODERATION_LEVEL', 'balanced'),
     cronSecret: env('CRON_SECRET'),
     worker: {

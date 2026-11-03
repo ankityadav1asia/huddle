@@ -3,8 +3,8 @@ import type { BatterLine, BowlerLine, CricketItem } from './demo-script.ts';
 import type { CricketFixture } from './sports/cricket.ts';
 
 interface Partnership { runs: number; balls: number }
-// A wicket on the card; score and over are null for the ones that fell before the replay started.
-interface Out { name: string; r: number; b: number; how: string; score: string | null; over: string | null }
+// A wicket on the card; score and over are null for the ones that fell before the feed started.
+interface Out extends BatterLine { name: string; how: string; score: string | null; over: string | null }
 // The wicket a ball took, and the stand it ended.
 interface Dismissal { name: string; r: number; b: number; how: string; score: string; over: string; partnership: Partnership }
 // What one delivery was, as the momentum rules read it.
@@ -75,7 +75,7 @@ export function initialState(fixture: CricketFixture): CricketState {
     runs: s.runs,
     wkts: s.wkts,
     balls: s.balls,
-    batters: Object.fromEntries(Object.entries(s.batters).map(([n, v]) => [n, { r: v.r, b: v.b }])),
+    batters: Object.fromEntries(Object.entries(s.batters).map(([n, v]) => [n, { ...v }])),
     striker: s.striker,
     bowler: s.bowler,
     bowlers: Object.fromEntries(Object.entries(s.bowlers).map(([n, v]) => [n, { b: v.b, r: v.r, w: v.w }])),
@@ -118,7 +118,7 @@ export function applyItem(prev: CricketState, item: CricketItem, seq: number): {
   s.partnership.runs += item.runs;
   const bowler = (s.bowlers[item.bowler] ||= { b: 0, r: 0, w: 0 });
   bowler.r += item.runs;
-  const bat = (s.batters[item.bat] ||= { r: 0, b: 0 });
+  const bat = (s.batters[item.bat] ||= { r: 0, b: 0, fours: 0, sixes: 0 });
   if (legal) {
     s.balls += 1;
     s.over_legal += 1;
@@ -126,8 +126,14 @@ export function applyItem(prev: CricketState, item: CricketItem, seq: number): {
     bat.r += item.runs;
     bat.b += 1;
     s.partnership.balls += 1;
-    if (item.runs === 4) s.fours += 1;
-    if (item.runs === 6) s.sixes += 1;
+    if (item.runs === 4) {
+      s.fours += 1;
+      bat.fours += 1;
+    }
+    if (item.runs === 6) {
+      s.sixes += 1;
+      bat.sixes += 1;
+    }
     if (item.runs === 0) s.dots += 1;
   } else {
     s.extras += item.runs;
@@ -136,11 +142,11 @@ export function applyItem(prev: CricketState, item: CricketItem, seq: number): {
   if (item.wicket) {
     s.wkts += 1;
     bowler.w += 1;
-    const gone = s.batters[item.wicket.out] || { r: 0, b: 0 };
+    const gone = s.batters[item.wicket.out] || { r: 0, b: 0, fours: 0, sixes: 0 };
     out = { name: item.wicket.out, r: gone.r, b: gone.b, how: item.wicket.how, score: `${s.runs}/${s.wkts}`, over: oversText(s.balls), partnership: { ...prev.partnership, runs: prev.partnership.runs + item.runs } };
-    s.outs.push({ name: out.name, r: out.r, b: out.b, how: out.how, score: out.score, over: out.over });
+    s.outs.push({ name: out.name, r: gone.r, b: gone.b, fours: gone.fours, sixes: gone.sixes, how: out.how, score: out.score, over: out.over });
     delete s.batters[item.wicket.out];
-    s.batters[item.wicket.next] = { r: 0, b: 0 };
+    s.batters[item.wicket.next] = { r: 0, b: 0, fours: 0, sixes: 0 };
     s.partnership = { runs: 0, balls: 0 };
   }
   const symbol = item.wicket ? 'W' : item.extra === 'wd' ? 'wd' : String(item.runs);
@@ -177,7 +183,8 @@ export function snapshot(s: CricketState) {
     result: s.result,
     chase_won: s.runs >= s.target,
     batters: Object.entries(s.batters).map(([name, v]) => ({
-      name, short: shortName(name), runs: v.r, balls: v.b, strike_rate: v.b ? +((v.r / v.b) * 100).toFixed(1) : null, on_strike: name === s.striker,
+      name, short: shortName(name), runs: v.r, balls: v.b, fours: v.fours, sixes: v.sixes,
+      strike_rate: v.b ? +((v.r / v.b) * 100).toFixed(1) : null, on_strike: name === s.striker,
     })),
     bowler: s.bowler ? { name: s.bowler, short: shortName(s.bowler), figures: figures(s.bowlers[s.bowler] || { b: 0, r: 0, w: 0 }), economy: s.bowlers[s.bowler]?.b ? +((s.bowlers[s.bowler].r / s.bowlers[s.bowler].b) * 6).toFixed(2) : null } : null,
     bowling_card: Object.entries(s.bowlers).filter(([, v]) => v.b).map(([name, v]) => ({ name, figures: figures(v), economy: +((v.r / v.b) * 6).toFixed(2), wickets: v.w })),

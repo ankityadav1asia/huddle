@@ -40,8 +40,6 @@ const ICONS = {
   spark: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0l1.9 6.1L16 8l-6.1 1.9L8 16l-1.9-6.1L0 8l6.1-1.9z"/></svg>',
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.4 4.6L8 12l7.4 7.4-1.4 1.4L5.2 12 14 3.2z"/></svg>',
   dots: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
-  people: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm7 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM1 20c0-3.3 3.6-6 8-6s8 2.7 8 6v1H1zm16.5 1v-1c0-1.9-.9-3.6-2.3-4.8 4 .2 7.8 2.3 7.8 4.8v1z"/></svg>',
-  bell: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a2.5 2.5 0 0 0 2.4-2h-4.8a2.5 2.5 0 0 0 2.4 2zm7-6V11a7 7 0 0 0-5.5-6.8V3.5a1.5 1.5 0 0 0-3 0v.7A7 7 0 0 0 5 11v5l-2 2v1h18v-1z"/></svg>',
   send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5L21 3l-6.5 18-3.2-7.3z"/></svg>',
   close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.7L12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>',
@@ -64,7 +62,7 @@ export function aiLabel(text: string) {
 
 export const initials = (handle: string | null = '') => (String(handle).split(/[^a-z0-9]+/i).filter(Boolean).map((s) => s[0]).join('') || String(handle)).slice(0, 2).toUpperCase();
 
-// Colours for every team a fan can back (and the simulated fans' sides); styles.css maps t-<code> to them.
+// Colours for every team a fan can back (and the crowd's sides); styles.css maps t-<code> to them.
 const TEAM_COLOURS = new Set(['MI', 'CSK', 'MCL', 'RBR', 'FER', 'MER', 'GSW', 'LAL', 'EDM', 'TOR']);
 export const teamClass = (team: string | null) => (team && TEAM_COLOURS.has(team) ? `team t-${team.toLowerCase()}` : '');
 
@@ -133,14 +131,13 @@ export function railIntro() {
   return [
     el('p', { class: 'rail-kicker', text: 'Prototype · Sports watch parties' }),
     el('h1', { class: 'rail-title', text: 'Huddle' }),
-    el('p', { class: 'rail-lede', text: 'Watch parties for cricket, F1, basketball and hockey fans: invite friends, chat in real time, follow a verified scoreboard, and let an AI Co-host answer questions, explain the rules and the big moments, and catch you up.' }),
+    el('p', { class: 'rail-lede', text: 'Watch parties for cricket, F1, basketball and hockey fans: invite friends, chat in real time and follow the live scorecard, with an AI Co-host in the chat and Dream Bot for your own questions.' }),
     el('ul', { class: 'rail-features' },
       el('li', {}, el('b', { text: 'Watch parties' }), el('span', { text: 'A public room for every sport run by Huddle, and private rooms you start in one tap and invite friends to by username.' })),
-      el('li', {}, el('b', { text: 'Match intelligence' }), el('span', { text: 'Scoreboard, play-by-play and alerts for the moments that matter.' })),
-      el('li', {}, el('b', { text: 'Your own replay' }), el('span', { text: 'A private room can run its own simulated replay: start it, pause it, play at 0.5x, 1x or 2x or jump to big moments.' })),
-      el('li', {}, el('b', { text: 'New to the sport?' }), el('span', { text: 'Ask @huddle about any rule or player. Answers use a checked rules sheet and the game as it stood when you asked.' })),
-      el('li', {}, el('b', { text: 'AI Co-host' }), el('span', { text: 'Answers @huddle questions from verified match data only, and says so when it cannot.' })),
+      el('li', {}, el('b', { text: 'Match Centre' }), el('span', { text: 'Tap the scorecard for the full scorecard, graphs, commentary and over by over.' })),
+      el('li', {}, el('b', { text: 'AI Co-host' }), el('span', { text: 'Posts the big moments and quick polls in the chat, and answers the questions nobody else does. Its messages are labelled as AI.' })),
+      el('li', {}, el('b', { text: 'Dream Bot' }), el('span', { text: 'Ask the AI anything about the game, its players or its rules. Only you see the answers, which come from verified match data and a checked rules sheet.' })),
       el('li', {}, el('b', { text: 'Safe by default' }), el('span', { text: 'Choose relaxed, balanced or strict moderation. Core safety protections are always on.' }))),
-    el('p', { class: 'rail-fine', text: 'Demo data: every game is a simulated replay (real names, made-up games), not a live feed. The 200 fans chatting in public rooms are simulated and labelled. Messages disappear when a watch party ends.' }),
+    el('p', { class: 'rail-fine', text: 'Messages disappear when a watch party ends.' }),
   ];
 }

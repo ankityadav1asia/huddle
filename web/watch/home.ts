@@ -2,7 +2,6 @@
 import { api, ApiError, errorMessage, type CreatedRoom, type LevelInfo, type ModerationLevel, type Role } from './api.ts';
 import { el, icon, plural, inHours, setRail, railIntro, toast, teamLogo } from './ui.ts';
 import { openSheet, closeSheet, sheetActions } from './sheets.ts';
-import { openNotificationSettings } from './push.ts';
 import type { ReadyCtx } from './app.ts';
 
 // GET /api/me/invitations: pending invitations to private rooms, which always have a moderation level.
@@ -25,8 +24,8 @@ interface MyRoom { id: string; name: string | null; status: string; role: Role; 
 interface Game { id: string; title: string; sport: string }
 interface RoomLists { public_rooms: PublicRoom[]; my_rooms: MyRoom[]; matches: Game[] }
 
-// A fan found by handle or name, or one of the labelled demo friends (GET /api/users/search, /api/users/demo).
-interface FoundUser { id: string; handle: string; teams: string[]; demo: boolean }
+// A fan found by username (GET /api/users/search).
+interface FoundUser { id: string; handle: string; teams: string[] }
 
 let refreshTimer = 0;
 
@@ -48,7 +47,6 @@ export async function renderHome(ctx: ReadyCtx) {
   let data: RoomLists | null = null; // the /api/rooms response, once loaded
   create.addEventListener('click', () => openCreateRoom(ctx, data));
 
-  const bell = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Alert settings', onclick: () => openNotificationSettings(ctx.config) }, icon('bell'));
   const menu = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Menu', onclick: () => openMenu(ctx) }, icon('dots'));
 
   view.replaceChildren(
@@ -57,10 +55,8 @@ export async function renderHome(ctx: ReadyCtx) {
         el('div', { class: 'top-title' },
           el('b', { class: 'brand', text: 'Huddle' }),
           el('span', { class: 'top-sub', text: `Hi @${ctx.me.handle}` })),
-        bell, menu)),
-    el('div', { class: 'scroll-body', id: 'home-body' },
-      invites, live, mine,
-      el('p', { class: 'fine center', text: 'Match data is a simulated replay (demo data), not a live feed.' })),
+        menu)),
+    el('div', { class: 'scroll-body', id: 'home-body' }, invites, live, mine),
     el('div', { class: 'bottom-bar' }, create),
   );
   live.append(el('div', { class: 'skeleton' }), el('div', { class: 'skeleton' }));
@@ -109,13 +105,13 @@ function renderInvites(ctx: ReadyCtx, section: HTMLElement, invitations: Invitat
     section.append(el('article', { class: 'card invite-card' },
       el('p', { class: 'card-kicker', text: 'Private watch party' }),
       el('h3', { class: 'card-h', text: inv.room_name }),
-      el('p', { class: 'card-meta', text: `@${inv.inviter_handle} invited you${inv.match_title ? ` · ${inv.match_title} (simulated replay)` : ''} · ${LEVEL_NAMES[inv.moderation_level] || 'Balanced'} moderation · ${inHours(inv.expires_at)}` }),
+      el('p', { class: 'card-meta', text: `@${inv.inviter_handle} invited you${inv.match_title ? ` · ${inv.match_title}` : ''} · ${LEVEL_NAMES[inv.moderation_level] || 'Balanced'} moderation · ${inHours(inv.expires_at)}` }),
       el('div', { class: 'card-actions' }, decline, accept), err));
   }
 }
 
 // Only rooms for live or scheduled matches are listed; rooms of finished matches are not.
-const matchStatus = (status: string) => (status === 'live' ? 'Live · simulated replay' : 'Starts when the first fan joins');
+const matchStatus = (status: string) => (status === 'live' ? 'Live' : 'Starts when the first fan joins');
 
 const SPORT_LABEL: Partial<Record<string, string>> = { cricket: 'Cricket · T20', f1: 'Formula 1', basketball: 'Basketball · NBA', hockey: 'Ice hockey · NHL' };
 const SPORT_TAG: Partial<Record<string, string>> = { f1: 'F1', basketball: 'NBA', hockey: 'NHL' };
@@ -149,11 +145,11 @@ function renderLive(ctx: ReadyCtx, section: HTMLElement, rooms: RoomLists) {
           ? [teamLogo('MI'), el('b', { class: 'fixture-name', text: room.match_title || 'Match' }), teamLogo('CSK')]
           : [el('span', { class: 'sport-tag', text: SPORT_TAG[room.sport] || room.sport }), el('b', { class: 'fixture-name', text: room.match_title || 'Match' })],
         el('span', { class: `status-pill ${room.match_status === 'live' ? 'live' : ''}`, text: matchStatus(room.match_status) })),
-      el('p', { class: 'card-sport', text: `${SPORT_LABEL[room.sport] || 'Cricket'} · simulated game` }),
+      el('p', { class: 'card-sport', text: SPORT_LABEL[room.sport] || 'Cricket' }),
       el('h3', { class: 'card-h', text: room.name }),
       el('p', { class: 'card-meta' },
         room.full ? el('b', { class: 'full-tag', text: `Full · ${seats}` }) : `${seats}${room.max_members ? ' members' : ''}`,
-        ` · ${room.online} online · `, el('span', { class: 'managed' }, icon('shield'), 'Moderation managed by Huddle')),
+        ` · ${room.online} online`, el('span', { class: 'managed' }, icon('shield'), 'Moderation managed by Huddle')),
       el('div', { class: 'card-actions' }, go), err));
   }
 }
@@ -195,7 +191,6 @@ function openMenu(ctx: ReadyCtx) {
     ...(backing ? [el('p', { class: 'fine', text: backing })] : []),
     el('p', { class: 'fine', text: `Account ID: ${ctx.me.id}` }),
     el('div', { class: 'menu-list' },
-      el('button', { type: 'button', class: 'menu-item', text: 'Alert settings', onclick: () => openNotificationSettings(ctx.config) }),
       el('button', { type: 'button', class: 'menu-item', text: 'Edit profile', onclick: () => { closeSheet(); ctx.editProfile(); } }),
       ctx.me.is_moderator ? el('a', { class: 'menu-item', href: '/mod', text: 'Moderation queue' }) : null,
       signOutButton(ctx)),
@@ -220,9 +215,9 @@ function signOutButton(ctx: ReadyCtx) {
   return b;
 }
 
-export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?: Set<string>; onChange?: (ids: string[]) => void }) {
+export function friendPicker({ excludeIds = new Set(), onChange, label = 'Invite friends' }: { excludeIds?: Set<string>; onChange?: (ids: string[]) => void; label?: string }) {
   const selected: Map<string, FoundUser> = new Map();
-  const input = el('input', { id: 'friend-search', type: 'search', placeholder: 'Search by handle or name', autocomplete: 'off', 'aria-describedby': 'friend-hint' });
+  const input = el('input', { id: 'friend-search', type: 'search', placeholder: 'Search by username', autocomplete: 'off', 'aria-describedby': 'friend-hint' });
   const results = el('ul', { class: 'search-results', 'aria-live': 'polite' });
   const chips = el('div', { class: 'selected-chips' });
   let timer = 0;
@@ -241,28 +236,15 @@ export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?
       renderChips();
       onChange?.([...selected.keys()]);
     } }, el('b', { text: `@${u.handle}` }),
-    u.demo ? el('small', { class: 'demo-tag', text: 'Demo' }) : null,
     u.teams?.length ? el('small', { text: u.teams.join(' · ') }) : null));
 
-  // With an empty search box, offer the labelled demo friends so the invite flow can be tried alone.
-  let demo: FoundUser[] = [];
   let hidden: Set<string> = new Set();
   const offered = (u: FoundUser) => !excludeIds.has(u.id) && !hidden.has(u.id);
-  const showDemo = () => {
-    const users = demo.filter(offered);
-    results.replaceChildren(...(users.length
-      ? [el('li', { class: 'results-head', text: 'Demo friends (no one signs in as them, so their invites stay pending)' }), ...users.map(userItem)]
-      : []));
-  };
-  api.get('/api/users/demo').then((r: { users: FoundUser[] }) => {
-    demo = r.users || [];
-    if (input.value.trim().length < 2) showDemo();
-  }).catch(() => {});
 
   input.addEventListener('input', () => {
     clearTimeout(timer);
     const q = input.value.trim();
-    if (q.length < 2) { seq += 1; showDemo(); return; }
+    if (q.length < 2) { seq += 1; results.replaceChildren(); return; }
     timer = setTimeout(async () => {
       const mineSeq = ++seq;
       try {
@@ -278,7 +260,7 @@ export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?
   });
   return {
     node: el('div', { class: 'friend-picker' },
-      el('label', { for: 'friend-search', text: 'Invite friends' }), input,
+      el('label', { for: 'friend-search', text: label }), input,
       el('p', { class: 'field-hint', id: 'friend-hint', text: 'Up to 10 at a time. They get an invitation they can accept or decline.' }),
       chips, results),
     ids: () => [...selected.keys()],
@@ -311,7 +293,7 @@ function openCreateRoom(ctx: ReadyCtx, data: RoomLists | null) {
   const matches = data?.matches || [];
   let match: Game | undefined = matches[0];
   const followTitle = el('b', { text: match ? `Follow ${match.title}` : '' });
-  // One simulated game per sport: pick which one the room watches.
+  // One game per sport: pick which one the room watches.
   const pickMatch = matches.length > 1 ? el('fieldset', { class: 'field' }, el('legend', { text: 'Game' }),
     el('div', { class: 'choice-list', role: 'radiogroup', 'aria-label': 'Game' }, matches.map((m, i) => {
       const radio = el('input', { type: 'radio', name: 'create-match', id: `create-match-${i}`, value: m.id, checked: i === 0 });
@@ -322,8 +304,6 @@ function openCreateRoom(ctx: ReadyCtx, data: RoomLists | null) {
       return el('label', { class: 'choice', for: `create-match-${i}` }, radio, el('span', {}, el('b', { text: m.title }), el('small', { text: SPORT_LABEL[m.sport] || m.sport })));
     }))) : null;
   const follow = el('input', { type: 'checkbox', id: 'follow-match', checked: Boolean(match) });
-  const own = el('input', { type: 'checkbox', id: 'own-replay', checked: true });
-  follow.addEventListener('change', () => { own.disabled = !follow.checked; });
   const ai = el('input', { type: 'checkbox', id: 'ai-on', checked: true });
   const levels = levelChooser(ctx.config.moderation.levels, 'balanced', 'create-level');
   const picker = friendPicker({ excludeIds: new Set([ctx.me.id]) });
@@ -332,13 +312,11 @@ function openCreateRoom(ctx: ReadyCtx, data: RoomLists | null) {
     el('div', { class: 'field' }, el('label', { for: 'room-name', text: 'Room name' }), name),
     pickMatch,
     match ? el('label', { class: 'toggle-row', for: 'follow-match' }, follow,
-      el('span', {}, followTitle, el('small', { text: 'Simulated replay (demo data). Scoreboard, play by play, big-moment alerts, #threads and rules help in the room.' }))) : null,
-    match ? el('label', { class: 'toggle-row sub', for: 'own-replay' }, own,
-      el('span', {}, el('b', { text: 'Control the replay yourself' }), el('small', { text: 'Your room gets its own copy: start it when friends arrive, pause, play at 0.5x or 2x, or jump to big moments. Off: follow the shared replay with the public watch party.' }))) : null,
+      el('span', {}, followTitle, el('small', { text: 'Live scorecard, Match Centre, big-moment alerts, #threads and Dream Bot in the room.' }))) : null,
     el('fieldset', { class: 'field' }, el('legend', { text: 'Moderation' }), levels.node,
       el('p', { class: 'field-hint strong', text: 'Mandatory safety protections stay on at every level: threats, hate, sexual harassment and sharing personal details are always blocked.' })),
     el('label', { class: 'toggle-row', for: 'ai-on' }, ai,
-      el('span', {}, el('b', { text: 'AI Co-host' }), el('small', { text: 'Reads recent messages in this room only, to answer @huddle questions, catch members up and suggest polls.' }))),
+      el('span', {}, el('b', { text: 'AI Co-host' }), el('small', { text: 'Explains big moments, suggests polls and answers questions nobody else does, reading recent messages in this room only.' }))),
     picker.node,
     error,
     sheetActions(el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: closeSheet }), create));
@@ -355,7 +333,6 @@ function openCreateRoom(ctx: ReadyCtx, data: RoomLists | null) {
       const r: CreatedRoom = await api.post('/api/rooms', {
         name: name.value,
         match_id: follow.checked && match ? match.id : null,
-        ...(follow.checked && match ? { own_replay: own.checked } : {}),
         moderation_level: levels.value(),
         ai_enabled: ai.checked,
         invitee_ids: picker.ids(),

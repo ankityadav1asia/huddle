@@ -14,26 +14,54 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
+// What the app shows people never calls the game simulated, a demo or a replay (docs and code comments still do).
+const UNSHOWN = /simulat|demo|replay|made.up|illustrative/i;
+
 test('Match Intelligence is served to members with source and freshness labels', async () => {
   const r = await fan.get(`/api/rooms/${roomId}/match`);
   assert.equal(r.status, 200);
-  assert.equal(r.body.match.source, 'demo_fixture');
-  assert.match(r.body.match.source_label, /Simulated replay/);
+  assert.equal(r.body.match.source, 'demo_fixture'); // an internal source id, not a label
+  assert.equal(r.body.match.source_label, 'Ball-by-ball match feed');
   assert.equal(r.body.score.target, 187);
   assert.ok('stale' in r.body.freshness);
   assert.ok(Array.isArray(r.body.score.batters));
+  assert.equal('replay' in r.body, false);
+  assert.equal('moments' in r.body, false);
 });
 
-test('demo controls jump the replay and can be switched off', async () => {
-  const jump = await fan.post(`/api/demo/matches/${matchId}/jump`, { moment: 'drop' });
-  assert.equal(jump.status, 200);
-  assert.equal(jump.body.jumped_to, 'Dropped catch');
-  const snap = await fan.get(`/api/rooms/${roomId}/match`);
-  assert.ok(snap.body.rev >= 27); // everything before the dropped catch (fixture item 28) is now ingested
-  assert.equal((await fan.post(`/api/demo/matches/${matchId}/jump`, { moment: 'bowling-change' })).status, 409); // already past
-  app.cfg.demoControls = false;
-  assert.equal((await fan.post(`/api/demo/matches/${matchId}/jump`, { moment: 'last-over' })).status, 403);
-  app.cfg.demoControls = true;
+test('labels, notices, rules and examples never call the game simulated, a demo or a replay', async () => {
+  const { body: boot } = await fan.get(`/api/rooms/${roomId}`);
+  const { body: guide } = await fan.get(`/api/rooms/${roomId}/guide`);
+  const { body: snap } = await fan.get(`/api/rooms/${roomId}/match?detail=1`);
+  const { body: config } = await fan.get('/api/config');
+  const shown = [boot.room.ai_notice, boot.room.retention_notice, boot.room.moderation.notice, JSON.stringify(guide), snap.match.source_label,
+    ...snap.commentary.map((c: { label: string | null; text: string }) => `${c.label} ${c.text}`), JSON.stringify(config)];
+  for (const text of shown) assert.doesNotMatch(String(text), UNSHOWN);
+  const { FIXTURE_ORDER } = await import('../lib/match/fixture.ts');
+  for (const f of FIXTURE_ORDER) {
+    assert.doesNotMatch(`${f.title} ${f.sourceLabel} ${JSON.stringify(f.rules)} ${f.examples.join(' ')}`, UNSHOWN, f.sport);
+  }
+});
+
+test('removed endpoints answer 404', async () => {
+  const removed: [string, string, unknown?][] = [
+    ['POST', `/api/rooms/${roomId}/replay`, { action: 'pause' }],
+    ['POST', `/api/demo/matches/${matchId}/jump`, { moment: 'drop' }],
+    ['POST', '/api/demo/matches', {}],
+    ['GET', '/api/me/notifications'],
+    ['PUT', '/api/me/notifications', { push_momentum: false }],
+    ['POST', '/api/me/push-subscriptions', { endpoint: 'https://push.example.test/x', keys: { p256dh: 'p', auth: 'a' } }],
+    ['DELETE', '/api/me/push-subscriptions'],
+    ['GET', '/api/users/demo'],
+  ];
+  for (const [method, url, body] of removed) {
+    const r = await fan.req(method, url, body);
+    assert.equal(r.status, 404, `${method} ${url}`);
+    assert.equal(r.body.error.code, 'not_found');
+  }
+  const config = (await fan.get('/api/config')).body;
+  for (const key of ['notifications', 'push', 'demo_controls']) assert.equal(key in config, false, key);
+  assert.deepEqual(Object.keys(config).sort(), ['ai', 'auth', 'chat', 'crowd', 'max_picks', 'moderation', 'retention_hours', 'sports']);
 });
 
 test('ops metrics are for moderators only and carry no message text', async () => {

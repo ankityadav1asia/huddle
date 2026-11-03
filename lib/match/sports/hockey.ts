@@ -2,7 +2,7 @@
 // are applied play by play, so the scoreboard always matches them.
 import type { FactsInput, Fixture, PollTemplate, Team } from '../fixture.ts';
 import { makeFans } from '../fans.ts';
-import { scriptedSignals, scriptedThread, scriptedBurst, ROLE, type ScriptedItem } from './scripted.ts';
+import { scriptedSignals, scriptedThread, scriptedBurst, scriptedDescribe, scoreWorm, ROLE, type ScriptedItem } from './scripted.ts';
 
 interface Goal { team: string; scorer: string; assists: string[]; strength: string }
 // `until`: the game clock when the penalty ends.
@@ -231,14 +231,14 @@ export const HOCKEY: Fixture<HockeyState, HockeyItem, HockeyScore> = {
   title: 'Oilers v Maple Leafs',
   teams: SIDES,
   format: 'NHL',
-  sourceLabel: 'Simulated game · demo data, not a live feed',
+  sourceLabel: 'Play-by-play game feed',
   items: SCRIPT,
-  moments: [{ id: 'power-play-goal', label: 'Power-play goal' }, { id: 'go-ahead-goal', label: 'Late goal' }, { id: 'goalie-pulled', label: 'Goalie pulled' }]
-    .map((m) => ({ ...m, index: SCRIPT.findIndex((s) => s.moment === m.id) })),
   engine: {
     initialState, applyItem, snapshot, facts, templatePoll,
     detectSignals: (_prev, next, item, _ball, seq) => scriptedSignals(next, item, seq),
     threadForItem: scriptedThread,
+    describe: scriptedDescribe,
+    graphs: (states) => scoreWorm(states, SIDES.map((t) => t.code)),
   },
   crowd: {
     lines: CROWD,

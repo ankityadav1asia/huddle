@@ -8,7 +8,6 @@ import { log } from '../log.ts';
 import { claimJobs, completeJob, failJob, cancelJob, failureTags, type ClaimedJob } from './queue.ts';
 import { advanceFeeds } from '../match/feed.ts';
 import { handleAnswerJob, handleContinuityJob, handleMomentumJob } from '../cohost/index.ts';
-import { handleInviteJob, handlePushDelivery } from '../notify/index.ts';
 import { closePoll } from '../chat/polls.ts';
 import { endRoom, purgeRoom } from '../rooms/lifecycle.ts';
 import { RoomEndedError } from '../rooms/events.ts';
@@ -25,14 +24,12 @@ export const HANDLERS = {
   momentum_signal: handleMomentumJob,
   poll_close: async (db: Db, job: { payload: { poll_id: string } }) => ((await closePoll(db, job.payload.poll_id)) ? 'closed' : 'done'),
   room_auto_end: async (db: Db, job: { payload: { room_id: string; match_id?: string } }) => {
-    // A private replay restarted after it finished keeps its room open: the room has moved to a new run.
+    // Only for the game the room still follows: migration 013 moved rooms off their own runs onto the shared game.
     const room = job.payload.match_id ? await one<Pick<RoomRow, 'match_id'>>(db, 'SELECT match_id FROM rooms WHERE id = $1', [job.payload.room_id]) : null;
     if (room && room.match_id !== job.payload.match_id) return 'done';
     return (await endRoom(db, job.payload.room_id, { reason: 'match_completed' })) ? 'ended' : 'done';
   },
   room_purge: async (db: Db, job: { payload: { room_id: string } }) => purgeRoom(db, job.payload.room_id),
-  push_invite: handleInviteJob,
-  push_delivery: handlePushDelivery,
 };
 
 // Job types are read back from the database, so a lookup can find nothing.

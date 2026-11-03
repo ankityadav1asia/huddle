@@ -163,6 +163,23 @@ test('reactions accept only allowlisted emoji and are idempotent', async () => {
   await clearCooldown(app.db, a.user.id);
 });
 
+test('"@huddle" does nothing: only a sport question nobody answers gets the AI Co-host, after the delay', async () => {
+  const answerJob = async (messageId: string) => (await app.db.query(
+    `SELECT payload, EXTRACT(EPOCH FROM (run_at - created_at))::float8 AS delay FROM jobs WHERE type = 'ai_answer' AND payload->>'message_id' = $1`, [messageId])).rows[0];
+  await clearCooldown(app.db, a.user.id);
+  const hello = await send(a, roomId, '@huddle hello there');
+  assert.equal(hello.status, 201);
+  assert.equal(hello.body.notice, null);
+  assert.equal(await answerJob(hello.body.message.id), undefined);
+  assert.equal((await app.db.query('SELECT is_question, answer_state FROM messages WHERE id = $1', [hello.body.message.id])).rows[0].is_question, false);
+  await clearCooldown(app.db, a.user.id);
+  const asked = await send(a, roomId, '@huddle who is bowling now?');
+  const job = await answerJob(asked.body.message.id);
+  assert.deepEqual(job.payload, { message_id: asked.body.message.id }); // no "mention" mode
+  assert.ok(Math.abs(job.delay - app.cfg.cohost.unansweredDelaySeconds) < 1, `queued ${job.delay}s ahead`);
+  await clearCooldown(app.db, a.user.id);
+});
+
 test('a long-poll wakes up as soon as a message arrives', async () => {
   await clearCooldown(app.db, a.user.id);
   const cursor = (await b.get(`/api/rooms/${roomId}`)).body.cursor;

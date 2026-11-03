@@ -1,5 +1,5 @@
 /* The watch party screens, loaded after styles.css and built on its tokens and base components: home, the room,
-   sheets and forms, match intelligence, the rail and the moderation page. */
+   Dream Bot, sheets and forms, the rail and the moderation page. */
 
 /* Shell */
 .view { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -10,107 +10,80 @@
 .brand { font-size: 26px !important; letter-spacing: 0.02em; }
 .ico { display: inline-grid; place-items: center; width: 14px; height: 14px; flex: none; }
 .ico svg { width: 100%; height: 100%; fill: currentColor; }
-.icon-btn .ico, .fans-btn .ico { width: 16px; height: 16px; }
+.icon-btn .ico { width: 16px; height: 16px; }
 .icon-btn { color: #fff; border: 0; }
 .room-title { display: block !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .top-sub { overflow: hidden; text-overflow: ellipsis; }
-.type-pill { padding: 1px 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.2); font-weight: 700; }
-.online-count { font-weight: 600; }
+.room-sub { overflow: hidden; text-overflow: ellipsis; }
+.reconnect-pill { flex: none; padding: 1px 7px; border-radius: 999px; background: #fff; color: #b4232f; font-size: 10.5px; font-weight: 800; }
 
-/* Score card as a button */
+/* Score card as a button: it opens the Match Centre */
 .score-btn { display: grid; width: calc(100% - 24px); border: 0; text-align: left; font: inherit; cursor: pointer; }
 .score-btn .score-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .score-btn:hover { box-shadow: 0 8px 22px rgba(80, 8, 12, 0.32); }
 .score-error { margin: 0; color: var(--muted); font-size: 12.5px; }
-.replay-tag { overflow: hidden; text-overflow: ellipsis; }
+.fresh-tag { overflow: hidden; text-overflow: ellipsis; }
 
-/* A private room's own replay: controls under the score */
-.replay-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 10px 12px 0; }
-.replay-note { color: rgba(255, 255, 255, 0.9); font-size: 12.5px; font-weight: 600; }
-.replay-bar .ctl { padding: 6px 11px; font-size: 12.5px; color: var(--text); }
-.replay-bar .ctl.primary, .replay-bar .ctl[aria-pressed="true"] { color: #fff; }
-.toggle-row.sub { margin-left: 28px; }
-.toggle-row input:disabled + span { opacity: 0.55; }
-
-/* Co-host strip */
-.cohost .pulse-text { font-size: 14px; }
-.cohost-actions { justify-content: flex-start; flex-wrap: wrap; }
-.cohost-actions .catchup-btn { margin-left: 0; }
-.catchup-btn.ghost { background: var(--card); }
-.catchup-btn:disabled { opacity: 0.5; cursor: default; }
-.reconnect-pill { padding: 2px 8px; border-radius: 999px; background: #fdecee; color: #b4232f; font-size: 11px; font-weight: 700; }
-.cohost .pulse-text b { font-weight: 800; }
-
-/* One-time notification prompt, under the Co-host strip */
-.push-prompt { flex: none; margin: 8px 12px 0; padding: 10px 12px; border: 1px solid var(--accent-line); border-radius: var(--r-md); background: var(--card); box-shadow: var(--shadow); display: grid; gap: 8px; animation: rise 0.3s ease; }
-.push-prompt-text { margin: 0; font-size: 13.5px; font-weight: 600; }
-.push-prompt .card-actions { justify-content: flex-end; }
+/* Room: the masthead (header, scorecard, watching strip) and the chat panel tucked under its rounded top */
+.room-head { padding-bottom: 24px; }
+.watch-strip { display: flex; align-items: center; gap: 10px; margin: 12px 14px 0; }
+.watchers { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: #fff; text-align: left; }
+.faces { display: flex; }
+.faces .avatar { width: 30px; height: 30px; margin-left: -4px; box-shadow: 0 0 0 2px var(--brand-deep); font-size: 10px; letter-spacing: -0.02em; }
+.faces .avatar:first-child { margin-left: 0; }
+.faces .avatar.away { opacity: 0.6; }
+.more-faces { color: rgba(255, 255, 255, 0.92); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.add-btn { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: #fff; font-size: 13px; font-weight: 700; }
+.add-btn .plus { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #fff; color: var(--brand); box-shadow: 0 2px 8px rgba(80, 8, 12, 0.3); }
+.add-btn .plus .ico { width: 16px; height: 16px; }
+.add-btn:hover .plus { background: var(--accent-soft); }
+.room-panel { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: -12px; overflow: hidden; border-radius: 18px 18px 0 0; background: var(--card); }
+.thread-bar { padding: 10px 14px 8px; border-bottom: 1px solid var(--line); }
+.thread-bar .chip { padding: 4px 10px; font-size: 12.5px; }
 
 /* Feed */
-.feed-notice { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--card-2); color: var(--muted); font-size: 12px; display: grid; gap: 4px; }
-.feed-notice p { margin: 0; }
-.feed-notice b { color: var(--text); }
+.feed { min-height: 100%; }
+.feed-empty { margin: auto 0; padding: 24px 12px; color: var(--faint); font-size: 13px; text-align: center; }
+.feed:has(> .msg, > .sys-line) > .feed-empty { display: none; }
 .sys-line { margin: 4px 0; text-align: center; color: var(--faint); font-size: 12px; }
 .msg { position: relative; }
-.msg-body { flex: 1; cursor: pointer; }
-.msg-time { margin-left: 2px; color: var(--faint); font-size: 11px; }
+.msg-body { flex: 1; }
+.msg.act .msg-body { cursor: pointer; }
+.msg-time { color: var(--faint); font-size: 11px; }
 .badge.role { background: var(--text); color: #fff; }
 .reply-preview { margin: 2px 0 0; padding: 2px 8px; border-left: 3px solid var(--line); color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg-text.removed, .ai-text.removed { color: var(--faint); font-style: italic; font-weight: 500; }
+.msg-text.removed { color: var(--faint); font-style: italic; font-weight: 500; }
 .msg.held .msg-text { color: var(--muted); }
 .msg-flag { margin: 2px 0 0; color: #b4232f; font-size: 11.5px; font-weight: 700; }
-.msg-note { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
-.msg-note.live { color: var(--accent-deep); font-weight: 600; }
 .msg.pending { opacity: 0.6; }
 .msg.failed { opacity: 1; }
 .msg.failed .msg-time { color: #b4232f; font-weight: 700; }
-/* New to the sport: example @huddle questions and the rules sheet, under the Co-host. */
-.guide { display: grid; gap: 6px; margin-top: 8px; }
-.guide-line { margin: 0; color: var(--muted); font-size: 12.5px; }
-.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip.ask-chip { padding: 4px 10px; font-size: 12px; font-weight: 600; }
-.chip.ask-chip.ghost { background: none; border-style: dashed; }
-.rules-list { margin: 0; }
-.rules-list dt { margin-top: 10px; font-weight: 700; font-size: 13.5px; }
-.rules-list dd { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
-/* Other sports on the score card and home cards. */
-.team-chip.sport-chip { padding: 2px 8px; border-radius: 6px; background: var(--card-2); font-weight: 800; letter-spacing: 0.04em; }
-.flag-sc { color: #b7791f; }
-.last-play { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sport-tag { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--card-2); font-size: 12px; font-weight: 800; letter-spacing: 0.04em; }
-.card-sport { margin: 0; color: var(--muted); font-size: 12px; }
-/* Moment threads: the #tag on a message opens its thread. */
-button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; cursor: pointer; }
-.thread-bar { padding-top: 8px; }
-/* Simulated fans: the scripted crowd, set apart from real people's messages. */
-.msg.crowd .handle { color: var(--muted); font-weight: 700; }
-.msg.crowd .avatar { opacity: 0.8; }
-.badge.sim { background: var(--card-2); color: var(--muted); }
 .msg-more { flex: none; align-self: flex-start; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--faint); opacity: 0.55; }
 .msg-more:hover, .msg-more:focus-visible { opacity: 1; background: var(--card-2); }
 .reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .react-btn { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .react-btn.mine { border-color: var(--accent); background: var(--accent-soft); }
+/* Moment threads: the #tag on a message opens its thread. */
+button.thread-tag { padding: 0; border: 0; background: none; cursor: pointer; }
+/* The crowd: fans in the stands, whose lines have no actions. */
+.msg.crowd .handle { color: var(--muted); }
 
-.ai-msg { position: relative; padding-right: 38px; }
-.ai-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ai-reply { color: var(--muted); font-size: 11.5px; }
-.ai-note .ai-text { margin: 4px 0 0; font-size: 14px; font-weight: 600; }
-.ai-msg .msg-more { position: absolute; top: 6px; right: 6px; }
-
-.insight { margin: 8px 0; padding: 10px 12px; border-radius: var(--r-md); background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--chrome); box-shadow: var(--shadow); animation: rise 0.3s ease; }
-.insight.high { border-left-color: var(--wicket); background: #fff8f8; }
-.insight.medium { border-left-color: var(--csk); }
-.insight-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.insight-label { color: var(--chrome); font: 700 15px/1.1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; }
-.insight.high .insight-label { color: var(--wicket); }
-.insight-meta { color: var(--faint); font-size: 11.5px; white-space: nowrap; }
-.insight-fact { margin: 4px 0 0; font-size: 13.5px; font-weight: 600; }
-.insight-ai { margin: 6px 0 0; padding: 6px 8px; border-radius: var(--r-sm); background: var(--accent-soft); font-size: 13px; display: grid; gap: 2px; }
-.insight-src { margin: 6px 0 0; color: var(--faint); font-size: 11px; }
+/* AI Co-host in the chat (green, labelled AI), and Huddle's own alerts and polls when no AI wrote them */
+.msg.cohost, .msg.huddle { margin: 4px -8px; padding: 8px; border-radius: 12px; }
+.msg.cohost { background: var(--accent-soft); }
+.msg.huddle { background: var(--card-2); }
+.ai-face { border-color: var(--accent); background: var(--accent); color: #fff; }
+.ai-face .ico { width: 14px; height: 14px; }
+.huddle-face { border-color: var(--brand); background: var(--brand); color: #fff; font: 700 16px/1 var(--display); }
+.msg.cohost .msg-more:hover, .msg.cohost .msg-more:focus-visible { background: var(--card); }
+.msg-foot { margin: 3px 0 0; color: var(--muted); font-size: 11.5px; }
+.alert-fact { margin: 3px 0 0; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+.alert-tag { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 4px; background: var(--chrome); color: #fff; font: 700 12.5px/1.25 var(--display); letter-spacing: 0.06em; text-transform: uppercase; vertical-align: 1px; }
+.alert.high .alert-tag { background: var(--wicket); }
+.alert.medium .alert-tag { background: var(--csk); color: var(--csk-ink); }
 .poll-timer { font-variant-numeric: tabular-nums; }
 
-/* Composer */
+/* Composer, with Dream Bot beside the message box */
 .composer-wrap { flex: none; background: var(--card); border-top: 1px solid var(--line); }
 .composer-wrap .composer { border-top: 0; }
 .composer-status { display: grid; gap: 4px; padding: 0 12px; }
@@ -121,14 +94,67 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .cooldown-bar { display: block; height: 3px; overflow: hidden; border-radius: 2px; background: var(--card-2); }
 .cooldown-bar i { display: block; height: 100%; background: var(--accent); transition: width 1s linear; }
 .send:disabled { opacity: 0.45; cursor: default; }
+.bot-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 42px; padding: 0 14px 0 12px; border: 1px solid var(--accent-line); border-radius: 999px; background: var(--accent-soft); color: var(--accent-deep); font-size: 13px; font-weight: 800; white-space: nowrap; }
+.bot-btn .ico { width: 14px; height: 14px; }
+.bot-btn:hover { border-color: var(--accent); }
+@media (max-width: 359px) {
+  .bot-btn { width: 42px; padding: 0; justify-content: center; }
+  .bot-btn-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}
 .x { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; background: transparent; color: inherit; }
 .x .ico { width: 12px; height: 12px; }
+
+/* The one-time "Who are you backing?" prompt, above the composer */
+.backing { margin: 10px 12px 0; padding: 10px 12px; border-radius: var(--r-md); background: var(--card-2); display: grid; gap: 8px; }
+.backing-q { margin: 0; color: var(--muted); font-size: 12.5px; }
+.backing-q b { color: var(--text); font-size: 13.5px; }
+.backing-teams { display: flex; flex-wrap: wrap; gap: 6px; }
+.backing .chip { padding: 5px 11px; font-size: 12.5px; }
+.backing .chip.team { border-color: var(--team); background: var(--team-soft); color: var(--team-ink); font-weight: 700; }
+
+/* Dream Bot: a full-height chat window; your bubbles on the right, Dream Bot's on the left */
+.bot-intro { margin: 0; color: var(--muted); font-size: 13.5px; }
+.bot-chips { flex: none; display: flex; gap: 6px; margin: 0 -18px; padding: 0 18px 2px; overflow-x: auto; scrollbar-width: none; }
+.bot-chips::-webkit-scrollbar { display: none; }
+.bot-chips .chip { padding: 6px 12px; font-size: 12.5px; }
+.chip.catch { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-deep); font-weight: 700; }
+.bot-log { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; margin: 0 -18px; padding: 12px 18px; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--line); }
+.bot-empty { margin: auto 0; padding: 0 16px; color: var(--faint); font-size: 13px; text-align: center; }
+.bubble { margin: 0; max-width: 86%; padding: 9px 12px; border-radius: 16px; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; animation: rise 0.25s ease; }
+.bubble p { margin: 0; }
+.bubble.me { align-self: flex-end; border-bottom-right-radius: 5px; background: var(--chrome); color: #fff; }
+.bubble.bot { align-self: flex-start; border: 1px solid var(--line); border-bottom-left-radius: 5px; background: var(--card-2); }
+.bubble.bot.muted { color: var(--muted); }
+.bubble.bot.error { display: grid; gap: 4px; justify-items: start; border-color: #f6c9cd; background: #fdecee; color: #b4232f; }
+.bubble.error .link-btn { color: #b4232f; }
+.bubble .bubble-foot { margin-top: 5px; color: var(--faint); font-size: 11.5px; }
+.bubble.typing { display: flex; gap: 4px; padding: 13px 14px; }
+.bubble.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); animation: blink 1.2s infinite ease-in-out; }
+.bubble.typing i:nth-of-type(2) { animation-delay: 0.15s; }
+.bubble.typing i:nth-of-type(3) { animation-delay: 0.3s; }
+@keyframes blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+.summary { display: grid; gap: 6px; }
+.summary .summary-head { font: 700 19px/1.15 var(--display); text-wrap: balance; }
+.summary .summary-h { margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.summary .bullets { gap: 6px; }
+.summary .bullets li { font-size: 13.5px; }
+.summary .summary-note { padding: 6px 8px; border-radius: var(--r-sm); background: var(--card); font-size: 13px; }
+.bot-composer { margin: 0 -18px; padding: 10px 18px calc(14px + env(safe-area-inset-bottom, 0px)); }
+.rules-list { margin: 0; }
+.rules-list dt { margin-top: 10px; font-weight: 700; font-size: 13.5px; }
+.rules-list dd { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.roster-list { margin: 0; padding-left: 16px; display: grid; gap: 2px; font-size: 13px; }
+
+/* Other sports on the score card and home cards. */
+.team-chip.sport-chip { padding: 2px 8px; border-radius: 6px; background: var(--card-2); font-weight: 800; letter-spacing: 0.04em; }
+.flag-sc { color: #b7791f; }
+.last-play { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sport-tag { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--card-2); font-size: 12px; font-weight: 800; letter-spacing: 0.04em; }
+.card-sport { margin: 0; color: var(--muted); font-size: 12px; }
 
 /* Toast */
 .app > .toast { top: auto; bottom: 86px; }
 .toast .x { color: #fff; }
-.toast.high { border-left: 4px solid var(--wicket); }
-.toast.medium { border-left: 4px solid var(--csk); }
 
 /* Buttons and links */
 .link-btn { padding: 0; border: 0; background: none; color: var(--accent-deep); font-size: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
@@ -152,7 +178,7 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .status-pill { margin-left: auto; padding: 2px 8px; border-radius: 999px; background: var(--card-2); color: var(--muted); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .status-pill.live { background: #fdecee; color: var(--wicket); }
 .full-tag { color: #b4232f; }
-.managed { display: inline-flex; align-items: center; gap: 4px; }
+.managed { display: flex; align-items: center; gap: 4px; }
 .managed .ico { width: 12px; height: 12px; color: var(--accent); }
 .room-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .room-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--card); text-align: left; }
@@ -195,7 +221,6 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .sport-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text); font-size: 13px; font-weight: 700; }
 .sport-tab[aria-pressed="true"] { border-color: var(--chrome); background: var(--chrome); color: #fff; }
 .sport-panel { display: grid; gap: 10px; }
-.backing .chip.team { border-color: var(--team); background: var(--team-soft); color: var(--team-ink); font-weight: 700; }
 
 .choice-list { display: grid; gap: 8px; }
 .choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: var(--r-md); background: var(--card); cursor: pointer; }
@@ -206,20 +231,17 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .choice em { padding: 0 6px; border: 1px solid var(--accent-line); border-radius: 999px; background: #fff; color: var(--accent-deep); font-size: 10.5px; font-style: normal; font-weight: 800; }
 .choice small { color: var(--muted); font-size: 12.5px; }
 .choice.compact { padding: 8px 12px; }
-.toggle-list { display: grid; gap: 8px; }
 .toggle-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); cursor: pointer; }
 .toggle-row input { flex: none; width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); }
+.toggle-row input:disabled + span { opacity: 0.55; }
 .toggle-row span { display: grid; gap: 2px; }
 .toggle-row b { font-size: 14px; }
 .toggle-row small { color: var(--muted); font-size: 12.5px; }
 .friend-picker { display: grid; gap: 6px; }
 .search-results { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 180px; overflow-y: auto; }
 .result-btn { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--card); text-align: left; font-size: 13.5px; }
-.result-btn span { flex: 1; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .result-btn small { color: var(--faint); font-weight: 700; }
 .result-btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
-.result-btn small.demo-tag { padding: 0 6px; border-radius: 4px; background: var(--csk-soft); color: var(--csk-ink); font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; }
-.results-head { padding: 2px 2px 4px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .selected-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .selected-chips:empty { display: none; }
 .chip.selected { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-deep); }
@@ -239,12 +261,12 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .notice-box p { margin: 0; }
 p.notice-box { display: block; }
 p.notice-box .ico { width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; color: var(--accent); }
+.info-line { margin: 0; color: var(--muted); font-size: 13.5px; }
 .quote { margin: 0; padding: 8px 12px; border-left: 3px solid var(--line); border-radius: 0 var(--r-sm) var(--r-sm) 0; background: var(--card-2); display: grid; gap: 2px; font-size: 13.5px; overflow-wrap: anywhere; }
 .quote b { color: var(--muted); font-size: 12px; }
 .reaction-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
 .react-pick { padding: 8px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--card); font-size: 20px; }
 .react-pick.mine { border-color: var(--accent); background: var(--accent-soft); }
-.catchup-headline { margin: 4px 0; font: 700 24px/1.1 var(--display); text-wrap: balance; }
 .member-list, .invite-list { list-style: none; margin: 0; padding: 0; }
 .member-row, .invite-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .member-main { flex: 1; min-width: 0; display: grid; }
@@ -257,37 +279,10 @@ p.notice-box .ico { width: 14px; height: 14px; margin-right: 6px; vertical-align
 .status-pill.inv-accepted { background: var(--accent-soft); color: var(--accent-deep); }
 .status-pill.inv-pending { background: var(--csk-soft); color: var(--csk-ink); }
 
-/* Match intelligence (sheet and rail) */
-.mi { display: grid; gap: 6px; }
-.mi-head { display: flex; align-items: center; gap: 8px; }
-.mi-title { font: 700 20px/1 var(--display); }
-.mi-fresh { margin: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
-.mi-src { margin: 0; color: var(--faint); font-size: 11.5px; }
-.mi-score { margin: 4px 0 0; font-size: 14px; }
-.mi-score b { font: 700 22px/1 var(--display); }
-.mi-meta { margin: 0; color: var(--muted); font-size: 12px; }
-.mi h3 { margin: 10px 0 2px; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-.mi-table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.mi-table th, .mi-table td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; }
-.mi-table th[scope="row"], .mi-table thead th:first-child { text-align: left; font-weight: 600; }
-.mi-table thead th { color: var(--faint); font-size: 11px; font-weight: 700; }
-.mi-list { margin: 0; padding-left: 16px; display: grid; gap: 2px; font-size: 12.5px; }
-.commentary { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
-.commentary li { display: flex; align-items: flex-start; gap: 8px; }
-.over-tag { flex: none; min-width: 34px; padding: 1px 4px; border-radius: 6px; background: var(--card-2); text-align: center; font-size: 11.5px; font-weight: 700; }
-.over-tag.rW { background: var(--wicket); color: #fff; }
-.over-tag.r6 { background: var(--six-soft); color: var(--six); }
-.over-tag.r4 { background: var(--mi-soft); color: var(--mi); }
-.demo-controls { margin-top: 10px; padding: 10px; border: 1px dashed #cfd4dc; border-radius: var(--r-sm); display: grid; gap: 6px; }
-.demo-controls h3 { margin: 0; }
-.demo-controls .fine { margin: 0; }
-
 /* Rail */
 .rail { max-height: calc(100vh - 48px); overflow-y: auto; padding-right: 6px; }
 .rail-title.small { font-size: 40px; overflow-wrap: anywhere; }
 .rail-facts { margin: 0 0 16px; padding-left: 16px; display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
-.rail-section { margin-bottom: 14px; padding: 14px; border-radius: var(--r-md); background: var(--card); box-shadow: var(--shadow); }
-.rail-h { margin: 0 0 6px; color: var(--brand); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .fine a, .mod-page a { color: var(--accent-deep); font-weight: 700; }
 
 /* Ended room and error cards */

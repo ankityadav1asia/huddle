@@ -9,7 +9,7 @@ before(async () => {
   app = await startApp((cfg) => { cfg.worker.inline = false; });
   fan = await signUp(app.base, 'rt_fan');
   roomId = (await fan.get('/api/rooms')).body.public_rooms[0].id;
-  assert.equal((await fan.post(`/api/rooms/${roomId}/join`)).status, 200); // starts the shared replay
+  assert.equal((await fan.post(`/api/rooms/${roomId}/join`)).status, 200); // starts the shared game
 });
 after(async () => { await app.close(); });
 

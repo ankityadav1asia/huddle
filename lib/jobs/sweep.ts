@@ -10,7 +10,6 @@ export async function sweep(db: Queryable) {
   await db.query(`UPDATE room_invitations SET status = 'expired' WHERE status = 'pending' AND expires_at <= now()`);
   await db.query(`DELETE FROM rate_events WHERE created_at < now() - interval '2 hours'`);
   await db.query(`DELETE FROM sessions WHERE expires_at < now() - interval '7 days' OR revoked_at < now() - interval '7 days'`);
-  await db.query(`DELETE FROM notification_deliveries WHERE created_at < now() - make_interval(hours => $1)`, [r.deliveryHours]);
   await db.query(`DELETE FROM ai_calls WHERE created_at < now() - make_interval(days => $1)`, [r.aiLogDays]);
   await db.query(`DELETE FROM moderation_events WHERE created_at < now() - make_interval(days => $1)`, [r.moderationDays]);
   await db.query(`DELETE FROM jobs WHERE status IN ('done', 'cancelled') AND updated_at < now() - interval '1 day'`);

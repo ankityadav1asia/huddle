@@ -1,10 +1,10 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, makePrivateRoom, msgId, clearCooldown, logs, type App, type Client, type ApiInvitation } from './helpers.ts';
-import { pump } from '../lib/jobs/worker.ts';
+import { startApp, signUp, makePrivateRoom, msgId, clearCooldown, logs, type App, type Client, type ApiEvent, type ApiInvitation } from './helpers.ts';
+import { pump, HANDLERS } from '../lib/jobs/worker.ts';
 import { purgeRoom } from '../lib/rooms/lifecycle.ts';
-import { setPushSender } from '../lib/notify/push.ts';
 import { claimJobs, failJob, enqueue } from '../lib/jobs/queue.ts';
+import { newId } from '../lib/util.ts';
 
 let app: App; let owner: Client; let friend: Client; let mod: Client; let third: Client;
 before(async () => {
@@ -47,7 +47,7 @@ test('ending a room cancels its queued jobs and pending invitations; the purge d
 
 test('queued work that wakes after closure cannot republish into the room', async () => {
   const room = await makePrivateRoom(app, owner, [friend]);
-  const q = await say(friend, room, '@huddle who is bowling?');
+  const q = await say(friend, room, 'Who is bowling?');
   await owner.post(`/api/rooms/${room}/end`);
   await app.db.query(`UPDATE jobs SET status = 'queued', run_at = now() WHERE room_id = $1`, [room]);
   await pump(app.db, { budgetMs: 3000 });
@@ -67,45 +67,48 @@ test('failed jobs retry with backoff and land in the dead-letter state after max
   assert.equal((await app.db.query('SELECT status FROM jobs WHERE id = $1', [job.id])).rows[0].status, 'dead');
 });
 
-test('a member who left gets no further room alerts', async () => {
-  setPushSender(async () => {});
-  // Fresh people, in this room only: one leaves, one stays and still gets the alert.
+test('a big moment reaches every member still in the room, in the room only; one who left sees nothing more', async () => {
   const leaver = await signUp(app.base, 'life_leaver');
   const stayer = await signUp(app.base, 'life_stayer');
   const room = await makePrivateRoom(app, owner, [leaver, stayer]);
-  const keys = { p256dh: 'p'.repeat(40), auth: 'a'.repeat(16) };
-  await leaver.post('/api/me/push-subscriptions', { endpoint: 'https://push.example.test/left', keys });
-  await stayer.post('/api/me/push-subscriptions', { endpoint: 'https://push.example.test/stayed', keys });
   await leaver.post(`/api/rooms/${room}/leave`);
-  const { queueMomentumPushes } = await import('../lib/notify/index.ts');
   const matchId = (await app.db.query('SELECT match_id FROM rooms WHERE id = $1', [room])).rows[0].match_id;
-  // A high-priority moment, so the alert gets past the priority filter to the membership check.
-  const signalId = 'sig_00000000000000000001';
-  const n = await queueMomentumPushes(app.db, { id: signalId, match_id: matchId, priority: 'high', trigger: 'wicket_fallen' });
-  const to = (await app.db.query(`SELECT recipient_id FROM notification_deliveries WHERE kind = 'momentum' AND ref_id = $1`, [signalId])).rows;
-  assert.deepEqual(to.map((r) => r.recipient_id), [stayer.user.id]);
-  assert.equal(n, 1);
+  const ev = newId('mev');
+  await app.db.query(
+    `INSERT INTO match_events (id, match_id, provider_event_id, seq, kind, data, occurred_at) VALUES ($1, $2, 'life:1', 1000, 'ball', '{}'::jsonb, now())`,
+    [ev, matchId]);
+  const signal = newId('sig');
+  await app.db.query(
+    `INSERT INTO match_signals (id, match_id, event_id, trigger, priority, label, evidence, fact_text, dedupe_key, status, expires_at)
+     VALUES ($1, $2, $3, 'wicket_fallen', 'high', 'Big wicket', '{}'::jsonb, 'WICKET: test fact.', $1, 'pending', now() + interval '3 minutes')`,
+    [signal, matchId, ev]);
+  assert.equal(await HANDLERS.momentum_signal(app.db, { payload: { signal_id: signal } }), 'published');
+  const insight = (await stayer.get(`/api/rooms/${room}/events?after=0`)).body.events.find((e: ApiEvent) => e.type === 'insight');
+  assert.equal(insight.data.fact, 'WICKET: test fact.');
+  assert.equal((await leaver.get(`/api/rooms/${room}/events?after=0`)).status, 404);
+  // No chat row, and nothing queued for anyone outside the room.
+  assert.equal((await app.db.query(`SELECT count(*)::int AS n FROM messages WHERE body LIKE '%WICKET%'`)).rows[0].n, 0);
+  assert.equal((await app.db.query(`SELECT count(*)::int AS n FROM jobs WHERE type LIKE 'push%'`)).rows[0].n, 0);
+  await app.db.query('DELETE FROM match_events WHERE id = $1', [ev]); // not a script item: the feed must never replay it
 });
 
-test('invitations notify in-app, and by push only with permission and the preference on', async () => {
-  const sent: any[] = [];
-  setPushSender(async (_sub, payload) => { sent.push(JSON.parse(payload)); });
-  await third.post('/api/me/push-subscriptions', { endpoint: 'https://push.example.test/invitee', keys: { p256dh: 'p'.repeat(40), auth: 'a'.repeat(16) } });
+test('invitations show in the app only: on the invitee\'s home list, with no notification job', async () => {
   const r = await owner.post('/api/rooms', { name: 'Late night crew', invitee_ids: [third.user.id] });
-  assert.equal((await third.get('/api/me/invitations')).body.invitations.some((i: ApiInvitation) => i.room_id === r.body.room_id), true);
-  await pump(app.db, { budgetMs: 3000 });
-  await pump(app.db, { budgetMs: 3000 });
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].body, 'You have a new watch party invitation.');
-  assert.ok(!JSON.stringify(sent[0]).includes('Late night crew'), 'no private room name on the lock screen');
-  await third.put('/api/me/notifications', { push_invites: false });
-  await owner.post('/api/rooms', { name: 'Another one', invitee_ids: [third.user.id] });
-  await pump(app.db, { budgetMs: 3000 });
-  await pump(app.db, { budgetMs: 3000 });
-  assert.equal(sent.length, 1);
-  // Delivery metadata has no notification text.
-  const cols = (await app.db.query(`SELECT * FROM notification_deliveries LIMIT 1`)).rows[0];
-  assert.ok(!Object.values(cols).some((v) => typeof v === 'string' && v.includes('invitation')));
+  const inv = (await third.get('/api/me/invitations')).body.invitations.find((i: ApiInvitation) => i.room_id === r.body.room_id);
+  assert.equal(inv.inviter_handle, 'life_owner');
+  assert.equal((await app.db.query(`SELECT count(*)::int AS n FROM jobs WHERE type LIKE 'push%'`)).rows[0].n, 0);
+  assert.equal((await third.post(`/api/invitations/${inv.id}/decline`)).status, 200);
+  assert.ok(!(await third.get('/api/me/invitations')).body.invitations.some((i: ApiInvitation) => i.room_id === r.body.room_id));
+});
+
+test('an auto-end queued for a game the room no longer follows leaves the room open', async () => {
+  const room = await makePrivateRoom(app, owner, []);
+  const old = (await app.db.query('SELECT match_id FROM rooms WHERE id = $1', [room])).rows[0].match_id;
+  const other = (await app.db.query(`SELECT id FROM matches WHERE fixture_key <> 'mi-csk-demo' LIMIT 1`)).rows[0].id;
+  await app.db.query('UPDATE rooms SET match_id = $2 WHERE id = $1', [room, other]); // as migration 013 moves rooms
+  assert.equal(await HANDLERS.room_auto_end(app.db, { payload: { room_id: room, match_id: old } }), 'done');
+  assert.equal((await app.db.query('SELECT status FROM rooms WHERE id = $1', [room])).rows[0].status, 'active');
+  assert.equal(await HANDLERS.room_auto_end(app.db, { payload: { room_id: room, match_id: other } }), 'ended');
 });
 
 test('reports reach human review; three reports hide a message; moderators approve or remove; appeals are possible', async () => {

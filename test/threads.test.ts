@@ -16,10 +16,9 @@ const say = async (c: Client, room: string, text: string, extra: Record<string, 
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body.message;
 };
-// Play the shared replay up to fixture item `i` (inclusive), as fresh balls (not a jump).
-async function playTo(i: number, { backfillUntil = -1 }: { backfillUntil?: number } = {}) {
-  await app.db.query(`UPDATE matches SET status = 'live', backfill_until = $2, feed_started_at = now() - $3::float8 * interval '1 second' WHERE id = $1`,
-    [shared, backfillUntil, offsets()[i] + 0.05]);
+// Play the shared game up to fixture item `i` (inclusive), as fresh balls.
+async function playTo(i: number) {
+  await app.db.query(`UPDATE matches SET status = 'live', feed_started_at = now() - $2::float8 * interval '1 second' WHERE id = $1`, [shared, offsets()[i] + 0.05]);
   await ingestDue(app.db, shared);
 }
 
@@ -29,7 +28,7 @@ before(async () => {
   friend = await signUp(app.base, 'thr_friend');
   await host.get('/api/rooms');
   shared = await ensureDemoMatch(app.db);
-  roomA = await makePrivateRoom(app, host, [friend]); // both follow the shared replay
+  roomA = await makePrivateRoom(app, host, [friend]); // both follow the shared game
   roomB = await makePrivateRoom(app, friend, []);
 });
 after(async () => { await app.close(); });
@@ -47,12 +46,6 @@ test('big moments open a #thread in every room following the match, once each', 
   assert.match(boot.threads[1].about, /Shivam Dube out, c Suryakumar b Tilak/);
   const events = (await friend.get(`/api/rooms/${roomA}/events?after=0`)).body.events.filter((e: ApiEvent) => e.type === 'thread');
   assert.deepEqual(events.map((e: ApiEvent) => e.data.title), ['#bowling-change', '#dube-out']);
-});
-
-test('balls skipped by a jump open no threads', async () => {
-  const drop = idx((x) => x.drop);
-  await playTo(drop, { backfillUntil: drop }); // the DRS call and the dropped catch were skipped
-  assert.ok(!(await threadsOf(roomA)).some((t) => ['drs-call', 'dropped-catch'].includes(t.slug)));
 });
 
 test('messages join the thread they are sent from, or one whose topic they mention', async () => {
@@ -97,7 +90,7 @@ test('a topic three messages from two people argue about becomes its own thread'
 test("simulated fans' reactions to a big moment carry its thread", async () => {
   const wicket = idx((x) => x.wicket?.out === 'Shivam Dube');
   await app.db.query(`UPDATE matches SET feed_started_at = now() - $2::float8 * interval '1 second' WHERE id = $1`, [shared, offsets()[wicket] + 3]);
-  await app.db.query(`UPDATE match_events SET occurred_at = now() - interval '3 seconds', backfilled = false WHERE match_id = $1 AND seq = $2`, [shared, wicket]);
+  await app.db.query(`UPDATE match_events SET occurred_at = now() - interval '3 seconds' WHERE match_id = $1 AND seq = $2`, [shared, wicket]);
   const lines = await crowdLines(app.db, { roomId: roomA, matchId: shared });
   const forWicket = lines.filter((c) => Number(c.id.split(':')[1]) === wicket);
   assert.ok(forWicket.length > 0 && forWicket.every((c) => c.thread === 'dube-out'));

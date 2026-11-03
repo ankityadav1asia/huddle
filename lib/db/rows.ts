@@ -7,7 +7,6 @@ export interface UserRow {
   id: string;
   handle: string | null;
   sports: Sports;
-  is_demo: boolean;
   created_at: Date;
   last_login_at: Date | null;
 }
@@ -44,11 +43,9 @@ export interface MatchRow {
   status: 'scheduled' | 'live' | 'completed';
   feed_started_at: Date | null;
   ball_interval_ms: number;
-  backfill_until: number;
+  backfill_until: number; // no longer written: only the removed jump to a moment set it
   created_at: Date;
   completed_at: Date | null;
-  room_id: string | null; // set only for a private room's own replay run
-  paused_at: Date | null;
 }
 
 export interface MatchEventRow {
@@ -60,7 +57,7 @@ export interface MatchEventRow {
   data: any; // the fixture item as published (each sport's own shape)
   occurred_at: Date;
   ingested_at: Date;
-  backfilled: boolean;
+  backfilled: boolean; // true only on rows a removed jump to a moment skipped over
 }
 
 export type Priority = 'high' | 'medium' | 'low';

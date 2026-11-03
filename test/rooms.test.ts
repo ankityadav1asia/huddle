@@ -30,6 +30,22 @@ test('invalid moderation levels and client-supplied privileged fields are reject
   assert.equal((await owner.post('/api/rooms', { name: 'X', creator_id: friend.user.id })).status, 400);
 });
 
+test('a private room follows the shared game of its sport: there is no own_replay any more', async () => {
+  const pub = (await owner.get('/api/rooms')).body.public_rooms.find((r: { sport: string }) => r.sport === 'f1');
+  for (const ownReplay of [true, false]) {
+    const r = await owner.post('/api/rooms', { name: 'Own run', match_id: pub.match_id, own_replay: ownReplay });
+    assert.equal(r.status, 400);
+    assert.equal(r.body.error.code, 'unexpected_field');
+  }
+  const r = await owner.post('/api/rooms', { name: 'Race night', match_id: pub.match_id });
+  assert.equal(r.status, 201);
+  assert.equal((await owner.get(`/api/rooms/${r.body.room_id}`)).body.room.match.id, pub.match_id); // the public room's game
+  await app.db.query(`UPDATE matches SET status = 'completed' WHERE id = $1`, [pub.match_id]);
+  const late = await owner.post('/api/rooms', { name: 'Too late', match_id: pub.match_id });
+  assert.equal(late.body.error.code, 'invalid_match'); // a finished game is not offered
+  await app.db.query(`UPDATE matches SET status = 'live' WHERE id = $1`, [pub.match_id]);
+});
+
 test('a non-member cannot read, poll or post in a private room, and gets the same answer as a missing room', async () => {
   const roomId = await makePrivateRoom(app, owner, [friend]);
   for (const res of [

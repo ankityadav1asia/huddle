@@ -2,7 +2,7 @@
 // the plays, so the scoreboard always matches them.
 import type { FactsInput, Fixture, PollTemplate, Team } from '../fixture.ts';
 import { makeFans } from '../fans.ts';
-import { scriptedSignals, scriptedThread, scriptedBurst, ROLE, type ScriptedItem } from './scripted.ts';
+import { scriptedSignals, scriptedThread, scriptedBurst, scriptedDescribe, scoreWorm, ROLE, type ScriptedItem } from './scripted.ts';
 
 // The game as the script has it. Scores and team fouls (this quarter) are by team code, points by player.
 interface BasketballState {
@@ -203,14 +203,14 @@ export const BASKETBALL: Fixture<BasketballState, BasketballItem, BasketballScor
   title: 'Warriors v Lakers',
   teams: SIDES,
   format: 'NBA',
-  sourceLabel: 'Simulated game · demo data, not a live feed',
+  sourceLabel: 'Play-by-play game feed',
   items: SCRIPT,
-  moments: [{ id: 'clutch', label: 'Clutch time' }, { id: 'last-shot', label: 'Last shot' }]
-    .map((m) => ({ ...m, index: SCRIPT.findIndex((s) => s.moment === m.id) })),
   engine: {
     initialState, applyItem, snapshot, facts, templatePoll,
     detectSignals: (_prev, next, item, _ball, seq) => scriptedSignals(next, item, seq),
     threadForItem: scriptedThread,
+    describe: scriptedDescribe,
+    graphs: (states) => scoreWorm(states, SIDES.map((t) => t.code)),
   },
   crowd: {
     lines: CROWD,

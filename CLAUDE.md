@@ -1,6 +1,18 @@
 # Huddle — Claude Code Project Instructions
 
-> **Scope lock (updated 2 November 2026):** This is a focused Watch Party prototype. Keep Match Intelligence, Match Momentum alerts, Catch Me Up, notifications, configurable moderation, and primary/fallback AI providers. Do not build video features, 100M-user infrastructure, or large-scale distributed worker systems. When detailed sections below appear to suggest otherwise, this scope lock and the “Confirmed product scope” section take precedence.
+> **Scope lock (updated 3 November 2026):** This is a focused Watch Party prototype. Keep Match Intelligence (the Match Centre), Match Momentum alerts, Catch Me Up, the Dream Bot, in-app invitations, configurable moderation, and primary/fallback AI providers. Do not build video features, push notifications, 100M-user infrastructure, or large-scale distributed worker systems. When detailed sections below appear to suggest otherwise, this scope lock, the “Product decisions” list below it and the “Confirmed product scope” section take precedence.
+
+## Product decisions (3 November 2026)
+
+The product owner made these decisions after trying the prototype. Where the detailed sections below differ, these win.
+
+- **Room screen**, modelled on JioHotstar's "watch with friends": the live scorecard on top, a slim strip showing who is watching, then the chat filling the rest, with the composer at the bottom. Nothing else sits above the chat.
+- **Match Centre**, modelled on Cricbuzz's match page: tapping the scorecard opens a window with swipeable tabs: Scorecard, Graphs, Commentary and Overs (Play by play for the other sports).
+- **AI Co-host in the chat:** momentum alerts, quiet-room polls and answers to questions nobody answered arrive as chat messages labelled AI Co-host. There is no separate co-host panel.
+- **Dream Bot:** a button by the composer opens a chatbot window where a member asks anything about the match. It is the Co-host's Q&A (same orchestration, context and output validation), and its answers are private to the person asking. Mentioning the AI in chat (`@huddle`) does nothing.
+- **No push notifications:** push alerts, alert preferences and the service worker are removed. Invitations show on the home screen; momentum alerts show in the room.
+- **One game per sport:** every room follows the game in progress for its sport. Private rooms have no replay controls.
+- **Wording:** the app shows no "simulated", "demo", "replay" or "made-up" labels. The Match Centre carries exactly one note: "Match data and crowd chat in this prototype are illustrative." AI content stays labelled as AI, and the README and docs still say plainly that the match data are fixtures, not a live feed.
 
 ## Project objective
 
@@ -32,7 +44,7 @@ Build Huddle as a focused sports Watch Party prototype. Preserve the existing ap
 - Match Intelligence in the Watch Party: verified scorecard, ball-by-ball commentary, match status, player/team statistics and concise match context.
 - Match Momentum Engine: detect important verified events and publish a concise in-app alert/insight to **all currently eligible members of the relevant active Watch Party**. Examples include wickets, major partnership breaks, a meaningful boundary sequence, innings changes and confirmed results. Do not alert for every ordinary delivery.
 - Catch Me Up: on request, summarize recent room discussion and important match developments for the requesting member.
-- Notifications: room/friend invitations and meaningful match-momentum alerts. In-app alerts should reach all eligible active room members. Browser/push alerts may reach away members only when they have granted permission and enabled the relevant notification preference.
+- Invitations and meaningful match-momentum alerts, in the app only: invitations on the home screen, and in-app alerts that reach all eligible active room members. No push notifications (removed 3 November 2026).
 - Configurable moderation levels for private rooms (`relaxed`, `balanced`, `strict`) plus a server-controlled public-room policy. Mandatory safety protections always apply.
 - Two AI API providers: one primary and one fallback, called only through the backend.
 - Indian mobile-number OTP authentication if supported by the existing auth provider and current project setup.
@@ -47,9 +59,9 @@ Build Huddle as a focused sports Watch Party prototype. Preserve the existing ap
 Prefer the current frontend, one backend/application, the existing database and realtime transport, and at most a modest background-job mechanism for AI tasks and notifications. Keep clear internal service boundaries in code, but do not deploy separate microservices. Use the simplest reliable implementation that supports event deduplication, notification delivery, provider fallback and room isolation.
 
 ### Crucial match-event delivery rule
-The backend—not the LLM—must determine whether a crucial event occurred from trusted, timestamped cricket data and deterministic rules. After detection, create one deduplicated event/insight and fan it out to all eligible members of the associated active Watch Party. The in-app Watch Party feed/alert is the primary delivery path. For members who are away, send a push only if they are still members, the room and event are still valid, and their notification preferences and browser/device permission allow it. Never send alerts to former members or after room closure.
+The backend—not the LLM—must determine whether a crucial event occurred from trusted, timestamped cricket data and deterministic rules. After detection, create one deduplicated event/insight and fan it out to all eligible members of the associated active Watch Party. The Watch Party's chat is the only delivery path (push notifications were removed on 3 November 2026). Never send alerts to former members or after room closure.
 
-Treat fixture/mock match feeds as demo data and label them clearly. Never present simulated data as a live provider feed.
+The match feeds are fixtures: scripted games with real team and player names. Never present them as a live provider feed. In the app they carry the one Match Centre note described under “Product decisions”; the README and docs say plainly that they are fixtures.
 
 ## Product concept
 
@@ -626,7 +638,7 @@ Keep the prototype responsive during realistic match-day usage. Do not design fo
 - Index message queries by `(room_id, created_at)` and/or `(room_id, sequence_number)` as appropriate.
 - Use cursor pagination only while a room is active; do not expose post-end history.
 - Avoid loading the entire conversation on every message.
-- Avoid calling the AI once per incoming message by default; batch, debounce, or trigger on mentions and meaningful events.
+- Avoid calling the AI once per incoming message by default; batch, debounce, or trigger on explicit requests (the Dream Bot, Catch me up) and meaningful events.
 - Set AI Co-host response budgets and per-room cooldowns.
 - Use caching only for non-sensitive, correctly scoped data; invalidate room caches on closure.
 - Set database connection pool limits and worker concurrency deliberately.
@@ -636,7 +648,7 @@ Keep the prototype responsive during realistic match-day usage. Do not design fo
 
 ## 6. AI Co-host queue behaviour
 
-- The Co-host should normally respond when mentioned, when a user explicitly requests a feature, or when a configured match event warrants a response.
+- The Co-host should normally respond when a user asks the Dream Bot or explicitly requests a feature, when a sport question goes unanswered, or when a configured match event warrants a response. Mentions in chat do not trigger it.
 - Do not create one LLM job for every message.
 - Debounce bursts and batch a small number of eligible messages for summaries where this does not compromise safety.
 - Use a room-scoped context window and retrieve only the minimum authorized messages.
@@ -693,7 +705,7 @@ Preserve the core invariant:
 
 
 
-## Confirmed Demo Rate Limits and Notification Scope
+## Confirmed Demo Rate Limits and Alert Scope
 
 ### Per-user message limit
 - Enforce a server-side limit of **1 message per authenticated user every 10 seconds**.
@@ -703,15 +715,15 @@ Preserve the core invariant:
 - Use an atomic server-side limiter supported by the existing stack. Redis is optional and should be reused only if already available or clearly justified; do not introduce it just for this prototype. Do not rely only on client-side timers.
 - Keep the limiter key scoped to the authenticated user. Do not use a client-supplied user ID as the authority.
 
-### Notifications for the prototype
+### Alerts for the prototype (in the app only)
 
-Notifications are a required product capability, not a reason to build a separate large-scale notification platform. Support room/friend invitations and important verified match-momentum events.
-- In-app momentum alerts must be delivered to all eligible members of the relevant active Watch Party.
-- Push notifications are optional per user preference and browser/device permission; use them for important events when members are away.
-- Do not send a push for every ball, ordinary chat message, routine AI response or minor event.
-- Keep notification delivery separate from chat messages. Do not insert a notification into the chat-message table.
-- Use minimal payloads, deduplication, expiry and a final membership/room-state check before delivery.
-- Notification failure must not block chat, match display or the Watch Party.
+Push notifications were removed on 3 November 2026. Invitations and important verified match-momentum events reach people inside the app:
+- Invitations appear on the home screen.
+- In-app momentum alerts must be delivered to all eligible members of the relevant active Watch Party, shown in the chat as AI Co-host messages.
+- Do not alert for every ball, ordinary chat message, routine AI response or minor event.
+- Store alerts separately from chat messages. Do not insert an alert into the chat-message table.
+- Use deduplication, expiry and a final membership/room-state check before delivery.
+- Alert failure must not block chat, match display or the Watch Party.
 
 
 # AI Co-host: Multi-Provider API Integration and Automatic Failover
@@ -880,7 +892,7 @@ The AI must:
 Keep normal chat and AI operations separate:
 - `POST /api/rooms/:roomId/messages`: validate user, room membership/status, text-only payload, rate limits and required pre-publication safety checks; persist and broadcast the message.
 - `POST /api/rooms/:roomId/reactions`: accept only an allowlisted emoji/reaction identifier; enforce membership, room status and reaction rate limits.
-- `POST /api/ai/room-message`: answer an explicit question or an eligible AI mention using bounded, authorized room and match context.
+- `POST /api/ai/room-message`: answer an explicit question (the Dream Bot, or a question nobody in the room answered) using bounded, authorized room and match context.
 - `POST /api/ai/room-summary`: summarize a bounded time/message window from the current room only.
 - `POST /api/ai/match-insight`: produce a structured match or momentum insight from validated match data.
 - `POST /api/ai/poll`: generate a relevant, non-offensive cricket poll or discussion prompt from current match context.
@@ -1093,7 +1105,7 @@ These are presentation labels, not facts by themselves. Every displayed insight 
 ## AI invocation and latency policy
 
 - Do not call the LLM for every ordinary chat message.
-- Invoke it when a user explicitly mentions/asks the AI, selects an AI action, requests a summary/poll, or when a verified match-event rule determines that a useful insight should be generated.
+- Invoke it when a user asks the Dream Bot, selects an AI action, requests a summary/poll, when a sport question goes unanswered, or when a verified match-event rule determines that a useful insight should be generated.
 - Normal chat delivery must not wait for LLM completion.
 - Keep deterministic match calculations outside the LLM. The model explains the result; it is not the source of score truth.
 - Cache only safe, room-scoped, short-lived derived context. Include room ID, match ID, data version and expiry in cache keys. Never reuse one room's conversation context in another room.
@@ -1143,13 +1155,15 @@ This prompt is an additional defense, not a replacement for backend authorizatio
 2. Add Match Intelligence using a trusted provider or clearly labelled fixtures.
 3. Implement deterministic Match Momentum detection and in-room fan-out to all eligible room members.
 4. Implement Catch Me Up using room-scoped chat and verified match context.
-5. Add notifications for invitations and crucial match events, with preferences and push permission checks.
+5. Show invitations and crucial match events in the app (push notifications were removed on 3 November 2026).
 6. Complete configurable moderation levels and mandatory safety controls.
 7. Add primary/fallback AI provider integration with bounded failover.
 
 Do not start infrastructure expansion before these user-facing flows work end to end.
 
 ## Integrated AI Co-host Engagement and Ephemeral Notifications
+
+> **Update 3 November 2026:** push notifications were removed from the prototype. The three behaviours, in-app alerts, race rules and room lifecycle below still apply; the parts about push delivery, push permission, delivery metadata and quiet hours no longer do. Momentum alerts appear in the chat as labelled AI Co-host messages.
 
 ### Product decision: one integrated AI Co-host
 
@@ -1158,7 +1172,7 @@ Smart AI Intervention, Conversation Continuity, and Match Momentum must be capab
 The AI Co-host coordinates three behaviours:
 1. **Unanswered-question assistance:** If a member asks an eligible cricket/match question and no human responds within a configurable delay (initial demo default: 20–30 seconds), the Co-host may answer using authorized room context and verified match data.
 2. **Conversation continuity:** When a room has been quiet for a meaningful period, the Co-host may introduce an occasional relevant discussion prompt, quiz, or poll. Do not trigger repeatedly or make the room feel bot-dominated.
-3. **Match momentum:** Detect meaningful, verified match events (for example, a wicket, boundary burst, partnership break, run-rate pressure spike, or confirmed result) and decide how to alert all eligible members of the relevant Watch Party, using in-app delivery for active members and opted-in push delivery for away members.
+3. **Match momentum:** Detect meaningful, verified match events (for example, a wicket, boundary burst, partnership break, run-rate pressure spike, or confirmed result) and alert all eligible members of the relevant Watch Party in the room's chat.
 
 All three behaviours use the same AI Co-host orchestration layer, room/match context services, safety controls, event deduplication, notification policy and observability. They must not create separate chatbots or duplicate match-event pipelines.
 
@@ -1247,7 +1261,7 @@ These are initial product categories, not hard-coded cricket truths. Tune thresh
 - Inspect the current Huddle repository and existing auth, room, realtime, database and deployment stack before changing architecture.
 - Reuse the existing AI Co-host and match-momentum services. Add a shared engagement/notification policy layer rather than a separate bot or feature-specific notification system.
 - Implement in-app alerts first. Add browser push only if the prototype can securely implement permission handling, service-worker registration, subscription storage, delivery and expiry.
-- Use mock/fixture match events if no trusted live feed is available, and label demo data clearly.
+- Use fixture match events if no trusted live feed is available, labelled as described under “Product decisions”.
 - Demonstrate at least these cases:
   1. Unanswered cricket question triggers one AI answer after the delay.
   2. A human replies first, so the pending AI answer is cancelled.
@@ -1284,17 +1298,17 @@ Build and demonstrate these capabilities as one coherent Huddle Watch Party:
 
 1. **Watch Party:** create/join rooms, invitations, member presence, realtime chat and reactions.
 2. **Match Intelligence:** show the current verified scorecard, overs, wickets, commentary, match status and useful player/team statistics within the Watch Party.
-3. **Match Momentum Engine:** consume trusted structured match events, detect only crucial moments using deterministic backend rules, ask the AI Co-host for a concise explanation, and deliver one deduplicated in-app alert to every eligible member of the associated active room. Use opted-in push notifications for away members where supported.
+3. **Match Momentum Engine:** consume trusted structured match events, detect only crucial moments using deterministic backend rules, ask the AI Co-host for a concise explanation, and deliver one deduplicated in-app alert, shown in the chat as an AI Co-host message, to every eligible member of the associated active room.
 4. **Catch Me Up:** on demand, summarize the recent conversation in the current room and the latest relevant match developments.
 5. **AI Co-host:** support cricket Q&A and the above AI-assisted tasks through one backend orchestration layer with a primary and fallback provider.
-6. **Notifications:** support invitations and important match events with preferences, permissions, expiry and deduplication.
+6. **Invitations and alerts (in the app):** invitations on the home screen and important match events in the room, with expiry and deduplication. No push notifications.
 7. **Moderation:** retain configurable `relaxed`, `balanced`, and `strict` private-room levels, plus server-controlled public-room moderation and a mandatory safety baseline.
 
 **Not part of this project:** live video, video playback, streaming synchronization, video ingestion, clip extraction, video processing/encoding, HLS/DASH, CDN, DRM, DVR/replay; 100M-user architecture or capacity claims; Kafka or large-scale distributed worker fleets; microservices, service mesh, multi-region deployment, or speculative horizontal-scaling work. Do not add these as “future-ready” scaffolding.
 
 Implement the smallest reliable version that fits the existing repository. A single backend/application, existing database/realtime service, one modest background worker/queue if needed, and two AI provider adapters are sufficient. Redis is optional—not a required dependency. Inspect the repository before changing the stack.
 
-For the demo and README, label each capability honestly as **implemented**, **simulated/demo data**, or **planned**. Never describe mock match data as live, or claim production-scale readiness.
+In the README and docs, label each capability honestly as **implemented**, **fixture data**, or **planned**. Never describe fixture match data as live, or claim production-scale readiness. The app's own wording follows “Product decisions” at the top.
 
 ## Indian Mobile Number OTP Authentication
 
@@ -1357,7 +1371,7 @@ Keep one integrated AI Co-host experience with separate task-specific context bu
 
 ### Match Momentum workflow
 
-**Product behavior:** Match Momentum is an event-driven feature inside the Watch Party, not a separate dashboard or chatbot. When a crucial event is confirmed, every eligible member of that match’s active Watch Party receives the same deduplicated in-app alert/insight. Members who are away may receive a push only if they opted in and the browser/device has permission. Do not alert for every delivery or send repeated alerts for the same event.
+**Product behavior:** Match Momentum is an event-driven feature inside the Watch Party, not a separate dashboard or chatbot. When a crucial event is confirmed, every eligible member of that match’s active Watch Party receives the same deduplicated in-app alert/insight. There are no push notifications. Do not alert for every delivery or send repeated alerts for the same event.
 
 1. A trusted cricket provider sends/publishes structured ball-by-ball or match-event data, or Huddle polls the provider according to its permitted update model.
 2. A backend ingestion service validates the payload, checks match identity and freshness, normalizes the event, and deduplicates it using a provider event ID or stable idempotency key.
@@ -1366,7 +1380,7 @@ Keep one integrated AI Co-host experience with separate task-specific context bu
 5. An asynchronous job asks the AI Co-host orchestration service to explain the event. Send only the minimum relevant, verified context (event, score, overs, target/required rate where applicable, recent events, freshness timestamp).
 6. The provider adapter calls the configured primary AI provider; a permitted fallback may be used for transient provider failures.
 7. Validate the response for schema, grounding, freshness, safety, length, and room/recipient authorization before publishing.
-8. Deliver the insight to all eligible members of the relevant active Watch Party. Show an in-app alert to members in the room; send a push to away members only when their preferences and device permissions allow it. Deduplicate delivery so retries do not create repeated insights.
+8. Deliver the insight to all eligible members of the relevant active Watch Party. Show it in the room's chat as an AI Co-host message. Deduplicate delivery so retries do not create repeated insights.
 
 ### AI Co-host Q&A workflow
 1. User submits a question from a Watch Party.
@@ -1398,4 +1412,4 @@ Keep one integrated AI Co-host experience with separate task-specific context bu
 - Keep all AI provider keys server-side. Never send API keys or privileged credentials to the browser.
 - Record provider/model, task type, latency, fallback reason, token usage/cost where available, and validation/error outcome. Avoid logging full private transcripts, secrets, or unnecessary personal data.
 
-These workflows describe intended architecture. Inspect the current repository and clearly separate implemented features, simulated/demo data, and planned work. Do not claim a workflow is implemented until its end-to-end behavior and failure cases have been tested.
+These workflows describe intended architecture. Inspect the current repository and clearly separate implemented features, fixture data, and planned work. Do not claim a workflow is implemented until its end-to-end behavior and failure cases have been tested.

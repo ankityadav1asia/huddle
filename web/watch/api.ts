@@ -83,7 +83,7 @@ export interface Me {
 
 export interface MeResponse { user: Me; needs_profile: boolean }
 
-// A sport a fan can back a team and players in (demo data).
+// A sport a fan can back a team and players in.
 export interface SportInfo {
   sport: string;
   label: string;
@@ -95,9 +95,6 @@ export interface LevelInfo { id: ModerationLevel; description: string }
 
 // GET /api/config.
 export interface Config {
-  notifications: { max_per_match: number };
-  push: { available: boolean };
-  demo_controls: boolean;
   chat: { cooldown_seconds: number; reactions: string[] };
   moderation: { levels: LevelInfo[] };
   sports: SportInfo[];

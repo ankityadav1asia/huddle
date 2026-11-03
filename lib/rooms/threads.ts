@@ -29,8 +29,7 @@ async function openThread(q: Queryable, roomId: string, { slug, about, keywords,
   return row;
 }
 
-// Called by feed ingestion (inside its transaction) for the big moments that just happened. Skipped balls (a jump)
-// open nothing, like they alert nobody.
+// Called by feed ingestion (inside its transaction) for the big moments that just happened.
 export async function openMomentThreads(q: Queryable, matchId: string, opened: MomentThread[]) {
   if (!opened.length) return;
   const rooms = await many<Pick<RoomRow, 'id'>>(q, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active'`, [matchId]);

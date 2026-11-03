@@ -1,10 +1,12 @@
-// The watch party room: the long-poll feed, the composer and its rate limit, match intelligence, AI Co-host actions
-// and the member and settings sheets. The server re-authorises every request; this view never decides who sees what.
+// The watch party room: the live scorecard (tap it for the Match Centre), who is watching, then the chat, with the AI
+// Co-host's messages and #threads, and the composer with its rate limit and Dream Bot. The server re-authorises every
+// request; this view never decides who sees what.
 import { api, ApiError, errorMessage, serverNow, newKey, type CreatedRoom, type InviteResult, type ModerationLevel, type Role } from './api.ts';
-import { el, icon, aiLabel, initials, teamClass, teamLogo, clock, clockSeconds, ago, plural, toast, setRail, railIntro, type Attrs } from './ui.ts';
+import { el, icon, aiLabel, initials, teamClass, teamLogo, clock, clockSeconds, ago, plural, toast, setRail, railIntro } from './ui.ts';
 import { openSheet, closeSheet, sheetActions, confirmSheet } from './sheets.ts';
-import { openNotificationSettings, pushPrompt } from './push.ts';
 import { friendPicker, levelChooser, LEVEL_NAMES } from './home.ts';
+import { openMatchCentre } from './match.ts';
+import { openDreamBot } from './bot.ts';
 import type { ReadyCtx } from './app.ts';
 
 const ROLE_LABEL: Partial<Record<Role, string>> = { owner: 'OWNER', admin: 'ADMIN' };
@@ -13,9 +15,10 @@ const REPORT_REASONS = [
   ['spam', 'Spam'], ['personal_info', 'Sharing personal details'], ['sexual', 'Sexual content'],
   ['misinformation', 'Wrong match information'], ['other', 'Something else'],
 ];
+const SAFETY_NOTE = 'Mandatory safety protections stay on at every level: threats, hate, sexual harassment and sharing personal details are always blocked.';
 const MAX_ITEMS = 300;
+const FACES = 5; // avatars in the watching strip before +N
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 // Server payloads: only the fields this view reads (lib/rooms/realtime.ts, lib/chat/hydrate.ts, lib/match/feed.ts).
 
@@ -26,7 +29,7 @@ type Room = {
   ai_enabled: boolean;
   ai_notice: string;
   retention_notice: string;
-  match: { id: string; sport: string } | null;
+  match: { id: string; title: string; sport: string } | null;
   my_role: Role;
   can_manage: boolean;
 } & (
@@ -40,8 +43,8 @@ interface Member { id: string; handle: string | null; team: string | null; role:
 // Who has the room open, and who has it in front (active).
 interface Presence { online: string[]; active: string[] }
 
-// One of a public watch party's simulated fans.
-interface SimFan { handle: string; team: string }
+// One of the fans in the stands: a public room's crowd, which chats along with the game.
+interface CrowdFan { handle: string; team: string }
 
 // Who wrote a message: a person, or the AI Co-host (no id or team).
 interface Sender { type: 'user' | 'ai'; id: string | null; handle: string | null; team: string | null }
@@ -57,7 +60,6 @@ interface ChatMessage {
   status: 'visible' | 'held' | 'removed';
   reply_to: { handle: string | null; excerpt: string | null } | null;
   reactions: { emoji: string; count: number; mine: boolean }[];
-  answer_state: string | null;
   thread: { id: string; title: string | null } | null;
   ai: AiMeta | null;
   mine: boolean;
@@ -71,14 +73,14 @@ interface Poll {
   id: string;
   seq: number;
   question: string;
-  source: string;
+  source: string; // 'ai', or a standard poll Huddle posts when no AI wrote one
   options: { label: string; votes: number }[];
   open: boolean;
   closes_at: string;
   my_vote: number | null;
 }
 
-// A big match moment posted to the room.
+// A big match moment (momentum alert). The fact is verified from the match feed; the explanation is the AI's.
 interface Insight { id: string; seq: number; priority: 'high' | 'medium' | 'low'; label: string; fact: string; explanation: string | null; occurred_at: string }
 
 // A #thread, opened by a big moment or by a topic the room keeps arguing about.
@@ -109,7 +111,7 @@ interface RoomBootstrap {
   cursor: number;
   match_rev: string | null;
   cooldown_until: string | null;
-  simulated_fans: SimFan[];
+  simulated_fans: CrowdFan[]; // the public room's crowd; none in private rooms
   threads: Thread[];
   items: ({ type: 'message'; data: ChatMessage } | { type: 'poll'; data: Poll } | { type: 'insight'; data: Insight })[];
 }
@@ -124,24 +126,18 @@ interface RoomPoll {
   reset?: boolean;
 }
 
-// GET /api/rooms/:id/guide: help for newcomers to the room's sport.
-interface Guide { sport_name: string; examples: string[]; rules: { topic: string; text: string }[]; roster: { name: string; team: string; role: string }[] }
-
-// GET /api/rooms/:id/match.
+// GET /api/rooms/:id/match: what the scorecard shows. The Match Centre fetches its own detail.
 interface MatchSnapshot {
-  match: { id: string; title: string; status: 'scheduled' | 'live' | 'completed'; sport: string; source_label: string; teams: { code: string; name: string; logo?: string }[] };
+  match: { id: string; status: 'scheduled' | 'live' | 'completed'; sport: string; teams: { code: string; name: string; logo?: string }[] };
   freshness: { age_seconds: number | null; stale: boolean };
   // One shape per sport, picked by match.sport, which TypeScript cannot narrow score by: hence any. The one-sport
-  // renderers give it their sport's type (below); the ones that switch on the sport type what they iterate over.
+  // renderers give it their sport's type (below).
   score: any;
-  commentary: { over: string | null; symbol: string | null; label: string | null; text: string }[];
-  moments: { id: string; label: string }[]; // demo controls
-  replay: { own: boolean; paused: boolean; speed: number; can_control: boolean; moments: { id: string; label: string; passed: boolean }[] };
   crowd: CrowdLine[];
 }
 
-// The scoreboard fields shown, per sport (lib/match/scorecard.ts and lib/match/sports/*).
-interface Batter { name: string; short: string; runs: number; balls: number; strike_rate: number | null; on_strike: boolean }
+// The scorecard fields shown, per sport (lib/match/scorecard.ts and lib/match/sports/*).
+interface Batter { short: string; runs: number; balls: number; on_strike: boolean }
 interface CricketScore {
   batting: string;
   runs: number;
@@ -157,31 +153,18 @@ interface CricketScore {
   bowler: { short: string; figures: string } | null;
   this_over: string[];
 }
-interface BowlingFigures { name: string; figures: string; economy: number }
-interface FallOfWicket { name: string; r: number; b: number; how: string; score: string | null; over: string | null }
-interface F1Car { pos: number; name: string; short: string; team: string; gap: string; tyre: string; pits: number }
-interface F1Score { lap: number; total_laps: number; safety_car: boolean; result: string | null; order: F1Car[]; fastest_lap: { driver: string; time: string } }
-interface BasketballTeam { name: string; leaders: { name: string; short: string; pts: number }[] }
-interface HockeyGoal { time: string; scorer: string; team: string; strength: string; assists: string[] }
-interface HockeyPenalty { time: string; player: string; team: string; infraction: string }
-
-// POST /api/rooms/:id/catchup: a summary for the asker only.
-interface CatchUp {
-  headline: string;
-  match_points?: string[];
-  room_points?: string[];
-  note?: string;
-  source: string;
-  source_label: string;
-  data_as_of: string | null;
-  stale: boolean;
+interface F1Score {
+  lap: number;
+  total_laps: number;
+  safety_car: boolean;
+  result: string | null;
+  order: { pos: number; short: string; gap: string }[];
+  fastest_lap: { driver: string; time: string };
 }
+interface BasketballTeam { leaders: { short: string; pts: number }[] }
 
 // An invitation as the room's owner and admins see it (GET /api/rooms/:id/invitations).
 interface RoomInvitation { id: string; user_id: string; handle: string; status: string }
-
-// A control for a private room's own replay (POST /api/rooms/:id/replay).
-type ReplayControl = { action: string; speed?: number; moment?: string };
 
 // What each kind of feed entry holds; upsertItem pairs a type with its data.
 interface FeedData {
@@ -199,35 +182,28 @@ type FeedEntry = { key: string; node: HTMLElement; thread: string | null; seq: n
 
 // The room's elements, made by buildRoom().
 interface RoomEls {
-  // header
+  // header and scorecard
   title: HTMLElement;
-  typeBadge: HTMLSpanElement;
-  online: HTMLSpanElement;
-  memberCount: HTMLSpanElement;
-  score: HTMLButtonElement;
-  replayBar: HTMLDivElement;
-  // AI Co-host strip
-  cohost: HTMLElement;
-  cohostLabel: HTMLSpanElement;
-  cohostText: HTMLParagraphElement;
+  sub: HTMLSpanElement;
   reconnect: HTMLSpanElement;
-  pollBtn: HTMLButtonElement;
-  backing: HTMLDivElement;
-  guide: HTMLDivElement;
+  score: HTMLButtonElement;
+  // watching strip
+  watchers: HTMLButtonElement;
+  add: HTMLButtonElement;
   // chat
   threadBar: HTMLDivElement;
   scroll: HTMLDivElement;
   feed: HTMLDivElement;
-  notice: HTMLDivElement;
   threadHead: HTMLDivElement;
   banner: HTMLDivElement;
   newPill: HTMLButtonElement;
   // composer
+  backing: HTMLDivElement;
   input: HTMLInputElement;
   send: HTMLButtonElement;
   reply: HTMLDivElement;
   error: HTMLDivElement;
-  notice2: HTMLParagraphElement;
+  notice: HTMLParagraphElement;
   cooldown: HTMLDivElement;
 }
 
@@ -264,14 +240,12 @@ interface RoomState {
   booted: boolean;
   // Set by bootstrap() before anything reads them.
   room: Room;
-  simFans: SimFan[];
+  crowdFans: CrowdFan[];
   // Set later, if at all.
   ticker?: number;
   onVis?: () => void;
-  lastInsight?: Insight;
-  guide?: Guide;
   membersSheet?: { refresh: () => void };
-  matchSheet?: { isOpen: () => boolean; render: () => void };
+  centre?: ReturnType<typeof openMatchCentre>;
 }
 
 let R: RoomState | null = null;
@@ -301,12 +275,13 @@ export function leaveRoom() {
   clearInterval(state.ticker);
   for (const t of state.crowdTimers) clearTimeout(t);
   if (state.onVis) document.removeEventListener('visibilitychange', state.onVis);
+  if (state.centre?.isOpen()) state.centre.close();
   rememberSeen(state);
 }
 
 export async function renderRoom(ctx: ReadyCtx, roomId: string) {
   leaveRoom();
-  // Cast: room and simFans arrive in bootstrap(), and els fills up in buildRoom(), before anything reads them. The
+  // Cast: room and crowdFans arrive in bootstrap(), and els fills up in buildRoom(), before anything reads them. The
   // presence cast only types its empty lists, which would otherwise be never[].
   const state = {
     id: roomId, ctx, active: true, abort: new AbortController(), items: new Map(), seqSeen: new Set(),
@@ -350,7 +325,7 @@ async function bootstrap(state: RoomState) {
   state.cursor = boot.cursor;
   state.matchRev = boot.match_rev;
   state.cooldownUntil = boot.cooldown_until ? toLocal(boot.cooldown_until) : 0;
-  state.simFans = boot.simulated_fans || []; // the public watch party's scripted crowd; none in private rooms
+  state.crowdFans = boot.simulated_fans || [];
   buildRoom(state);
   for (const t of boot.threads || []) addThread(state, t, { quiet: true });
   for (const item of boot.items) upsertItem(state, item.type, item.data);
@@ -362,11 +337,11 @@ async function bootstrap(state: RoomState) {
     showBanner(state, `Welcome back. ${plural(state.cursor - seen, 'update')} since your last visit.`);
   }
   rememberSeen(state);
+  renderRail(state);
   if (state.room.match) {
     refreshMatch(state);
     renderBacking(state);
-    loadGuide(state);
-  } else renderRail(state);
+  }
   state.ticker = setInterval(() => tick(state), 1000);
   tick(state);
   state.onVis = () => onVisibility(state);
@@ -375,33 +350,26 @@ async function bootstrap(state: RoomState) {
   loop(state, state.loopToken);
 }
 
+// Top to bottom: the header and the live scorecard, the watching strip, then the chat (thread chips, messages and
+// the composer) filling the rest of the screen.
 function buildRoom(state: RoomState) {
   const room = state.room;
   const els = state.els;
   els.title = el('b', { class: 'room-title', text: room.name || 'Watch party' });
-  els.typeBadge = el('span', { class: 'type-pill' });
-  els.online = el('span', { class: 'online-count' });
-  els.memberCount = el('span', { class: 'fans-count' });
-  const people = el('button', { type: 'button', class: 'fans-btn', 'aria-label': 'Members', onclick: () => openMembers(state) }, icon('people'), els.memberCount);
-  const more = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Room settings', onclick: () => openSettings(state) }, icon('dots'));
-  els.score = el('button', { type: 'button', class: 'score score-btn', 'aria-label': 'Open match intelligence', hidden: !room.match, onclick: () => openMatchSheet(state) },
-    el('div', { class: 'skeleton' }));
-  els.replayBar = el('div', { class: 'replay-bar', role: 'group', 'aria-label': 'Replay controls', hidden: true });
-
-  els.cohostLabel = el('span', { class: 'cohost-label' });
-  els.cohostText = el('p', { class: 'pulse-text' });
+  els.sub = el('span', { class: 'room-sub' });
   els.reconnect = el('span', { class: 'reconnect-pill', hidden: true, text: 'Reconnecting…' });
-  const catchBtn = el('button', { type: 'button', class: 'catchup-btn', text: 'Catch me up', onclick: () => openCatchup(state) });
-  els.pollBtn = el('button', { type: 'button', class: 'catchup-btn ghost', text: 'Suggest a poll', hidden: !room.match, onclick: () => suggestPoll(state) });
-  const privateBtn = room.room_type === 'public' && room.match
-    ? el('button', { type: 'button', class: 'catchup-btn ghost', text: '+ Private room', onclick: () => openQuickPrivate(state) }) : null;
-  els.backing = el('div', { class: 'guide backing', hidden: true });
-  els.guide = el('div', { class: 'guide', hidden: true });
+  const menu = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Room menu', onclick: () => openRoomMenu(state) }, icon('dots'));
+  els.score = el('button', { type: 'button', class: 'score score-btn', 'aria-label': 'Open the Match Centre', hidden: !room.match, onclick: () => openCentre(state) },
+    el('div', { class: 'skeleton' }));
+  els.watchers = el('button', { type: 'button', class: 'watchers', onclick: () => openMembers(state) });
+  els.add = el('button', { type: 'button', class: 'add-btn', onclick: () => addFriends(state) },
+    el('span', { text: 'Invite friends' }), el('span', { class: 'plus', 'aria-hidden': 'true' }, icon('plus')));
 
-  els.feed = el('div', { class: 'feed', role: 'log', 'aria-live': 'polite', 'aria-label': 'Watch party messages' });
-  els.notice = el('div', { class: 'feed-notice' });
+  els.feed = el('div', { class: 'feed', role: 'log', 'aria-live': 'polite', 'aria-label': 'Watch party chat' });
   els.threadHead = el('div', { class: 'thread-head', hidden: true });
-  els.feed.append(els.notice, els.threadHead);
+  // Shown (by the stylesheet) only while the feed has no messages.
+  const empty = el('p', { class: 'feed-empty', text: room.can_manage ? 'No messages yet. Say hello, or tap + to invite friends.' : 'No messages yet. Say hello.' });
+  els.feed.append(els.threadHead, empty);
   els.threadBar = el('div', { class: 'chips thread-bar', role: 'toolbar', 'aria-label': 'Threads', hidden: true });
   els.scroll = el('div', { class: 'chat-scroll' }, els.feed);
   els.banner = el('div', { class: 'banner', hidden: true });
@@ -412,73 +380,101 @@ function buildRoom(state: RoomState) {
     if (state.stick) els.newPill.hidden = true;
   });
 
-  els.input = el('input', { id: 'say', maxlength: '500', placeholder: 'Say something, or ask @huddle', 'aria-label': 'Message the room', autocomplete: 'off', enterkeyhint: 'send' });
+  els.backing = el('div', { class: 'backing', hidden: true });
+  els.input = el('input', { id: 'say', maxlength: '500', placeholder: 'Say something…', 'aria-label': 'Message the room', autocomplete: 'off', enterkeyhint: 'send' });
   els.send = el('button', { type: 'submit', class: 'send', 'aria-label': 'Send' }, icon('send'));
   els.reply = el('div', { class: 'reply-chip', hidden: true });
   els.error = el('div', { class: 'send-error', role: 'alert', hidden: true });
-  els.notice2 = el('p', { class: 'send-notice', hidden: true });
+  els.notice = el('p', { class: 'send-notice', hidden: true });
   els.cooldown = el('div', { class: 'cooldown', hidden: true }, el('span', { class: 'cooldown-text' }), el('span', { class: 'cooldown-bar' }, el('i')));
-  const form = el('form', { class: 'composer', autocomplete: 'off' }, els.input, els.send);
+  const bot = el('button', { type: 'button', class: 'bot-btn', 'aria-label': 'Dream Bot: ask the AI about the game, privately', onclick: () => openBot(state) },
+    icon('spark'), el('span', { class: 'bot-btn-text', text: 'Dream Bot' }));
+  const form = el('form', { class: 'composer', autocomplete: 'off' }, bot, els.input, els.send);
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     submitMessage(state);
   });
 
   document.getElementById('view')?.replaceChildren(
-    el('div', { class: 'masthead' },
+    el('div', { class: 'masthead room-head' },
       el('header', { class: 'top' }, backButton(state),
-        el('div', { class: 'top-title' }, els.title, el('span', { class: 'top-sub' }, els.typeBadge, els.online)),
-        people, more),
-      els.score, els.replayBar),
-    els.cohost = el('section', { class: 'pulse cohost', 'aria-label': 'AI Co-host' },
-      el('div', { class: 'pulse-head' }, els.cohostLabel, els.reconnect),
-      els.cohostText,
-      el('div', { class: 'pulse-foot cohost-actions' }, catchBtn, els.pollBtn, privateBtn),
-      els.backing, els.guide),
-    els.threadBar,
-    el('section', { class: 'chat' }, els.scroll, els.banner, els.newPill),
-    el('div', { class: 'composer-wrap' }, el('div', { class: 'composer-status', 'aria-live': 'polite' }, els.reply, els.error, els.notice2, els.cooldown), form),
+        el('div', { class: 'top-title' }, els.title, el('span', { class: 'top-sub' }, els.sub, els.reconnect)),
+        menu),
+      els.score,
+      el('div', { class: 'watch-strip' }, els.watchers, els.add)),
+    el('section', { class: 'room-panel', 'aria-label': 'Chat' },
+      els.threadBar,
+      el('div', { class: 'chat' }, els.scroll, els.banner, els.newPill),
+      el('div', { class: 'composer-wrap' }, els.backing,
+        el('div', { class: 'composer-status', 'aria-live': 'polite' }, els.reply, els.error, els.notice, els.cooldown),
+        form)),
   );
   applyRoomInfo(state);
-  // Offer big-moment notifications once (permission is only requested if they tap Turn on).
-  pushPrompt(state.ctx).then((card) => {
-    if (card && state === R && els.cohost.isConnected) els.cohost.after(card);
-  }).catch(() => {});
 }
 
 function applyRoomInfo(state: RoomState) {
   const room = state.room;
   const els = state.els;
   els.title.textContent = room.name || 'Watch party';
-  els.typeBadge.textContent = room.room_type === 'public' ? 'Public' : `Private · ${LEVEL_NAMES[room.moderation.level] || 'Balanced'}`;
-  els.cohostLabel.replaceChildren(aiLabel(room.ai_enabled ? 'AI Co-host' : 'Match moments'));
-  if (!state.lastInsight) {
-    els.cohostText.textContent = room.ai_enabled
-      ? (room.match ? 'Watching the match with you. Ask @huddle anything about it.' : 'Ask @huddle anything about the room.')
-      : 'Big match moments appear here. The AI Co-host is off in this room.';
-  }
-  els.notice.replaceChildren(
-    el('p', {}, el('b', { text: room.ai_enabled ? 'AI Co-host. ' : 'AI Co-host off. ' }), room.ai_notice),
-    ...(state.simFans.length ? [el('p', {}, el('b', { text: 'Simulated fans. ' }), 'A scripted crowd reacts to the simulated game in this public watch party. They are labelled, are not real people, and can be hidden in room settings. Private rooms have none.')] : []),
-    el('p', {}, el('b', { text: 'Disappearing chat. ' }), room.retention_notice),
-    el('p', {}, el('b', { text: room.room_type === 'public' ? 'Public room. ' : `${LEVEL_NAMES[room.moderation.level] || ''} moderation. ` }), room.moderation.notice),
-  );
-  updatePresence(state, state.presence);
+  // The +: a private room's owner and admins invite friends; in a public room anyone can start a private room on
+  // the same game with friends.
+  const pub = room.room_type === 'public';
+  els.add.hidden = pub ? !room.match : !room.can_manage;
+  els.add.setAttribute('aria-label', pub ? 'Invite friends to a private room on this game' : 'Invite friends to this room');
+  updatePresence(state);
 }
 
+function addFriends(state: RoomState) {
+  if (state.room.room_type === 'public') openQuickPrivate(state);
+  else openInvites(state);
+}
+
+function openCentre(state: RoomState) {
+  if (!state.room.match || state.centre?.isOpen()) return;
+  state.centre = openMatchCentre(state.id);
+}
+
+function openBot(state: RoomState, catchUp = false) {
+  openDreamBot({
+    roomId: state.id,
+    game: state.room.match?.title || null,
+    ai: state.room.ai_enabled,
+    since: () => state.catchupSince,
+    caughtUp: () => {
+      state.catchupSince = null;
+      rememberSeen(state);
+    },
+  }, { catchUp });
+}
+
+// "Public · 201 watching": people online plus, in a public room, the crowd (unless this device hides it).
 function updatePresence(state: RoomState, presence?: Presence) {
   state.presence = presence || state.presence;
-  const n = state.presence.online.length;
-  // Real people online; the simulated fans (public watch party only) are counted separately, so nobody takes them
-  // for real viewers, and listed under their own heading in Members.
-  const fans = simulatedFans(state).length;
-  if (state.els.online) state.els.online.textContent = ` · ${n} online${fans ? ` · ${fans} simulated fans` : ''}`;
-  if (state.els.memberCount) state.els.memberCount.textContent = String(state.members.size + fans);
+  const watching = state.presence.online.length + visibleCrowd(state).length;
+  state.els.sub.textContent = `${state.room.room_type === 'public' ? 'Public' : 'Private'} · ${watching} watching`;
+  renderWatchers(state, watching);
   state.membersSheet?.refresh();
 }
 
+// You first, then whoever else is online (a private room also shows its members who are away), then the crowd.
+function renderWatchers(state: RoomState, watching: number) {
+  const online = new Set(state.presence.online);
+  const me = state.ctx.me.id;
+  const isOn = (m: Member) => m.id === me || online.has(m.id);
+  const people = [...state.members.values()]
+    .filter((m) => state.room.room_type === 'private' || isOn(m))
+    .sort((a, b) => Number(b.id === me) - Number(a.id === me) || Number(isOn(b)) - Number(isOn(a)));
+  const crowd = visibleCrowd(state);
+  const faces = [...people.slice(0, FACES).map((m) => avatar(m, isOn(m) ? '' : 'away')), ...crowd.slice(0, FACES).map((f) => avatar(f))].slice(0, FACES);
+  const more = people.length + crowd.length - faces.length;
+  state.els.watchers.replaceChildren(el('span', { class: 'faces' }, faces), ...(more > 0 ? [el('span', { class: 'more-faces', text: `+${more}` })] : []));
+  state.els.watchers.setAttribute('aria-label', state.room.room_type === 'private'
+    ? `${plural(state.members.size, 'member')}, ${watching} watching. Show members`
+    : `${watching} watching. Show who is here`);
+}
+
 function setReconnecting(state: RoomState, on: boolean) {
-  if (state.els.reconnect) state.els.reconnect.hidden = !on;
+  state.els.reconnect.hidden = !on;
 }
 
 function scrollToBottom(state: RoomState) {
@@ -487,10 +483,10 @@ function scrollToBottom(state: RoomState) {
   if (state.els.newPill) state.els.newPill.hidden = true;
 }
 
+// Coming back to the room: Catch me up opens Dream Bot with a summary of what was missed.
 function showBanner(state: RoomState, text: string) {
   const b = state.els.banner;
-  if (!b) return;
-  const go = el('button', { type: 'button', text: 'Catch me up', onclick: () => { b.hidden = true; openCatchup(state); } });
+  const go = el('button', { type: 'button', text: 'Catch me up', onclick: () => { b.hidden = true; openBot(state, true); } });
   const x = el('button', { type: 'button', class: 'x', 'aria-label': 'Dismiss', onclick: () => { b.hidden = true; } }, icon('close'));
   b.replaceChildren(el('span', { text }), go, x);
   b.hidden = false;
@@ -517,7 +513,7 @@ async function loop(state: RoomState, token: number) {
   while (state.active && state === R && token === state.loopToken) {
     try {
       const vis = document.hidden ? 'hidden' : 'visible';
-      // Sending the match version we have lets the server answer as soon as the next ball is in.
+      // Sending the match version we have lets the server answer as soon as the next play is in.
       const rev = state.matchRev != null ? `&rev=${encodeURIComponent(state.matchRev)}` : '';
       const r: RoomPoll = await api.get(`/api/rooms/${state.id}/events?after=${state.cursor}&wait=1&vis=${vis}${rev}`, { signal: state.abort.signal });
       if (!state.active || state !== R || token !== state.loopToken) return;
@@ -540,6 +536,7 @@ async function loop(state: RoomState, token: number) {
       if (r.match_rev != null && r.match_rev !== state.matchRev) {
         state.matchRev = r.match_rev;
         refreshMatch(state);
+        if (state.centre?.isOpen()) state.centre.update();
       }
     } catch (err) {
       if ((err instanceof Error && err.name === 'AbortError') || !state.active || state !== R) return;
@@ -571,13 +568,8 @@ function applyEvents(state: RoomState, events: RoomEvent[]) {
     state.seqSeen.add(ev.seq);
     if (ev.type === 'message' || ev.type === 'message_update') upsertItem(state, 'message', ev.data);
     else if (ev.type === 'poll') upsertItem(state, 'poll', ev.data);
-    else if (ev.type === 'insight') {
-      const isNew = !state.items.has(`insight:${ev.data.id}`);
-      upsertItem(state, 'insight', ev.data);
-      if (isNew && (ev.data.priority === 'high' || ev.data.priority === 'medium')) {
-        toast([el('b', { text: `${ev.data.label}: ` }), factText(ev.data)], { ms: 8000, tone: ev.data.priority });
-      }
-    } else if (ev.type === 'member') applyMember(state, ev);
+    else if (ev.type === 'insight') upsertItem(state, 'insight', ev.data);
+    else if (ev.type === 'member') applyMember(state, ev);
     else if (ev.type === 'thread') addThread(state, ev.data);
     else if (ev.type === 'room') refreshRoomInfo(state);
   }
@@ -596,7 +588,8 @@ function applyMember(state: RoomState, ev: MemberEvent) {
     line = `@${m.handle} ${m.status === 'removed' ? 'was removed' : 'left'}`;
   }
   if (line) upsertItem(state, 'sys', { id: `m${ev.seq}`, seq: ev.seq, text: line });
-  updatePresence(state, state.presence);
+  if (m.id === state.ctx.me.id && prev && prev.role !== m.role) refreshRoomInfo(state); // what the + offers
+  updatePresence(state);
 }
 
 // The label is shown with the fact, so a leading tag that is the label or one of its words ("Big wicket" and
@@ -613,18 +606,9 @@ function factText(insight: Insight) {
   return rest.charAt(0).toUpperCase() + rest.slice(1);
 }
 
-// The Co-host strip shows the latest important match moment (high or medium priority): label once, then the text.
-function setCohostLine(state: RoomState, insight: Insight) {
-  if (!['high', 'medium'].includes(insight.priority)) return;
-  if (state.lastInsight && (state.lastInsight.seq ?? 0) > (insight.seq ?? 0)) return;
-  state.lastInsight = insight;
-  state.els.cohostText.replaceChildren(el('b', { text: `${insight.label}: ` }), insight.explanation || factText(insight));
-}
-
 // `type` says which payload `data` is (the signature pairs them), but TypeScript cannot narrow one parameter by
 // another: hence the casts here, in renderItem and in itemThread.
 function upsertItem<K extends FeedType>(state: RoomState, type: K, data: FeedData[K]) {
-  if (type === 'insight') setCohostLine(state, data as Insight);
   const key = `${type}:${data.id}`;
   const node = renderItem(state, type, data);
   const thread = itemThread(state, type, data);
@@ -668,16 +652,27 @@ function renderItem<K extends FeedType>(state: RoomState, type: K, data: FeedDat
   if (type === 'message') return (data as ChatMessage).sender?.type === 'ai' ? renderAiMessage(state, data as ChatMessage) : renderMessage(state, data as UserMessage);
   if (type === 'pending') return renderPending(state, data as PendingMessage);
   if (type === 'poll') return renderPoll(state, data as Poll);
-  if (type === 'insight') return renderInsight(data as Insight);
+  if (type === 'insight') return renderInsight(state, data as Insight);
   return el('p', { class: 'sys-line', text: (data as FeedData['sys']).text });
 }
 
-function avatar(sender: Pick<Sender, 'handle' | 'team'>) {
-  return el('span', { class: `avatar ${teamClass(sender.team)}`, 'aria-hidden': 'true', text: initials(sender.handle) });
+function avatar(who: Pick<Sender, 'handle' | 'team'>, extra = '') {
+  return el('span', { class: `avatar ${teamClass(who.team)}${extra ? ` ${extra}` : ''}`, 'aria-hidden': 'true', text: initials(who.handle) });
 }
 
+// The AI Co-host posts as itself, labelled as AI. Big-moment alerts in a room with the AI switched off, and
+// standard polls when no AI wrote them, come from Huddle instead.
+function poster(ai: boolean) {
+  return ai
+    ? { cls: 'cohost', face: el('span', { class: 'avatar ai-face', 'aria-hidden': 'true' }, icon('spark')), name: aiLabel('AI Co-host') }
+    : { cls: 'huddle', face: el('span', { class: 'avatar huddle-face', 'aria-hidden': 'true', text: 'H' }), name: el('b', { class: 'handle', text: 'Huddle' }) };
+}
+
+// The server names the AI Co-host 'huddle' in reply previews, a username nobody can take.
+const replyName = (handle: string | null) => (handle === 'huddle' ? 'AI Co-host' : `@${handle || 'someone'}`);
+
 function replyPreview(reply: NonNullable<ChatMessage['reply_to']>) {
-  return el('p', { class: 'reply-preview' }, el('b', { text: `@${reply.handle || 'someone'}` }), reply.excerpt ? ` ${reply.excerpt}` : ' (message not available)');
+  return el('p', { class: 'reply-preview' }, el('b', { text: replyName(reply.handle) }), reply.excerpt ? ` ${reply.excerpt}` : ' (message not available)');
 }
 
 function reactionRow(state: RoomState, m: ChatMessage) {
@@ -688,9 +683,14 @@ function reactionRow(state: RoomState, m: ChatMessage) {
   }, `${r.emoji} ${r.count}`)));
 }
 
-function actionsButton(state: RoomState, m: ChatMessage) {
-  return el('button', { type: 'button', class: 'msg-more', 'aria-label': 'Message actions', onclick: () => openMessageActions(state, m) }, icon('dots'));
+// A visible message opens its actions (react, reply, report) from its ⋯ button or a tap on it.
+function actionable(state: RoomState, row: HTMLElement, body: HTMLElement, m: ChatMessage) {
+  row.classList.add('act');
+  row.append(el('button', { type: 'button', class: 'msg-more', 'aria-label': 'Message actions', onclick: () => openMessageActions(state, m) }, icon('dots')));
+  body.addEventListener('click', (e) => { if (e.target instanceof Element && !e.target.closest('button, a')) openMessageActions(state, m); });
 }
+
+const timeTag = (at: string) => el('time', { class: 'msg-time', datetime: at, text: clock(at) });
 
 function renderMessage(state: RoomState, m: UserMessage) {
   const member = state.members.get(m.sender.id);
@@ -698,23 +698,85 @@ function renderMessage(state: RoomState, m: UserMessage) {
   const meta = el('div', { class: 'msg-meta' }, el('b', { class: 'handle', text: m.mine ? 'You' : `@${m.sender.handle}` }));
   if (member && ROLE_LABEL[member.role]) meta.append(el('span', { class: 'badge role', text: ROLE_LABEL[member.role] }));
   if (m.sender.team) meta.append(el('span', { class: `badge ${teamClass(m.sender.team)}`, text: m.sender.team }));
-  meta.append(el('time', { class: 'msg-time', datetime: m.created_at, text: clock(m.created_at) }));
+  meta.append(timeTag(m.created_at));
   if (m.thread) meta.append(threadTag(state, m.thread.id, m.thread.title));
   const body = el('div', { class: 'msg-body' }, meta);
   if (m.reply_to) body.append(replyPreview(m.reply_to));
   if (m.status === 'removed' || m.text == null) body.append(el('p', { class: 'msg-text removed', text: 'Message removed by a moderator.' }));
   else body.append(el('p', { class: 'msg-text', text: m.text }));
   if (m.status === 'held') body.append(el('p', { class: 'msg-flag', text: 'Held for review · only you can see this' }));
-  if (m.answer_state === 'ai_unavailable') body.append(el('p', { class: 'msg-note', text: 'The Co-host could not answer right now. Try again in a minute.' }));
-  else if (m.answer_state !== null && ['pending', 'ai_claimed'].includes(m.answer_state) && /(^|\s)@huddle\b/i.test(m.text || '')) body.append(el('p', { class: 'msg-note live', text: 'Co-host is answering…' }));
   const reactions = reactionRow(state, m);
   if (reactions) body.append(reactions);
   row.append(avatar(m.sender), body);
-  if (m.status === 'visible') {
-    row.append(actionsButton(state, m));
-    body.addEventListener('click', (e) => { if (e.target instanceof Element && !e.target.closest('button, a')) openMessageActions(state, m); });
-  }
+  if (m.status === 'visible') actionable(state, row, body, m);
   return row;
+}
+
+function aiFootnote(ai: AiMeta | null) {
+  if (!ai || ai.type === 'decline') return 'AI-generated';
+  if (ai.type === 'insufficient_data') return 'Not in the match data, so the Co-host will not guess.';
+  const g = ai.grounding || {};
+  const parts = [g.status === 'rules_sheet' ? 'From the checked rules sheet' : 'From verified match data'];
+  if (ai.asked_at) parts.push(`asked at ${ai.asked_at}`);
+  else if (g.data_as_of) parts.push(`as of ${clockSeconds(g.data_as_of)}`);
+  if (g.stale) parts.push('may be out of date');
+  return parts.join(' · ');
+}
+
+// The Co-host's answer to a question nobody else answered.
+function renderAiMessage(state: RoomState, m: ChatMessage) {
+  const who = poster(true);
+  const body = el('div', { class: 'msg-body' },
+    el('div', { class: 'msg-meta' }, who.name, timeTag(m.created_at), m.thread ? threadTag(state, m.thread.id, m.thread.title) : null));
+  if (m.reply_to) body.append(replyPreview(m.reply_to));
+  if (m.status === 'removed' || m.text == null) body.append(el('p', { class: 'msg-text removed', text: 'Message removed by a moderator.' }));
+  else body.append(el('p', { class: 'msg-text', text: m.text }), el('p', { class: 'msg-foot', text: aiFootnote(m.ai) }));
+  const reactions = reactionRow(state, m);
+  if (reactions) body.append(reactions);
+  const row = el('div', { class: `msg ${who.cls}`, dataset: { id: m.id } }, who.face, body);
+  if (m.status === 'visible') actionable(state, row, body, m);
+  return row;
+}
+
+// A big moment, posted in the chat: its label and the verified fact, then the AI's explanation when there is one.
+function renderInsight(state: RoomState, i: Insight) {
+  const who = poster(state.room.ai_enabled);
+  return el('div', { class: `msg ${who.cls} alert ${i.priority}` }, who.face,
+    el('div', { class: 'msg-body' },
+      el('div', { class: 'msg-meta' }, who.name, timeTag(i.occurred_at)),
+      el('p', { class: 'alert-fact' }, el('span', { class: 'alert-tag', text: i.label }), factText(i)),
+      i.explanation ? el('p', { class: 'msg-text', text: i.explanation }) : null,
+      el('p', { class: 'msg-foot', text: 'Big moment · verified from the match feed' })));
+}
+
+function renderPending(state: RoomState, p: PendingMessage) {
+  return el('div', { class: `msg you pending${p.failed ? ' failed' : ''}` },
+    avatar({ handle: state.ctx.me.handle, team: myTeam(state) }),
+    el('div', { class: 'msg-body' },
+      el('div', { class: 'msg-meta' }, el('b', { class: 'handle', text: 'You' }), el('span', { class: 'msg-time', text: p.failed ? 'Not sent' : 'Sending…' })),
+      el('p', { class: 'msg-text', text: p.text }),
+      p.failed ? el('button', { type: 'button', class: 'link-btn', text: 'Retry', onclick: () => deliver(state, p) }) : null));
+}
+
+function renderPoll(state: RoomState, p: Poll) {
+  const who = poster(p.source === 'ai');
+  const total = p.options.reduce((a, o) => a + o.votes, 0);
+  const winner = total ? p.options.reduce((best, o, i, all) => (o.votes > all[best].votes ? i : best), 0) : -1;
+  const card = el('div', { class: 'poll', dataset: { id: p.id } }, el('p', { class: 'poll-q', text: p.question }));
+  p.options.forEach((o, i) => {
+    const pct = total ? Math.round((o.votes / total) * 100) : 0;
+    const fill = el('span', { class: 'fill' });
+    fill.style.width = `${pct}%`;
+    card.append(el('button', {
+      type: 'button', class: `poll-opt${p.my_vote === i ? ' mine' : ''}${!p.open && i === winner ? ' winner' : ''}`,
+      disabled: !p.open, 'aria-pressed': String(p.my_vote === i), onclick: () => vote(state, p, i),
+    }, fill, el('span', { text: o.label }), el('span', { class: 'pct', text: `${pct}%` })));
+  });
+  const timer = el('span', { class: 'poll-timer', dataset: { closes: p.closes_at, open: String(p.open) }, text: p.open ? 'Open' : 'Closed' });
+  card.append(el('div', { class: 'poll-foot' }, el('span', { text: plural(total, 'vote') }), timer));
+  if (!p.open && winner >= 0) card.append(el('p', { class: 'poll-result' }, el('em', { text: `${Math.round((p.options[winner].votes / total) * 100)}%` }), ` picked ${p.options[winner].label}`));
+  return el('div', { class: `msg ${who.cls}` }, who.face,
+    el('div', { class: 'msg-body' }, el('div', { class: 'msg-meta' }, who.name, el('span', { class: 'msg-time', text: 'Poll' })), card));
 }
 
 // The first time you watch a sport, its room asks once which team you back (or none). Your name then carries
@@ -737,7 +799,7 @@ function renderBacking(state: RoomState) {
       box.hidden = true;
       const mine = state.members.get(state.ctx.me.id);
       if (mine) mine.team = team;
-      state.membersSheet?.refresh();
+      updatePresence(state);
       // team is the code of one of s.teams (the buttons below).
       toast(team ? `You're backing ${s.teams.find((t) => t.code === team)!.name}. Pick your ${s.label} players in Edit profile.`
         : `Just watching ${s.label}. You can pick a team any time in Edit profile.`);
@@ -747,68 +809,24 @@ function renderBacking(state: RoomState) {
     }
   };
   box.replaceChildren(
-    el('p', { class: 'guide-line' }, el('b', { text: `Who are you backing in ${s.label}? ` }), 'Your team shows next to your name in its rooms.'),
-    el('div', { class: 'ask-chips', role: 'group', 'aria-label': `${s.label} team` },
+    el('p', { class: 'backing-q' }, el('b', { text: `Who are you backing in ${s.label}?` }), ' Your team shows next to your name.'),
+    el('div', { class: 'backing-teams', role: 'group', 'aria-label': `${s.label} team` },
       s.teams.map((t) => el('button', { type: 'button', class: `chip ${teamClass(t.code)}`, text: t.name, onclick: () => choose(t.code) })),
-      el('button', { type: 'button', class: 'chip ask-chip ghost', text: 'Just watching', onclick: () => choose(null) })));
+      el('button', { type: 'button', class: 'chip ghost', text: 'Just watching', onclick: () => choose(null) })));
   box.hidden = false;
 }
 
-// Every room following a match tells newcomers they can ask: example questions fill in "@huddle ..." and the
-// checked rules sheet opens even when the AI is off. Answers use the sheet and the moment the question was asked.
-async function loadGuide(state: RoomState) {
-  try {
-    const g: Guide = await api.get(`/api/rooms/${state.id}/guide`, { signal: state.abort.signal });
-    if (state !== R) return;
-    state.guide = g;
-    renderGuide(state);
-  } catch { /* the guide is an extra: the room works without it */ }
-}
-
-function renderGuide(state: RoomState) {
-  const g = state.guide;
-  const box = state.els.guide;
-  if (!g || !box) return;
-  const ai = state.room.ai_enabled;
-  box.replaceChildren(
-    el('p', { class: 'guide-line' }, el('b', { text: `New to ${g.sport_name}? ` }),
-      ai ? 'Ask @huddle about any rule or player: answers use the checked rules sheet and the moment you asked.' : 'The rules sheet explains the rules and the players.'),
-    el('div', { class: 'ask-chips' },
-      ai ? g.examples.map((q) => el('button', { type: 'button', class: 'chip ask-chip', text: q, onclick: () => askAbout(state, q) })) : null,
-      el('button', { type: 'button', class: 'chip ask-chip ghost', text: 'Rules and players', onclick: () => openGuideSheet(state) })));
-  box.hidden = false;
-}
-
-function askAbout(state: RoomState, question: string) {
-  state.els.input.value = `@huddle ${question}`;
-  state.els.input.focus();
-}
-
-function openGuideSheet(state: RoomState) {
-  const g = state.guide!; // opened only from the guide's own button, which renderGuide shows once it has loaded
-  const s = openSheet({ title: `${g.sport_name[0].toUpperCase()}${g.sport_name.slice(1)}: rules and players`, lede: 'A short, checked rules sheet. The AI Co-host explains from it when you ask @huddle.' });
-  s.body.append(
-    el('h3', { text: 'Rules' }),
-    el('dl', { class: 'rules-list' }, g.rules.flatMap((r) => [el('dt', { text: r.topic }), el('dd', { text: r.text })])),
-    el('h3', { text: 'Players' }),
-    el('ul', { class: 'mi-list' }, g.roster.map((p) => el('li', {}, el('b', { text: p.name }), ` · ${p.role}, ${p.team}`))),
-    el('p', { class: 'fine', text: 'Real players in a made-up game: the match is a simulated replay, not a live feed.' }));
-}
-
-// A private room on this match, started from the public watch party: only the people you invite, no simulated fans.
+// A private room on this game, started from the public room: only the people you invite, and no crowd chat.
 function openQuickPrivate(state: RoomState) {
   const me = state.ctx.me;
-  const s = openSheet({ title: 'Start a private room', lede: 'Watch this match with only the people you invite. Match moments, #threads and the AI Co-host come with it; simulated fans stay here.' });
+  const s = openSheet({ title: 'Start a private room', lede: 'Watch this game with only the people you invite. Big-moment alerts, #threads, the AI Co-host and Dream Bot come with it; the crowd chat stays here.' });
   const error = el('p', { class: 'form-error', role: 'alert' });
   const name = el('input', { id: 'quick-room-name', maxlength: '40', value: `${me.handle}'s room`.slice(0, 40) });
-  const own = el('input', { type: 'checkbox', id: 'quick-own-replay' });
   const picker = friendPicker({ excludeIds: new Set([me.id]) });
   const create = el('button', { type: 'submit', class: 'btn primary', text: 'Create and invite' });
   const form = el('form', { class: 'sheet-form', novalidate: '' },
     el('div', { class: 'field' }, el('label', { for: 'quick-room-name', text: 'Room name' }), name),
     picker.node,
-    el('label', { class: 'toggle-row', for: 'quick-own-replay' }, own, el('span', {}, el('b', { text: 'Control the replay yourself' }),
-      el('small', { text: 'Off: the room follows this same match, in step with the public watch party. On: your room gets its own copy to start, pause or jump.' }))),
     error,
     sheetActions(el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: closeSheet }), create));
   form.addEventListener('submit', async (e) => {
@@ -821,11 +839,11 @@ function openQuickPrivate(state: RoomState) {
     create.disabled = true;
     error.textContent = '';
     try {
-      // buildRoom only offers this sheet in a room following a match.
-      const r: CreatedRoom = await api.post('/api/rooms', { name: name.value, match_id: state.room.match!.id, own_replay: own.checked, invitee_ids: picker.ids() });
+      // applyRoomInfo only offers this sheet in a public room following a match.
+      const r: CreatedRoom = await api.post('/api/rooms', { name: name.value, match_id: state.room.match!.id, invitee_ids: picker.ids() });
       closeSheet();
       const sent = r.invitations.filter((i) => i.result === 'invited').length;
-      toast(sent ? `${plural(sent, 'invitation')} sent.` : 'Private room ready. Invite friends from Members.');
+      toast(sent ? `${plural(sent, 'invitation')} sent.` : 'Private room ready. Invite friends with the + at the top.');
       state.ctx.navigate(`#/room/${r.room_id}`);
     } catch (err) {
       error.textContent = errorMessage(err);
@@ -835,12 +853,13 @@ function openQuickPrivate(state: RoomState) {
   s.body.append(form);
 }
 
-// The scripted crowd reacting to the simulated replay. The server derives its lines from the match feed, the same
-// for everyone in the room; each is shown when due, never stored with the chat, and can be hidden on this device.
+// The crowd: fans in the stands chatting along in a public room. The server derives their lines from the match
+// feed, the same for everyone in the room; each is shown when due, never stored with the chat, and can be hidden on
+// this device.
 const CROWD_KEY = 'huddle:crowd';
-const CROWD_LATE_MS = 20000; // a line this overdue (opening the room, coming back) is skipped, not replayed
+const CROWD_LATE_MS = 20000; // a line this overdue (opening the room, coming back) is skipped, not shown late
 
-const simulatedFans = (state: RoomState) => (state.crowdOn && state.simFans ? state.simFans : []);
+const visibleCrowd = (state: RoomState) => (state.crowdOn ? state.crowdFans : []);
 
 function crowdPref() {
   try { return localStorage.getItem(CROWD_KEY) !== 'off'; } catch { return true; }
@@ -857,7 +876,7 @@ function setCrowd(state: RoomState, on: boolean) {
   }
 }
 
-// A simulated fan's line, as the match snapshot sends it (lib/match/crowd.ts).
+// A crowd line, as the match snapshot sends it (lib/match/crowd.ts).
 type CrowdLine = { id: string; at: string; fan: string; team: string; text: string; thread: string | null };
 
 function scheduleCrowd(state: RoomState, lines: CrowdLine[] = []) {
@@ -887,7 +906,6 @@ function renderCrowd(state: RoomState, c: FeedData['crowd']) {
       el('div', { class: 'msg-meta' },
         el('b', { class: 'handle', text: c.fan }),
         el('span', { class: `badge ${teamClass(c.team)}`, text: c.team }),
-        el('span', { class: 'badge sim', text: 'Simulated fan' }),
         thread ? threadTag(state, thread.id, thread.title) : null),
       el('p', { class: 'msg-text', text: c.text })));
 }
@@ -912,15 +930,12 @@ function threadTag(state: RoomState, id: string, title: string | null) {
   } });
 }
 
+// A new thread shows up as a chip (it pops in once); there is no toast for it.
 function addThread(state: RoomState, t: Thread, { quiet = false }: { quiet?: boolean } = {}) {
   const isNew = !state.threads.has(t.id);
   const live = state.threads.get(t.id)?.live || 0;
   state.threads.set(t.id, { ...t, live, lastActive: Date.parse(t.last_active_at) || Date.now(), fresh: isNew && !quiet });
   renderThreadBar(state);
-  if (isNew && !quiet) {
-    toast([el('b', { text: t.title }), t.source === 'moment' ? ' opened for this moment.' : ' started: the room keeps talking about it.'],
-      { action: { label: 'Open', run: () => setThread(state, t.id) } });
-  }
 }
 
 function bumpThread(state: RoomState, id: string) {
@@ -934,7 +949,6 @@ function bumpThread(state: RoomState, id: string) {
 
 function renderThreadHead(state: RoomState) {
   const t = state.threads.get(state.activeThread);
-  state.els.notice.hidden = Boolean(t);
   state.els.threadHead.hidden = !t;
   if (!t) return;
   state.els.threadHead.replaceChildren(
@@ -965,73 +979,10 @@ function setThread(state: RoomState, id: string) {
   const t = state.threads.get(state.activeThread);
   for (const e of state.items.values()) e.node.hidden = !shown(state, e);
   renderThreadHead(state);
-  state.els.input.placeholder = t ? `Reply in ${t.title}` : 'Say something, or ask @huddle';
+  state.els.input.placeholder = t ? `Reply in ${t.title}` : 'Say something…';
   renderThreadBar(state);
   state.stick = true;
   scrollToBottom(state);
-}
-
-function aiFootnote(ai: AiMeta | null) {
-  if (!ai) return 'AI-generated';
-  if (ai.type === 'insufficient_data') return 'Not in the match data, so the Co-host will not guess.';
-  if (ai.type === 'decline') return 'AI-generated';
-  const g = ai.grounding || {};
-  const parts = [g.status === 'rules_sheet' ? 'From the checked rules sheet' : 'From verified match data (simulated)'];
-  if (ai.asked_at) parts.push(`asked at ${ai.asked_at}`);
-  else if (g.data_as_of) parts.push(`as of ${clockSeconds(g.data_as_of)}`);
-  if (g.stale) parts.push('may be out of date');
-  return parts.join(' · ');
-}
-
-function renderAiMessage(state: RoomState, m: ChatMessage) {
-  const head = el('div', { class: 'ai-head' }, aiLabel('AI Co-host'));
-  if (m.reply_to?.handle) head.append(el('span', { class: 'ai-reply', text: `replying to @${m.reply_to.handle}` }));
-  const box = el('div', { class: 'ai-note ai-msg', dataset: { id: m.id } }, head);
-  if (m.status === 'removed' || m.text == null) box.append(el('p', { class: 'ai-text removed', text: 'Message removed by a moderator.' }));
-  else box.append(el('p', { class: 'ai-text', text: m.text }), el('p', { class: 'sub', text: aiFootnote(m.ai) }));
-  const reactions = reactionRow(state, m);
-  if (reactions) box.append(reactions);
-  if (m.status === 'visible') box.append(actionsButton(state, m));
-  return box;
-}
-
-function renderPending(state: RoomState, p: PendingMessage) {
-  return el('div', { class: `msg you pending${p.failed ? ' failed' : ''}` },
-    avatar({ handle: state.ctx.me.handle, team: myTeam(state) }),
-    el('div', { class: 'msg-body' },
-      el('div', { class: 'msg-meta' }, el('b', { class: 'handle', text: 'You' }), el('span', { class: 'msg-time', text: p.failed ? 'Not sent' : 'Sending…' })),
-      el('p', { class: 'msg-text', text: p.text }),
-      p.failed ? el('button', { type: 'button', class: 'link-btn', text: 'Retry', onclick: () => deliver(state, p) }) : null));
-}
-
-function renderInsight(i: Insight) {
-  const box = el('div', { class: `insight ${i.priority}` },
-    el('div', { class: 'insight-head' }, el('span', { class: 'insight-label', text: i.label }), el('span', { class: 'insight-meta', text: `Match moment · ${clock(i.occurred_at)}` })),
-    el('p', { class: 'insight-fact', text: factText(i) }));
-  if (i.explanation) box.append(el('p', { class: 'insight-ai' }, aiLabel('AI explanation'), el('span', { text: i.explanation })));
-  box.append(el('p', { class: 'insight-src', text: 'Verified from the match feed · simulated replay (demo data)' }));
-  return box;
-}
-
-function renderPoll(state: RoomState, p: Poll) {
-  const total = p.options.reduce((a, o) => a + o.votes, 0);
-  const winner = total ? p.options.reduce((best, o, i, all) => (o.votes > all[best].votes ? i : best), 0) : -1;
-  const box = el('div', { class: 'poll', dataset: { id: p.id } },
-    el('div', { class: 'poll-head' }, aiLabel(p.source === 'ai' ? 'AI poll' : 'Huddle poll')),
-    el('p', { class: 'poll-q', text: p.question }));
-  p.options.forEach((o, i) => {
-    const pct = total ? Math.round((o.votes / total) * 100) : 0;
-    const fill = el('span', { class: 'fill' });
-    fill.style.width = `${pct}%`;
-    box.append(el('button', {
-      type: 'button', class: `poll-opt${p.my_vote === i ? ' mine' : ''}${!p.open && i === winner ? ' winner' : ''}`,
-      disabled: !p.open, 'aria-pressed': String(p.my_vote === i), onclick: () => vote(state, p, i),
-    }, fill, el('span', { text: o.label }), el('span', { class: 'pct', text: `${pct}%` })));
-  });
-  const timer = el('span', { class: 'poll-timer', dataset: { closes: p.closes_at, open: String(p.open) }, text: p.open ? 'Open' : 'Closed' });
-  box.append(el('div', { class: 'poll-foot' }, el('span', { text: plural(total, 'vote') }), timer));
-  if (!p.open && winner >= 0) box.append(el('p', { class: 'poll-result' }, el('em', { text: `${Math.round((p.options[winner].votes / total) * 100)}%` }), ` picked ${p.options[winner].label}`));
-  return box;
 }
 
 function tick(state: RoomState) {
@@ -1065,8 +1016,8 @@ function setError(state: RoomState, message: string, extra: HTMLElement | null =
 }
 
 function setNotice(state: RoomState, message: string) {
-  state.els.notice2.textContent = message || '';
-  state.els.notice2.hidden = !message;
+  state.els.notice.textContent = message || '';
+  state.els.notice.hidden = !message;
 }
 
 function setReply(state: RoomState, m: ChatMessage | null) {
@@ -1078,7 +1029,7 @@ function setReply(state: RoomState, m: ChatMessage | null) {
     return;
   }
   const x = el('button', { type: 'button', class: 'x', 'aria-label': 'Cancel reply', onclick: () => setReply(state, null) }, icon('close'));
-  chip.replaceChildren(el('span', {}, 'Replying to ', el('b', { text: m.sender.type === 'ai' ? '@huddle' : `@${m.sender.handle}` })), x);
+  chip.replaceChildren(el('span', {}, 'Replying to ', el('b', { text: m.sender.type === 'ai' ? 'AI Co-host' : `@${m.sender.handle}` })), x);
   chip.hidden = false;
   state.els.input.focus();
 }
@@ -1170,16 +1121,13 @@ async function vote(state: RoomState, p: Poll, option: number) {
   }
 }
 
+// From the room menu, which closes on the tap; the server turns away a second poll too soon after the last.
 async function suggestPoll(state: RoomState) {
-  const b = state.els.pollBtn;
-  b.disabled = true;
   try {
-    const r = await api.post(`/api/rooms/${state.id}/polls/suggest`, { client_request_id: newKey() });
-    toast(r.source === 'ai' ? 'The Co-host posted a poll.' : 'Poll posted (AI unavailable, so Huddle used a standard poll).');
+    const r: { source: string } = await api.post(`/api/rooms/${state.id}/polls/suggest`, { client_request_id: newKey() });
+    toast(r.source === 'ai' ? 'The AI Co-host posted a poll.' : 'Poll posted. The AI was unavailable, so Huddle used a standard one.');
   } catch (err) {
     toast(errorMessage(err));
-  } finally {
-    setTimeout(() => { b.disabled = false; }, 3000);
   }
 }
 
@@ -1193,10 +1141,8 @@ async function refreshMatch(state: RoomState) {
     state.match = snap;
     state.matchFetchedAt = Date.now();
     renderScore(state);
-    renderReplayBar(state);
-    renderRail(state);
     scheduleCrowd(state, snap.crowd);
-    if (state.matchSheet?.isOpen()) state.matchSheet.render();
+    if (snap.match.id !== state.room.match?.id) refreshRoomInfo(state); // the room moved on to another game
   } catch (err) {
     if ((err instanceof Error && err.name === 'AbortError') || state !== R) return;
     state.els.score?.replaceChildren(el('p', { class: 'score-error', text: 'Match data is unavailable right now.' }));
@@ -1214,12 +1160,11 @@ const liveAge = (state: RoomState) => (state.match?.freshness?.age_seconds == nu
 function freshnessText(state: RoomState) {
   const m = state.match;
   if (!m) return '';
-  if (m.match.status === 'scheduled') return m.replay?.own ? 'Simulated replay · ready to start' : 'Simulated replay · starting soon';
-  if (m.match.status === 'completed') return 'Simulated replay · match finished';
-  if (m.replay?.paused) return 'Simulated replay · paused';
+  if (m.match.status === 'scheduled') return 'Starting soon';
+  if (m.match.status === 'completed') return 'Match finished';
   const age = liveAge(state);
-  if (age == null) return 'Simulated replay · waiting for the first ball';
-  return `Simulated replay · updated ${ago(age)}${m.freshness.stale ? ' · data may be stale' : ''}`;
+  if (age == null) return m.match.sport === 'cricket' ? 'Waiting for the first ball' : 'Waiting for the start';
+  return `Updated ${ago(age)}${m.freshness.stale ? ' · data may be stale' : ''}`;
 }
 
 function renderFreshness(state: RoomState) {
@@ -1236,12 +1181,12 @@ function needBlock(s: CricketScore) {
   return need;
 }
 
-// The score card under the room title, per sport. Every number comes from the match snapshot (the feed).
+// The scorecard under the room title, per sport. Every number comes from the match snapshot (the feed).
 function renderScore(state: RoomState) {
   const snap = state.match!; // refreshMatch calls this right after storing the snapshot
   const sport = snap.match.sport || 'cricket';
   const [line, row1, detail] = sport === 'cricket' ? cricketScore(snap) : sport === 'f1' ? f1Score(snap) : teamScore(snap);
-  const row2 = el('div', { class: 'score-row' }, detail, el('span', { class: 'replay-tag', 'data-freshness': '', text: freshnessText(state) }));
+  const row2 = el('div', { class: 'score-row' }, detail, el('span', { class: 'fresh-tag', 'data-freshness': '', text: freshnessText(state) }));
   state.els.score.replaceChildren(line, row1, row2);
   state.els.score.hidden = false;
 }
@@ -1287,233 +1232,19 @@ function teamScore(snap: MatchSnapshot) {
   return [line, row1, el('span', { class: 'last-play', text: s.last_play || '' })];
 }
 
-function table(headers: string[], rows: (string | number)[][]) {
-  return el('table', { class: 'mi-table' },
-    el('thead', {}, el('tr', {}, headers.map((h) => el('th', { scope: 'col', text: h })))),
-    el('tbody', {}, rows.map((r) => el('tr', {}, r.map((c, i) => (i === 0 ? el('th', { scope: 'row', text: c }) : el('td', { text: c })))))));
-}
-
-function matchPanel(state: RoomState, { withControls = true }: { withControls?: boolean } = {}) {
-  const snap = state.match;
-  if (!snap) return el('p', { class: 'empty', text: 'Loading match data…' });
-  const own = snap.replay?.own;
-  const status = snap.match.status === 'live' ? (snap.replay?.paused ? 'PAUSED' : 'LIVE · SIMULATED') : snap.match.status === 'scheduled' ? (own ? 'READY' : 'STARTING SOON') : 'FINISHED';
-  const wrap = el('div', { class: 'mi' },
-    el('div', { class: 'mi-head' },
-      el('b', { class: 'mi-title', text: snap.match.title }),
-      el('span', { class: `status-pill ${snap.match.status === 'live' && !snap.replay?.paused ? 'live' : ''}`, text: status })),
-    el('p', { class: 'mi-fresh', 'data-freshness': '', text: freshnessText(state) }),
-    el('p', { class: 'mi-src', text: `${snap.match.source_label}. Every number here comes from the feed, never from the AI.` }),
-    ...sportSummary(snap),
-    withControls && own ? replayPanel(state) : null,
-    withControls && !own ? el('p', { class: 'fine', text: 'Every room following this shared replay sees the same match. For a replay you can start, pause and jump yourself, create a private room with its own replay.' }) : null,
-    ...sportDetail(snap),
-    el('h3', { text: (snap.match.sport || 'cricket') === 'cricket' ? 'Ball by ball' : 'Play by play' }),
-    snap.commentary.length
-      ? el('ol', { class: 'commentary' }, snap.commentary.map((c) => el('li', {},
-        el('span', { class: `over-tag${c.symbol ? ` r${c.symbol}` : ''}`, text: c.over || c.label || '•' }),
-        el('span', { text: c.text }))))
-      : el('p', { class: 'mi-meta', text: 'Commentary appears when the replay starts.' }));
-  if (withControls && state.ctx.config.demo_controls && snap.moments?.length) {
-    const status2 = el('p', { class: 'fine', role: 'status' });
-    wrap.append(el('div', { class: 'demo-controls' },
-      el('h3', { text: 'Demo controls (simulated replay)' }),
-      el('p', { class: 'fine', text: 'Jump the replay to a big moment. This moves the match for every room following it; skipped balls are filled in without alerts.' }),
-      el('div', { class: 'controls-row' }, snap.moments.map((m) => el('button', { type: 'button', class: 'ctl', text: m.label, onclick: async (e) => {
-        const b = e.currentTarget;
-        b.disabled = true;
-        try {
-          const r = await api.post(`/api/demo/matches/${snap.match.id}/jump`, { moment: m.id });
-          status2.textContent = `Jumped to ${r.jumped_to}.`;
-          refreshMatch(state);
-        } catch (err) {
-          status2.textContent = errorMessage(err);
-          b.disabled = false;
-        }
-      } }))),
-      status2));
-  }
-  return wrap;
-}
-
-// The match panel's headline lines, per sport; sportDetail adds the tables.
-function sportSummary(snap: MatchSnapshot) {
-  const s = snap.score;
-  const sport = snap.match.sport || 'cricket';
-  if (sport === 'cricket') {
-    return [
-      el('p', { class: 'mi-score' }, el('b', { text: `${s.batting} ${s.runs}/${s.wickets}` }), ` (${s.overs} ov) · ${s.result || (s.chase_won ? `${s.batting} have won` : `need ${s.need_runs} off ${s.need_balls}`)}`),
-      el('p', { class: 'mi-meta', text: `Target ${s.target} · CRR ${s.crr ?? '-'} · RRR ${s.rrr ?? '-'} · ${s.first_innings}` }),
-    ];
-  }
-  if (sport === 'f1') {
-    return [
-      el('p', { class: 'mi-score' }, el('b', { text: `Lap ${s.lap}/${s.total_laps}` }), ` · ${s.result || `${s.order[0].name} leads`}`),
-      el('p', { class: 'mi-meta', text: `Safety car: ${s.safety_car ? 'deployed' : 'not out'} · Fastest lap ${s.fastest_lap.driver} ${s.fastest_lap.time}` }),
-    ];
-  }
-  const [a, b] = s.teams;
-  return [
-    el('p', { class: 'mi-score' }, el('b', { text: `${a.name} ${a.score}–${b.score} ${b.name}` }), ` · ${s.result || `${s.period} ${s.clock}`}`),
-    el('p', { class: 'mi-meta', text: sport === 'basketball'
-      ? `Team fouls this quarter: ${a.name} ${a.team_fouls}, ${b.name} ${b.team_fouls}`
-      : `Shots on goal: ${a.name} ${a.shots}, ${b.name} ${b.shots}${s.power_play ? ` · ${s.power_play.team} power play until ${s.power_play.until}` : ''}` }),
-  ];
-}
-
-function sportDetail(snap: MatchSnapshot) {
-  const s = snap.score;
-  const sport = snap.match.sport || 'cricket';
-  if (sport === 'cricket') {
-    return [
-      el('h3', { text: 'Batting' }),
-      table(['Batter', 'R', 'B', 'SR'], s.batters.map((b: Batter) => [`${b.name}${b.on_strike ? ' *' : ''}`, b.runs, b.balls, b.strike_rate ?? '-'])),
-      el('p', { class: 'mi-meta', text: `Partnership ${s.partnership.runs} (${s.partnership.balls}) since the last wicket in the feed` }),
-      el('h3', { text: 'Bowling' }),
-      table(['Bowler', 'O-M-R-W', 'Econ'], s.bowling_card.map((b: BowlingFigures) => [b.name, b.figures, b.economy])),
-      el('h3', { text: 'Fall of wickets' }),
-      s.fall_of_wickets.length
-        ? el('ul', { class: 'mi-list' }, s.fall_of_wickets.map((w: FallOfWicket) => el('li', { text: `${w.name} ${w.r} (${w.b}) ${w.how}${w.score ? ` · ${w.score}` : ''}${w.over ? `, ${w.over} ov` : ''}` })))
-        : el('p', { class: 'mi-meta', text: 'No wickets yet.' }),
-      el('p', { class: 'mi-meta', text: `In the replay feed so far: ${count(s.team_stats.fours_in_feed, 'four', 'fours')} · ${count(s.team_stats.sixes_in_feed, 'six', 'sixes')} · ${count(s.team_stats.dots_in_feed, 'dot ball', 'dot balls')} · ${count(s.team_stats.extras_in_feed, 'extra', 'extras')}` }),
-    ];
-  }
-  if (sport === 'f1') {
-    return [el('h3', { text: 'Running order' }),
-      table(['Pos', 'Driver', 'Gap', 'Tyre', 'Stops'], s.order.map((d: F1Car) => [`P${d.pos}`, `${d.name} (${d.team})`, d.gap, d.tyre, d.pits]))];
-  }
-  if (sport === 'basketball') {
-    return [el('h3', { text: 'Points' }),
-      table(['Player', 'Team', 'Pts'], s.teams.flatMap((t: BasketballTeam) => t.leaders.map((p) => [p.name, t.name, p.pts])))];
-  }
-  return [
-    el('h3', { text: 'Goals this period' }),
-    s.goals.length ? el('ul', { class: 'mi-list' }, s.goals.map((g: HockeyGoal) => el('li', { text: `${g.time} ${g.scorer} (${g.team}, ${g.strength})${g.assists.length ? ` · assists ${g.assists.join(', ')}` : ''}` })))
-      : el('p', { class: 'mi-meta', text: 'No goals yet this period.' }),
-    el('h3', { text: 'Penalties' }),
-    s.penalties.length ? el('ul', { class: 'mi-list' }, s.penalties.map((p: HockeyPenalty) => el('li', { text: `${p.time} ${p.player} (${p.team}), ${p.infraction}` })))
-      : el('p', { class: 'mi-meta', text: 'No penalties yet this period.' }),
-  ];
-}
-
-// A private room can run its own copy of the simulated replay. Its owner and admins control it from the bar
-// under the score and from the match panel; everyone else sees what the host did (waiting to start, paused).
-async function replayAction(state: RoomState, body: ReplayControl, btn: HTMLButtonElement, status: HTMLElement | null) {
-  btn.disabled = true;
-  try {
-    const r = await api.post(`/api/rooms/${state.id}/replay`, body);
-    if (status) status.textContent = r.jumped_to ? `Jumped to ${r.jumped_to}.` : '';
-    refreshMatch(state);
-  } catch (err) {
-    if (status) status.textContent = errorMessage(err);
-    else toast(errorMessage(err));
-    btn.disabled = false;
-  }
-}
-
-function replayButtons(state: RoomState, { compact = false, status = null }: { compact?: boolean; status?: HTMLElement | null } = {}) {
-  // Only replayPanel and renderReplayBar call this, both once the snapshot is in.
-  const st = state.match!.match.status;
-  const rp = state.match!.replay;
-  const ctl = (text: string, body: ReplayControl, extra: Attrs<HTMLButtonElement> = {}) => el('button', { type: 'button', class: 'ctl', text, ...extra, onclick: (e) => replayAction(state, body, e.currentTarget, status) });
-  const main = st === 'scheduled' ? ctl('Start replay', { action: 'start' }, { class: 'ctl primary' })
-    : st === 'completed' ? ctl('Watch again', { action: 'restart' }, { class: 'ctl primary' })
-      : rp.paused ? ctl('Resume', { action: 'resume' }, { class: 'ctl primary' })
-        : ctl('Pause', { action: 'pause' });
-  const speedName: Record<number, string> = { 0.5: 'Half speed', 1: 'Normal speed', 2: 'Double speed' };
-  const speeds = st === 'completed' ? [] : [0.5, 1, 2].map((n) => (rp.speed === n
-    ? el('button', { type: 'button', class: 'ctl', 'aria-pressed': 'true', 'aria-label': speedName[n], text: `${n}x` })
-    : ctl(`${n}x`, { action: 'speed', speed: n }, { 'aria-pressed': 'false', 'aria-label': speedName[n] })));
-  const more = compact
-    ? el('button', { type: 'button', class: 'ctl', text: 'Moments', onclick: () => openMatchSheet(state) })
-    : st === 'live' ? ctl('Restart', { action: 'restart' }) : null;
-  return el('div', { class: 'controls-row' }, main, speeds, more);
-}
-
-function replayPanel(state: RoomState) {
-  const rp = state.match!.replay; // matchPanel only shows this panel with a snapshot
-  if (!rp.can_control) {
-    return el('div', { class: 'demo-controls' }, el('h3', { text: 'This room\'s replay' }),
-      el('p', { class: 'fine', text: 'This room has its own copy of the simulated replay. The room owner and admins start, pause, speed it up or jump it.' }));
-  }
-  const status = el('p', { class: 'fine', role: 'status' });
-  return el('div', { class: 'demo-controls' },
-    el('h3', { text: 'This room\'s replay' }),
-    el('p', { class: 'fine', text: 'Your room has its own copy of the simulated replay, so only this room moves. Jumping ahead fills in the skipped balls without alerts; jumping back starts the replay again.' }),
-    replayButtons(state, { status }),
-    el('p', { class: 'ctl-label', text: 'Jump to a moment' }),
-    el('div', { class: 'controls-row' }, rp.moments.map((m) => el('button', {
-      type: 'button', class: 'ctl', text: m.label, title: m.passed ? 'Starts the replay again from here' : null,
-      onclick: (e) => replayAction(state, { action: 'jump', moment: m.id }, e.currentTarget, status),
-    }))),
-    status);
-}
-
-function renderReplayBar(state: RoomState) {
-  const bar = state.els.replayBar;
-  const snap = state.match;
-  if (!bar || !snap) return;
-  const rp = snap.replay;
-  const st = snap.match.status;
-  if (!rp?.own) {
-    bar.hidden = true;
-    return;
-  }
-  if (rp.can_control) {
-    bar.replaceChildren(el('span', { class: 'replay-note', text: st === 'scheduled' ? 'Your replay is ready' : 'Your replay' }), replayButtons(state, { compact: true }));
-    bar.hidden = false;
-    return;
-  }
-  const note = st === 'scheduled' ? 'Waiting for the host to start the replay.' : st === 'live' && rp.paused ? 'The host paused the replay.' : '';
-  bar.replaceChildren(el('span', { class: 'replay-note', text: note }));
-  bar.hidden = !note;
-}
-
-function openMatchSheet(state: RoomState) {
-  if (!state.match) return;
-  const s = openSheet({ title: 'Match intelligence' });
-  state.matchSheet = { isOpen: s.isOpen, render: () => s.body.replaceChildren(matchPanel(state)) };
-  state.matchSheet.render();
-}
-
 function renderRail(state: RoomState) {
   if (state !== R) return;
   const room = state.room;
-  if (!room) { setRail(railIntro()); return; }
   const mod = room.room_type === 'public' ? 'Moderation managed by Huddle' : `${LEVEL_NAMES[room.moderation.level]} moderation · safety protections always on`;
   setRail(
     el('p', { class: 'rail-kicker', text: room.room_type === 'public' ? 'Public watch party' : 'Private watch party' }),
     el('h1', { class: 'rail-title small', text: room.name }),
     el('ul', { class: 'rail-facts' },
       el('li', { text: mod }),
-      el('li', { text: room.ai_enabled ? 'AI Co-host on: answers @huddle from verified match data' : 'AI Co-host off in this room' }),
+      el('li', { text: room.ai_enabled ? 'AI Co-host on: big moments, polls and answers in the chat, labelled as AI' : 'AI Co-host off in this room' }),
+      room.match ? el('li', { text: 'Tap the scorecard for the Match Centre; Dream Bot answers your own questions, privately' }) : null,
       el('li', { text: 'Messages disappear when the watch party ends' })),
-    room.match ? el('section', { class: 'rail-section', 'aria-label': 'Match intelligence' }, el('p', { class: 'rail-h', text: 'Match intelligence' }), matchPanel(state)) : null,
   );
-}
-
-async function openCatchup(state: RoomState) {
-  const s = openSheet({ title: 'Catch me up' });
-  const label = el('div');
-  const slot = el('div', {}, el('div', { class: 'skeleton' }), el('div', { class: 'skeleton' }), el('div', { class: 'skeleton' }));
-  s.body.append(label, slot);
-  const since = state.catchupSince;
-  try {
-    const r: CatchUp = await api.post(`/api/rooms/${state.id}/catchup`, since != null ? { since_seq: since } : {});
-    if (!s.isOpen()) return;
-    state.catchupSince = null;
-    rememberSeen(state);
-    label.replaceChildren(aiLabel(r.source === 'ai' ? 'AI Co-host summary' : 'Summary from verified match data'));
-    slot.replaceChildren(el('p', { class: 'catchup-headline', text: r.headline }));
-    if (r.match_points?.length) slot.append(el('h3', { text: 'In the match' }), el('ul', { class: 'bullets' }, r.match_points.map((p) => el('li', { text: p }))));
-    if (r.room_points?.length) slot.append(el('h3', { text: 'In the room' }), el('ul', { class: 'bullets' }, r.room_points.map((p) => el('li', { text: p }))));
-    if (r.note) slot.append(el('p', { class: 'room-line', text: r.note }));
-    slot.append(
-      sheetActions(el('button', { type: 'button', class: 'btn primary', text: 'Back to the room', onclick: closeSheet })),
-      el('p', { class: 'source', text: `${r.source_label}${r.data_as_of ? ` · data as of ${clockSeconds(r.data_as_of)}` : ''}${r.stale ? ' · may be out of date' : ''}. Only you see this summary.` }));
-  } catch (err) {
-    if (s.isOpen()) slot.replaceChildren(el('p', { class: 'form-error', text: errorMessage(err) }));
-  }
 }
 
 function openMessageActions(state: RoomState, m: ChatMessage) {
@@ -1554,26 +1285,106 @@ function openReport(state: RoomState, m: ChatMessage) {
     sheetActions(el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: closeSheet }), submit));
 }
 
+// The room's ⋯ menu: everything that is not the chat.
+function openRoomMenu(state: RoomState) {
+  const room = state.room;
+  const s = openSheet({ title: room.name || 'Watch party' });
+  const item = (text: string, onclick: () => void, danger = false) => el('button', { type: 'button', class: `menu-item${danger ? ' danger' : ''}`, text, onclick });
+  const hasSettings = room.can_manage || state.crowdFans.length > 0;
+  s.body.append(el('div', { class: 'menu-list' },
+    item('Room info', () => openRoomInfo(state)),
+    item('Members', () => openMembers(state)),
+    room.match ? item('Suggest a poll', () => { closeSheet(); suggestPoll(state); }) : null,
+    hasSettings ? item('Room settings', () => openSettings(state)) : null,
+    room.my_role === 'owner' && room.room_type === 'private'
+      ? item('End watch party', () => endParty(state), true)
+      : item('Leave room', () => leaveParty(state), true)));
+}
+
+// What used to sit above the chat: moderation, the AI Co-host and how long messages last.
+function openRoomInfo(state: RoomState) {
+  const room = state.room;
+  const s = openSheet({ title: 'Room info' });
+  s.body.append(
+    el('h3', { text: 'Moderation' }),
+    room.room_type === 'public'
+      ? el('p', { class: 'notice-box' }, icon('shield'), room.moderation.notice)
+      : el('p', { class: 'notice-box' }, el('b', { text: `${LEVEL_NAMES[room.moderation.level]}. ` }), room.moderation.description || ''),
+    el('p', { class: 'field-hint strong', text: SAFETY_NOTE }),
+    el('h3', { text: 'AI Co-host' }),
+    el('p', { class: 'info-line', text: room.ai_notice }),
+    el('h3', { text: 'Disappearing chat' }),
+    el('p', { class: 'info-line', text: room.retention_notice }),
+    ...(state.crowdFans.length ? [el('h3', { text: 'Crowd chat' }),
+      el('p', { class: 'info-line', text: 'Fans in the stands chat along with the game in this public room. You can hide them in Room settings.' })] : []),
+    ...(room.room_type === 'private' && !room.can_manage ? [el('p', { class: 'fine', text: 'Only the owner or an admin can change room settings.' })] : []),
+  );
+}
+
+function openSettings(state: RoomState) {
+  const room = state.room;
+  const s = openSheet({ title: 'Room settings' });
+  if (room.room_type === 'private' && room.can_manage) {
+    const msg = el('p', { class: 'fine', role: 'status' });
+    const levels = levelChooser(state.ctx.config.moderation.levels, room.moderation.level, 'room-level');
+    const save = el('button', { type: 'button', class: 'btn', text: 'Save moderation level', onclick: async () => {
+      save.disabled = true;
+      try {
+        const r: { moderation_level: ModerationLevel } = await api.patch(`/api/rooms/${state.id}/settings`, { moderation_level: levels.value() });
+        msg.textContent = `Moderation is now ${LEVEL_NAMES[r.moderation_level]}. It applies to the next message.`;
+        refreshRoomInfo(state);
+      } catch (err) {
+        msg.textContent = errorMessage(err);
+      }
+      save.disabled = false;
+    } });
+    const ai = el('input', { type: 'checkbox', id: 'room-ai', checked: room.ai_enabled });
+    ai.addEventListener('change', async () => {
+      ai.disabled = true;
+      try {
+        await api.patch(`/api/rooms/${state.id}/settings`, { ai_enabled: ai.checked });
+        msg.textContent = ai.checked ? 'AI Co-host is on.' : 'AI Co-host is off. Big-moment alerts still appear, from Huddle.';
+        refreshRoomInfo(state);
+      } catch (err) {
+        ai.checked = !ai.checked;
+        msg.textContent = errorMessage(err);
+      }
+      ai.disabled = false;
+    });
+    s.body.append(el('h3', { text: 'Moderation' }), levels.node, save,
+      el('p', { class: 'field-hint strong', text: SAFETY_NOTE }),
+      el('h3', { text: 'AI Co-host' }),
+      el('label', { class: 'toggle-row', for: 'room-ai' }, ai, el('span', {}, el('b', { text: 'AI Co-host on' }), el('small', { text: 'Explains big moments, suggests polls and answers questions nobody else does, reading this room\'s recent messages only.' }))),
+      msg);
+  }
+  if (state.crowdFans.length) {
+    const fans = el('input', { type: 'checkbox', id: 'room-crowd', checked: state.crowdOn });
+    fans.addEventListener('change', () => setCrowd(state, fans.checked));
+    s.body.append(el('h3', { text: 'Crowd chat' }),
+      el('label', { class: 'toggle-row', for: 'room-crowd' }, fans, el('span', {}, el('b', { text: 'Show crowd chat' }), el('small', { text: 'Fans in the stands chatting along with the game. Hiding them changes only this device.' }))));
+  }
+}
+
 function openMembers(state: RoomState) {
   const room = state.room;
   const s = openSheet({ title: 'Members' });
   const lede = el('p', { class: 'lede' });
   const list = el('ul', { class: 'member-list' });
-  const invites = el('div');
   const fanList = el('div');
-  s.body.append(lede, list, invites, fanList);
+  s.body.append(lede);
+  if (room.room_type === 'private' && room.can_manage) s.body.append(el('button', { type: 'button', class: 'btn primary', text: 'Invite friends', onclick: () => openInvites(state) }));
+  s.body.append(list, fanList);
+  if (room.room_type === 'public') s.body.append(el('p', { class: 'fine', text: 'Anyone signed in can join a public watch party. Moderation is managed by Huddle.' }));
   const render = () => {
     if (!s.isOpen()) return;
     const online = new Set(state.presence.online);
-    const fans = simulatedFans(state);
-    lede.textContent = `${plural(state.members.size, 'member')} · ${state.presence.online.length} online${fans.length ? ` · ${fans.length} simulated fans` : ''}`;
+    const fans = visibleCrowd(state);
+    lede.textContent = `${plural(state.members.size, 'member')} · ${state.presence.online.length} online`;
     fanList.replaceChildren(...(fans.length ? [
-      el('h3', { text: `Simulated fans (${fans.length})` }),
-      el('p', { class: 'fine', text: 'The scripted crowd of this public watch party. They are not real people and only appear here, never in private rooms.' }),
+      el('h3', { text: `Fans in the stands (${fans.length})` }),
       el('ul', { class: 'member-list' }, fans.slice(0, 40).map((f) => el('li', { class: 'member-row' },
         avatar(f),
-        el('span', { class: 'member-main' }, el('b', { text: f.handle }), el('small', { text: f.team })),
-        el('span', { class: 'badge sim', text: 'Simulated fan' })))),
+        el('span', { class: 'member-main' }, el('b', { text: f.handle }), el('small', { text: f.team }))))),
       ...(fans.length > 40 ? [el('p', { class: 'fine', text: `And ${fans.length - 40} more.` })] : []),
     ] : []));
     const order = { owner: 0, admin: 1, member: 2 };
@@ -1606,13 +1417,13 @@ function openMembers(state: RoomState) {
   };
   state.membersSheet = { refresh: render };
   render();
-  if (room.room_type === 'private' && room.can_manage) loadInvites(state, s, invites);
-  else if (room.room_type === 'public') invites.append(el('p', { class: 'fine', text: 'Anyone signed in can join a public watch party. Moderation is managed by Huddle.' }));
 }
 
-async function loadInvites(state: RoomState, s: ReturnType<typeof openSheet>, slot: HTMLElement) {
+// A private room's owner and admins invite friends by username, and see how their invitations went.
+function openInvites(state: RoomState) {
+  const s = openSheet({ title: 'Invite friends' });
   const results = el('p', { class: 'fine', role: 'status' });
-  const picker = friendPicker({ excludeIds: new Set<string>(state.members.keys()) });
+  const picker = friendPicker({ excludeIds: new Set<string>(state.members.keys()), label: 'Find friends by username' });
   const invite = el('button', { type: 'button', class: 'btn primary', text: 'Send invitations' });
   const statusList = el('ul', { class: 'invite-list' });
   const refresh = async () => {
@@ -1629,7 +1440,7 @@ async function loadInvites(state: RoomState, s: ReturnType<typeof openSheet>, sl
           refresh();
         } }) : null)) : [el('li', { class: 'empty small', text: 'No invitations yet.' })]));
     } catch (err) {
-      statusList.replaceChildren(el('li', { class: 'empty small', text: errorMessage(err) }));
+      if (s.isOpen()) statusList.replaceChildren(el('li', { class: 'empty small', text: errorMessage(err) }));
     }
   };
   invite.addEventListener('click', async () => {
@@ -1647,65 +1458,8 @@ async function loadInvites(state: RoomState, s: ReturnType<typeof openSheet>, sl
     }
     invite.disabled = false;
   });
-  slot.append(el('h3', { text: 'Invite more friends' }), picker.node, invite, results, el('h3', { text: 'Invitations' }), statusList);
+  s.body.append(picker.node, invite, results, el('h3', { text: 'Invitations' }), statusList);
   refresh();
-}
-
-function openSettings(state: RoomState) {
-  const room = state.room;
-  const s = openSheet({ title: 'Room settings' });
-  const msg = el('p', { class: 'fine', role: 'status' });
-  if (room.room_type === 'public') {
-    s.body.append(el('h3', { text: 'Moderation' }), el('p', { class: 'notice-box' }, icon('shield'), 'Moderation and safety settings are managed by Huddle.'));
-  } else if (room.can_manage) {
-    const levels = levelChooser(state.ctx.config.moderation.levels, room.moderation.level, 'room-level');
-    const save = el('button', { type: 'button', class: 'btn', text: 'Save moderation level', onclick: async () => {
-      save.disabled = true;
-      try {
-        const r: { moderation_level: ModerationLevel } = await api.patch(`/api/rooms/${state.id}/settings`, { moderation_level: levels.value() });
-        msg.textContent = `Moderation is now ${LEVEL_NAMES[r.moderation_level]}. It applies to the next message.`;
-        refreshRoomInfo(state);
-      } catch (err) {
-        msg.textContent = errorMessage(err);
-      }
-      save.disabled = false;
-    } });
-    const ai = el('input', { type: 'checkbox', id: 'room-ai', checked: room.ai_enabled });
-    ai.addEventListener('change', async () => {
-      ai.disabled = true;
-      try {
-        await api.patch(`/api/rooms/${state.id}/settings`, { ai_enabled: ai.checked });
-        msg.textContent = ai.checked ? 'AI Co-host is on.' : 'AI Co-host is off. Match moments still appear.';
-        refreshRoomInfo(state);
-      } catch (err) {
-        ai.checked = !ai.checked;
-        msg.textContent = errorMessage(err);
-      }
-      ai.disabled = false;
-    });
-    s.body.append(el('h3', { text: 'Moderation' }), levels.node, save,
-      el('h3', { text: 'AI Co-host' }),
-      el('label', { class: 'toggle-row', for: 'room-ai' }, ai, el('span', {}, el('b', { text: 'AI Co-host on' }), el('small', { text: 'Answers @huddle questions, catches members up and suggests polls, using this room\'s recent messages only.' }))),
-      msg);
-  } else {
-    s.body.append(el('h3', { text: 'Moderation' }), el('p', { class: 'notice-box' }, el('b', { text: `${LEVEL_NAMES[room.moderation.level]}. ` }), room.moderation.description || ''),
-      el('p', { class: 'fine', text: 'Only the owner or an admin can change room settings.' }));
-  }
-  const fans = el('input', { type: 'checkbox', id: 'room-crowd', checked: state.crowdOn });
-  fans.addEventListener('change', () => setCrowd(state, fans.checked));
-  s.body.append(
-    el('p', { class: 'field-hint strong', text: 'Mandatory safety protections stay on at every level: threats, hate, sexual harassment and sharing personal details are always blocked.' }),
-    ...(state.simFans.length ? [el('h3', { text: 'Simulated fans' }),
-      el('label', { class: 'toggle-row', for: 'room-crowd' }, fans, el('span', {}, el('b', { text: 'Show simulated fans' }), el('small', { text: 'The scripted crowd that reacts to the simulated game. They are not real people, and only this device hides them.' })))] : []),
-    el('h3', { text: 'Privacy' }),
-    el('p', { class: 'fine', text: room.ai_notice }),
-    el('p', { class: 'fine', text: room.retention_notice }),
-    el('div', { class: 'menu-list' },
-      el('button', { type: 'button', class: 'menu-item', text: 'Alert settings', onclick: () => openNotificationSettings(state.ctx.config) }),
-      room.my_role === 'owner' && room.room_type === 'private'
-        ? el('button', { type: 'button', class: 'menu-item danger', text: 'End watch party', onclick: () => endParty(state) })
-        : el('button', { type: 'button', class: 'menu-item danger', text: 'Leave room', onclick: () => leaveParty(state) })),
-  );
 }
 
 async function endParty(state: RoomState) {

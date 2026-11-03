@@ -18,9 +18,8 @@ import { fixtureForMatch, type Fixture } from '../match/fixture.ts';
 
 const QUESTION_START = /^(?:what|who|why|how|when|which|will|can|could|should|is|are|does|did|kya|kaun|kyun|kyu|kaise|kab|kitne|kitna|kitni|konsa|kaunsa|kahan)\b/i;
 
-const mentionsCohost = (text: string) => /(^|\s)@huddle\b/i.test(text);
-
-// A question about this room's game: its rules, players or what is happening (each sport lists its terms).
+// A question about this room's game: its rules, players or what is happening (each sport lists its terms). If nobody
+// answers it, the AI Co-host does after UNANSWERED_QUESTION_DELAY_SECONDS. Mentioning the AI (@huddle) does nothing.
 function isSportQuestion(text: string, fixture: Fixture | null) {
   const t = text.trim();
   return fixture !== null && (t.includes('?') || QUESTION_START.test(t)) && fixture.terms.test(t);
@@ -73,8 +72,7 @@ export async function sendMessage(db: Db, user: SessionUser, roomId: string, bod
   }
 
   const fixture = await fixtureForMatch(db, room.match_id);
-  const mention = mentionsCohost(text);
-  const question = mention || isSportQuestion(text, fixture);
+  const question = isSportQuestion(text, fixture);
   const held = decision.action === 'hold';
   // The match moment the message was sent at, so a question is answered about the game as it stood then.
   const matchSeq = room.match_id
@@ -129,7 +127,7 @@ export async function sendMessage(db: Db, user: SessionUser, roomId: string, bod
     if (reply && reply.sender_type === 'user' && reply.sender_id !== user.id) {
       await q.query(`UPDATE messages SET answer_state = 'human' WHERE id = $1 AND answer_state = 'pending'`, [reply.id]);
     }
-    const handles = [...text.matchAll(/@([a-z0-9_]{3,20})\b/gi)].map((m) => m[1].toLowerCase()).filter((h) => h !== 'huddle');
+    const handles = [...text.matchAll(/@([a-z0-9_]{3,20})\b/gi)].map((m) => m[1].toLowerCase());
     if (handles.length) {
       await q.query(
         `UPDATE messages m SET answer_state = 'human' FROM users u
@@ -138,13 +136,12 @@ export async function sendMessage(db: Db, user: SessionUser, roomId: string, bod
             AND u.handle IN (SELECT jsonb_array_elements_text($3::jsonb))`,
         [roomId, user.id, JSON.stringify(handles)]);
     }
-    // Durable follow-up work, committed with the message: AI answers and the quiet-room check.
+    // Durable follow-up work, committed with the message: the answer to a question nobody answers, and the
+    // quiet-room check.
     if (room.ai_enabled) {
-      if (mention) {
-        await enqueue(q, { type: 'ai_answer', roomId, dedupeKey: `answer:${id}`, payload: { message_id: id, mode: 'mention' }, priority: 1, expiresInSeconds: 120, maxAttempts: 2 });
-      } else if (question) {
+      if (question) {
         const delay = cfg.cohost.unansweredDelaySeconds;
-        await enqueue(q, { type: 'ai_answer', roomId, dedupeKey: `answer:${id}`, payload: { message_id: id, mode: 'unanswered' }, delaySeconds: delay, priority: 2, expiresInSeconds: delay + 120, maxAttempts: 2 });
+        await enqueue(q, { type: 'ai_answer', roomId, dedupeKey: `answer:${id}`, payload: { message_id: id }, delaySeconds: delay, priority: 2, expiresInSeconds: delay + 120, maxAttempts: 2 });
       }
       await enqueue(q, { type: 'continuity_check', roomId, dedupeKey: `continuity:${roomId}`, payload: { room_id: roomId }, delaySeconds: cfg.cohost.quietMinutes * 60, priority: 7, reschedule: true });
     }
@@ -157,6 +154,6 @@ export async function sendMessage(db: Db, user: SessionUser, roomId: string, bod
     message: msg,
     status: held ? 'held' : 'visible',
     cooldown_until: out.cooldownUntil,
-    notice: held ? decision.reason : mention && !room.ai_enabled ? 'The AI Co-host is switched off in this room.' : null,
+    notice: held ? decision.reason : null,
   };
 }

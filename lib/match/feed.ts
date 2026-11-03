@@ -2,12 +2,13 @@
 import { config } from '../config.ts';
 import { one, many, type Db, type Queryable } from '../db/index.ts';
 import type { MatchEventRow, MatchRow, RoomRow, SignalRow } from '../db/rows.ts';
-import { HttpError, newId, notFound } from '../util.ts';
+import { newId } from '../util.ts';
 import {
   fixtureFor, schedule, providerEventId, DEMO_FIXTURE, FIXTURE_ORDER, FIXTURES, type Fixture, type MomentThread, type Signal,
 } from './fixture.ts';
 import type { BallRecord } from './scorecard.ts';
 import { rank } from './momentum.ts';
+import { matchCentre } from './centre.ts';
 import { enqueue } from '../jobs/queue.ts';
 import { notifyRoom } from '../realtime/bus.ts';
 import { openMomentThreads } from '../rooms/threads.ts';
@@ -16,7 +17,7 @@ import { log } from '../log.ts';
 // A match row with the seconds its feed has run: null until the feed starts.
 type TimedMatch = MatchRow & ({ elapsed: null } | { elapsed: number; feed_started_at: Date });
 // A signal found while ingesting, with its stored event and whether it is too old to alert anyone.
-interface Found extends Signal { eventId: string; occurredAt: Date; stale: boolean; backfilled: boolean }
+interface Found extends Signal { eventId: string; occurredAt: Date; stale: boolean }
 
 // What the feed reads from any sport's engine state: the last script item applied, and cricket's recent deliveries.
 interface FeedState { last_seq: number; ball_log?: BallRecord[] }
@@ -48,21 +49,18 @@ export function clearMatchCache() {
   cache.clear();
 }
 
-// A shared run starts at the current demo pace, even one created under an older DEMO_SPEED; a private room's own
-// replay keeps the pace its host chose.
+// A shared game starts at the current pace, even one created under an older DEMO_SPEED.
 export async function startMatchIfScheduled(db: Queryable, matchId: string) {
   await db.query(
-    `UPDATE matches SET status = 'live', feed_started_at = now(),
-       ball_interval_ms = CASE WHEN room_id IS NULL THEN $2 ELSE ball_interval_ms END
-     WHERE id = $1 AND status = 'scheduled'`,
+    `UPDATE matches SET status = 'live', feed_started_at = now(), ball_interval_ms = $2 WHERE id = $1 AND status = 'scheduled'`,
     [matchId, intervalFor(config().match.defaultSpeed)],
   );
 }
 
-// Keeps one shared demo match per sport available, each with its platform-managed public room. Private rooms' own
-// replay runs (room_id set) never count as a shared match.
+// Keeps one shared game per sport available, each with its platform-managed public room. Every room of a sport
+// follows that game.
 export async function ensureDemoMatches(db: Db) {
-  const live = await many<Pick<MatchRow, 'fixture_key'>>(db, `SELECT fixture_key FROM matches WHERE status IN ('scheduled', 'live') AND room_id IS NULL`);
+  const live = await many<Pick<MatchRow, 'fixture_key'>>(db, `SELECT fixture_key FROM matches WHERE status IN ('scheduled', 'live')`);
   const have = new Set(live.map((m) => m.fixture_key));
   for (const f of FIXTURE_ORDER) if (!have.has(f.key)) await ensureDemoMatch(db, f.key);
 }
@@ -71,7 +69,7 @@ export async function ensureDemoMatch(db: Db, fixtureKey = DEMO_FIXTURE.key): Pr
   return db.tx(async (q) => {
     await q.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ensure-demo-match:${fixtureKey}`]);
     const current = await one<Pick<MatchRow, 'id'>>(q,
-      `SELECT id FROM matches WHERE status IN ('scheduled', 'live') AND room_id IS NULL AND fixture_key = $1 ORDER BY created_at DESC LIMIT 1`, [fixtureKey]);
+      `SELECT id FROM matches WHERE status IN ('scheduled', 'live') AND fixture_key = $1 ORDER BY created_at DESC LIMIT 1`, [fixtureKey]);
     if (current) return current.id;
     const f = FIXTURES[fixtureKey] || DEMO_FIXTURE;
     const id = newId('mat');
@@ -94,7 +92,7 @@ export async function ingestDue(db: Db, matchId: string): Promise<number> {
   const cfg = config();
   const result = await db.tx(async (q) => {
     const m = await one<TimedMatch>(q, `SELECT *, EXTRACT(EPOCH FROM (now() - feed_started_at))::float8 AS elapsed FROM matches WHERE id = $1 FOR UPDATE`, [matchId]);
-    if (!m || m.status !== 'live' || m.paused_at || m.elapsed == null || m.elapsed < 0) return null;
+    if (!m || m.status !== 'live' || m.elapsed == null || m.elapsed < 0) return null;
     const fixture = fixtureFor(m);
     const offsets = schedule(fixture, m.ball_interval_ms / 1000);
     let state = await matchState(q, m);
@@ -108,18 +106,17 @@ export async function ingestDue(db: Db, matchId: string): Promise<number> {
       const item = fixture.items[i];
       const occurredAt = new Date(new Date(m.feed_started_at).getTime() + offsets[i] * 1000);
       const ageSeconds = m.elapsed - offsets[i];
-      const backfilled = i <= m.backfill_until;
       const ev = await one<Pick<MatchEventRow, 'id'>>(q,
-        `INSERT INTO match_events (id, match_id, provider_event_id, seq, kind, data, occurred_at, backfilled)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+        `INSERT INTO match_events (id, match_id, provider_event_id, seq, kind, data, occurred_at)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
          ON CONFLICT (match_id, provider_event_id) DO NOTHING RETURNING id`,
-        [newId('mev'), m.id, providerEventId(fixture, i), i, item.kind, JSON.stringify(eventData(item)), occurredAt, backfilled]);
+        [newId('mev'), m.id, providerEventId(fixture, i), i, item.kind, JSON.stringify(eventData(item)), occurredAt]);
       const { state: next, ball } = fixture.engine.applyItem(state, item, i);
       if (ev) {
         for (const s of fixture.engine.detectSignals(state, next, item, ball, i)) {
-          found.push({ ...s, eventId: ev.id, occurredAt, stale: backfilled || ageSeconds > cfg.match.freshnessSeconds, backfilled });
+          found.push({ ...s, eventId: ev.id, occurredAt, stale: ageSeconds > cfg.match.freshnessSeconds });
         }
-        const thread = backfilled ? null : fixture.engine.threadForItem(item);
+        const thread = fixture.engine.threadForItem(item);
         if (thread) opened.push(thread);
       }
       state = next;
@@ -133,7 +130,7 @@ export async function ingestDue(db: Db, matchId: string): Promise<number> {
     const queued: string[] = [];
     for (const s of found) {
       const status = s === keep ? 'pending' : 'suppressed';
-      const reason = s === keep ? null : s.backfilled ? 'backfill' : s.stale ? 'stale' : 'batched';
+      const reason = s === keep ? null : s.stale ? 'stale' : 'batched';
       const ttl = s.priority === 'high' ? 180 : 90;
       const row = await one<Pick<SignalRow, 'id' | 'status'>>(q,
         `INSERT INTO match_signals (id, match_id, event_id, trigger, priority, label, evidence, fact_text, dedupe_key, status, status_reason, expires_at)
@@ -164,50 +161,29 @@ export async function ingestDue(db: Db, matchId: string): Promise<number> {
   return result?.added || 0;
 }
 
+// The play as the feed publishes it, without the script's cues for the crowd, the clock, signals and threads.
 function eventData(item: Record<string, unknown>) {
   const { crowd, pause, moment, signal, thread, ...data } = item;
   return data;
 }
 
 export async function advanceFeeds(db: Db) {
-  const live = await many<Pick<MatchRow, 'id'>>(db, `SELECT id FROM matches WHERE status = 'live' AND paused_at IS NULL AND feed_started_at <= now()`);
+  const live = await many<Pick<MatchRow, 'id'>>(db, `SELECT id FROM matches WHERE status = 'live' AND feed_started_at <= now()`);
   let added = 0;
   for (const m of live) added += await ingestDue(db, m.id);
   return added;
 }
 
-// Moves the replay clock forward to a named moment (a paused replay plays on from there). Skipped items are
-// ingested as backfill, which never alerts. Private rooms' replay controls and the DEMO_CONTROLS jump use it.
-export async function jumpToMoment(db: Db, matchId: string, momentId: string) {
-  const m = await one<MatchRow>(db, 'SELECT * FROM matches WHERE id = $1', [matchId]);
-  if (!m) throw notFound('Match not found.');
-  const fixture = fixtureFor(m);
-  const moment = fixture.moments.find((x) => x.id === momentId);
-  if (!moment) throw new HttpError(400, 'invalid_moment', 'Unknown moment.');
-  const state = await matchState(db, m);
-  if (m.status === 'completed' || moment.index <= state.last_seq) throw new HttpError(409, 'moment_passed', 'The replay is already past that moment.');
-  const offsets = schedule(fixture, m.ball_interval_ms / 1000);
-  await db.query(
-    `UPDATE matches SET status = 'live', paused_at = NULL, backfill_until = $2, feed_started_at = now() - $3::float8 * interval '1 second' WHERE id = $1`,
-    [m.id, moment.index - 1, offsets[moment.index] - 1.5],
-  );
-  await ingestDue(db, m.id);
-  return { jumped_to: moment.label };
-}
-
-export async function matchSnapshot(db: Queryable, matchId: string) {
+// detail: the Match Centre's view (?detail=1), with every play of the run labelled and the graphs.
+export async function matchSnapshot(db: Queryable, matchId: string, { detail = false } = {}) {
   const m = await one<TimedMatch>(db, `SELECT *, EXTRACT(EPOCH FROM (now() - feed_started_at))::float8 AS elapsed FROM matches WHERE id = $1`, [matchId]);
   if (!m) return null;
   const fixture = fixtureFor(m);
   const state = await matchState(db, m);
   const last = await one<{ occurred_at: Date; age: number }>(db,
     `SELECT occurred_at, EXTRACT(EPOCH FROM (now() - occurred_at))::float8 AS age FROM match_events WHERE match_id = $1 ORDER BY seq DESC LIMIT 1`, [m.id]);
-  const recent = await many<Pick<MatchEventRow, 'id' | 'seq' | 'kind' | 'data' | 'occurred_at'>>(db,
-    `SELECT id, seq, kind, data, occurred_at FROM match_events WHERE match_id = $1 AND kind <> 'overend' ORDER BY seq DESC LIMIT 10`, [m.id]);
-  const labels = new Map<number, BallRecord>((state.ball_log || []).map((b) => [b.seq, b])); // cricket ball labels; other sports carry a clock
   const staleAfter = config().match.staleAfterSeconds;
-  const own = Boolean(m.room_id);
-  return {
+  const snap = {
     match: {
       id: m.id, title: m.title, teams: fixture.teams, format: m.format, status: m.status,
       source: m.source, source_label: fixture.sourceLabel, sport: fixture.sport, sport_name: fixture.sportName, fixture_key: fixture.key,
@@ -215,27 +191,26 @@ export async function matchSnapshot(db: Queryable, matchId: string) {
     freshness: {
       updated_at: last?.occurred_at || null,
       age_seconds: last ? Math.round(last.age) : null,
-      stale: m.status === 'live' && !m.paused_at && (!last || last.age > staleAfter),
+      stale: m.status === 'live' && (!last || last.age > staleAfter),
     },
     score: fixture.engine.snapshot(state),
+    rev: state.last_seq,
+  };
+  if (detail) return { ...snap, ...(await matchCentre(db, m)) };
+  const recent = await many<Pick<MatchEventRow, 'id' | 'seq' | 'kind' | 'data' | 'occurred_at'>>(db,
+    `SELECT id, seq, kind, data, occurred_at FROM match_events WHERE match_id = $1 AND kind <> 'overend' ORDER BY seq DESC LIMIT 10`, [m.id]);
+  const labels = new Map<number, BallRecord>((state.ball_log || []).map((b) => [b.seq, b])); // cricket ball labels; other sports carry a clock
+  return {
+    ...snap,
     commentary: recent.map((e) => ({
       event_id: e.id, kind: e.kind, over: labels.get(e.seq)?.label || e.data.clock || null, symbol: labels.get(e.seq)?.symbol || null,
       label: e.data.label || null, text: e.data.text || '', occurred_at: e.occurred_at,
     })),
-    moments: !own && config().demoControls && m.status !== 'completed' ? fixture.moments.filter((x) => x.index > state.last_seq).map((x) => ({ id: x.id, label: x.label })) : [],
-    // own: this room's private copy of the replay, which its owner and admins control.
-    replay: {
-      own,
-      paused: Boolean(m.paused_at),
-      speed: replaySpeed(m),
-      moments: own ? fixture.moments.map((x) => ({ id: x.id, label: x.label, passed: m.status === 'completed' || x.index <= state.last_seq })) : [],
-    },
-    rev: state.last_seq,
   };
 }
 
-// 1 at the configured pace (DEMO_BALL_SECONDS per ball), 0.5 at half that, 2 at twice it.
-function replaySpeed(m: Pick<MatchRow, 'ball_interval_ms'>) {
+// The pace a run plays at: 1 at DEMO_BALL_SECONDS per ball, 0.5 at half that speed, 2 at twice it.
+export function paceOf(m: Pick<MatchRow, 'ball_interval_ms'>) {
   return Math.max(0.5, Math.round(((config().match.ballSeconds * 1000) / m.ball_interval_ms) * 2) / 2);
 }
 

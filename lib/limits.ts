@@ -1,4 +1,4 @@
-// Sliding-window limits for secondary actions (guest sign-ups, AI requests, reactions, replay controls, user search).
+// Sliding-window limits for secondary actions (guest sign-ups, AI requests, reactions, user search).
 // An advisory transaction lock per bucket makes count-then-insert atomic across concurrent requests.
 // The chat cooldown has its own atomic limiter in chat/messages.ts.
 import { HttpError } from './util.ts';

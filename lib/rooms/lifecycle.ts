@@ -1,6 +1,6 @@
 // Room lifecycle: active -> ended -> purged. Ending is one atomic transition: from that instant every read of
 // room history is refused, writes fail (sequence allocation requires an active room), queued room jobs are
-// cancelled and pending alerts expire. Message bodies are deleted later by the idempotent purge job, after the
+// cancelled and pending invitations expire. Message bodies are deleted later by the idempotent purge job, after the
 // configured retention window (MESSAGE_RETENTION_HOURS, default 24h).
 import { config } from '../config.ts';
 import { one, type Db } from '../db/index.ts';
@@ -23,7 +23,6 @@ export async function endRoom(db: Db, roomId: string, { reason, actorId = null }
     if (!row) return false;
     await cancelRoomJobs(q, roomId);
     await q.query(`UPDATE room_invitations SET status = 'expired' WHERE room_id = $1 AND status = 'pending'`, [roomId]);
-    await q.query(`UPDATE notification_deliveries SET status = 'expired' WHERE room_id = $1 AND status = 'queued'`, [roomId]);
     await q.query('DELETE FROM room_presence WHERE room_id = $1', [roomId]);
     // The purge job is not room-scoped on purpose: closing a room cancels room jobs, never its own clean-up.
     await enqueue(q, {

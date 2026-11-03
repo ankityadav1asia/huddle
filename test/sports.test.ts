@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, signUp, clearCooldown, msgId, logs, type App, type Client, type ApiEvent, type ApiThread } from './helpers.ts';
-import { ingestDue, stateAt } from '../lib/match/feed.ts';
+import { ingestDue, stateAt, clearMatchCache } from '../lib/match/feed.ts';
 import { FIXTURES, schedule } from '../lib/match/fixture.ts';
 import { setAi } from '../lib/ai/index.ts';
 import { createOrchestrator } from '../lib/ai/orchestrator.ts';
@@ -9,8 +9,8 @@ import type { Provider } from '../lib/ai/providers.ts';
 import { pump } from '../lib/jobs/worker.ts';
 import { askedContext } from '../lib/cohost/context.ts';
 
-// One shared simulated game per sport, each with its public watch party, scoreboard, moments, threads, fans,
-// rules sheet and roster; and questions answered about the moment they were asked.
+// One shared game per sport, each with its public watch party, scoreboard, moments, threads, fans, rules sheet and
+// roster; and questions answered about the moment they were asked.
 let app: App; let fan: Client; let rooms: { id: string; sport: string; match_title: string }[];
 const sharedRun = async (sport: string) => (await app.db.query(
   `SELECT m.id FROM matches m JOIN rooms r ON r.match_id = m.id WHERE r.id = $1`, [rooms.find((r) => r.sport === sport)!.id])).rows[0].id;
@@ -23,8 +23,8 @@ async function playTo(sport: string, i: number) {
   await ingestDue(app.db, run);
   return run;
 }
-// Runs queued jobs until the question is settled: a pass handles at most a few jobs, and the replays above leave
-// momentum jobs of the same priority queued ahead of the answer.
+// Runs queued jobs until the question is settled: a pass handles at most a few jobs, and the games played above leave
+// momentum jobs queued ahead of the answer.
 async function answerQuestion(messageId: string) {
   for (let i = 0; i < 10; i++) {
     await pump(app.db, { budgetMs: 5000 });
@@ -108,8 +108,8 @@ test('a rules question is answered from the rules sheet and the moment it was as
   const room = rooms.find((r) => r.sport === sport)!.id;
   const ppGoal = fixtureOf(sport).items.findIndex((x) => x.moment === 'power-play-goal');
   const run = await sharedRun(sport);
-  await app.db.query('DELETE FROM match_events WHERE match_id = $1', [run]); // replay from the start of the period
-  await app.db.query(`UPDATE matches SET status = 'live', backfill_until = -1 WHERE id = $1`, [run]);
+  await app.db.query('DELETE FROM match_events WHERE match_id = $1', [run]); // play the period again from its start
+  clearMatchCache();
   await playTo(sport, ppGoal);
   let prompt = '';
   const provider: Provider = {
@@ -148,15 +148,15 @@ test('a rule answer cannot invent numbers that are neither in the rules sheet no
   };
   setAi(createOrchestrator({ providers: [provider] }));
   await clearCooldown(app.db, fan.user.id);
-  const sent = await fan.post(`/api/rooms/${room}/messages`, { client_msg_id: msgId(), text: '@huddle what is the shot clock?' });
+  const sent = await fan.post(`/api/rooms/${room}/messages`, { client_msg_id: msgId(), text: 'What is the shot clock?' });
   assert.equal(sent.status, 201);
   await answerQuestion(sent.body.message.id);
   assert.equal((await app.db.query(`SELECT count(*)::int AS n FROM messages WHERE room_id = $1 AND sender_type = 'ai'`, [room])).rows[0].n, 0);
-  assert.equal((await app.db.query('SELECT answer_state FROM messages WHERE id = $1', [sent.body.message.id])).rows[0].answer_state, 'ai_unavailable');
+  assert.equal((await app.db.query('SELECT answer_state FROM messages WHERE id = $1', [sent.body.message.id])).rows[0].answer_state, 'cancelled');
   setAi(createOrchestrator({ providers: [] }));
 });
 
-test('a shared game created under an older demo pace plays at the current one once it starts', async () => {
+test('a shared game created under an older pace plays at the current one once it starts', async () => {
   const run = await sharedRun('cricket');
   await app.db.query(`UPDATE matches SET status = 'scheduled', ball_interval_ms = $2 WHERE id = $1`, [run, app.cfg.match.ballSeconds * 1000]);
   app.cfg.match.defaultSpeed = 0.5;

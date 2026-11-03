@@ -1,11 +1,12 @@
 # Huddle
 
 A watch-party prototype for cricket, Formula 1, basketball and ice hockey. Friends chat in a room while a game plays,
-see verified match data next to the chat, and can ask an AI co-host (`@huddle`) about the game, its rules and its
-players.
+with the live scorecard above the chat. Tapping the scorecard opens the Match Centre: the full scorecard, graphs,
+commentary and overs. The AI Co-host posts big moments and polls in the chat and answers questions nobody else
+answered; the Dream Bot answers your own questions about the game, its rules and its players, privately.
 
-Every game is a simulated replay: real teams and players, made-up games. Nothing here is connected to Dream11 or to a
-live match. Product rules: [CLAUDE.md](CLAUDE.md). Design: [docs/architecture.md](docs/architecture.md). Endpoints:
+The games are fixtures: real teams and players, scripted games. Nothing here is connected to Dream11 or to a live data
+feed. Product rules: [CLAUDE.md](CLAUDE.md). Design: [docs/architecture.md](docs/architecture.md). Endpoints:
 [docs/api-contract.md](docs/api-contract.md).
 
 ## Features
@@ -15,14 +16,13 @@ live match. Product rules: [CLAUDE.md](CLAUDE.md). Design: [docs/architecture.md
 | One-tap join: Huddle picks a username like @fan_4821, which you can change, along with the team and up to 3 players you back in each sport. No name, phone number or password; the browser stays signed in for 30 days | Implemented |
 | One public watch party per sport (up to 100 members, moderated by Huddle) and private rooms (up to 50; the owner picks relaxed, balanced or strict moderation), with invitations, roles, leaving and removal | Implemented |
 | Realtime chat (long-polling), reactions, polls, presence and replies; one message per person every 10 s across all rooms and devices | Implemented |
-| A scoreboard for each sport, play by play, and big-moment alerts (deduplicated; at most 8 pushes per match) | Implemented on simulated games |
-| A private room's own replay: start, pause, 0.5x/1x/2x, restart, jump to a big moment | Implemented |
-| Moment threads: a #thread for each big moment and for each topic the room argues about | Implemented |
-| 200 simulated fans in each public watch party, labelled and never stored | Simulated |
-| AI co-host: answers, catch-up summaries and polls, stated only from verified match data, the rules sheet and the roster; a primary and a fallback provider behind a circuit breaker (Gemini, xAI Grok, Anthropic, OpenRouter) | Implemented; needs an API key (without one, summaries come straight from match data) |
+| The live scorecard above the chat, and the Match Centre with swipeable tabs: Scorecard, Graphs (Manhattan and worm for cricket, score progression, F1 gaps to the leader), Commentary, and Overs or Play by play | Implemented on fixture data |
+| Big moments posted in the chat by the AI Co-host (deduplicated), each with its own #thread, plus a #thread for each topic the room argues about | Implemented on fixture data |
+| A crowd of 200 scripted fans chatting in each public watch party, never stored; room settings can hide it | Fixture data |
+| AI Co-host and Dream Bot: answers in the chat to questions nobody answered, polls for quiet rooms, and private answers and catch-ups in the Dream Bot window. Every number must come from verified match data, the rules sheet or the roster. A primary and a fallback provider sit behind a circuit breaker (Gemini, xAI Grok, Anthropic, OpenRouter) | Implemented; needs an API key (without one, the Dream Bot gives the latest score instead of an answer, and catch-ups come straight from match data) |
 | A safety baseline at every moderation level, reports, a human review queue and appeals | Implemented |
 | Messages disappear when a room ends and are deleted from the server after 24 h | Implemented |
-| Real sports data feeds, account recovery, blocking, quiet hours | Planned |
+| Real sports data feeds, account recovery, blocking | Planned |
 
 ## Run locally
 
@@ -33,14 +33,13 @@ npm install
 npm start
 ```
 
-Open http://localhost:3000. Data lives in an embedded Postgres (PGlite) under `.data/`. To try a room with friends on
-one machine, sign in from two browser profiles, or invite the demo friends the invite picker offers (`@demo_aarav`,
-`@demo_diya` and others; their invitations stay pending, and `DEMO_USERS=false` hides them).
+Open http://localhost:3000. Data lives in an embedded Postgres (PGlite) under `.data/`. To try a private room with a
+friend on one machine, join from two browser profiles and invite one from the other by username.
 
-Public watch parties follow a shared game that nobody can pause, at half speed (`DEMO_SPEED`). **+ Private room** in a
-public watch party starts a private room on the same game; tick **Control the replay yourself** to run its replay.
+Every room follows the game in progress for its sport, played at half speed (`DEMO_SPEED` changes the pace). The **+**
+in a public watch party's watching strip starts a private room on the same game.
 
-For the live AI co-host, set provider keys in `.env` locally, or in Vercel's environment variables:
+For the live AI Co-host and Dream Bot, set provider keys in `.env` locally, or in Vercel's environment variables:
 
 ```bash
 GEMINI_API_KEY=...   # GEMINI_MODEL to change the model
@@ -54,8 +53,8 @@ review queue at `/mod`, are listed by account id in `MODERATOR_USER_IDS`; your i
 ## Test
 
 ```bash
-npm test            # 120 tests against the real API and an in-memory database
-npm run typecheck   # strict TypeScript: server, tests, browser app and service worker
+npm test            # 121 tests against the real API and an in-memory database
+npm run typecheck   # strict TypeScript: server, tests and browser app
 ```
 
 `node scripts/load-check.ts` runs a small load check (3 rooms of 10 members, a message burst and a slow AI provider)
@@ -65,8 +64,8 @@ and reports delivery latency, losses, duplicates and ordering.
 
 On Vercel, `npm run build` compiles the browser code into `public/`, which is served as static files, and the API runs
 as one function (`api/router.ts`). It needs `DATABASE_URL` (Neon Postgres) and `HUDDLE_SECRET`; joining fails closed
-without the secret. Optional: AI keys, `VAPID_*` for push, and `CRON_SECRET` for the daily sweep. Vercel runs no
-background worker, so queued work runs inside members' long-polls.
+without the secret. Optional: AI keys, and `CRON_SECRET` for the daily sweep. Vercel runs no background worker, so
+queued work runs inside members' long-polls.
 
 On any other Node host with Postgres, `npm start` with `DATABASE_URL` set runs the worker in-process.
 
@@ -77,11 +76,11 @@ On any other Node host with Postgres, `npm start` with `DATABASE_URL` set runs t
 | `server.ts`, `api/router.ts` | Local server; Vercel function |
 | `lib/http/`, `lib/auth/` | Router and routes; sessions |
 | `lib/rooms/`, `lib/chat/` | Rooms, invitations, the per-room event log and long-polling; messages, reactions and polls |
-| `lib/match/` | The four simulated games and their engines, feed ingestion, momentum rules, simulated fans, room replays |
-| `lib/ai/`, `lib/cohost/` | AI providers and failover, task schemas and output validation; co-host behaviours |
-| `lib/moderation/`, `lib/notify/`, `lib/jobs/` | Safety checks and review; push notifications; the job queue |
+| `lib/match/` | The four fixture games and their engines, feed ingestion, graphs, momentum rules, the scripted crowd |
+| `lib/ai/`, `lib/cohost/` | AI providers and failover, task schemas and output validation; the AI Co-host and the Dream Bot |
+| `lib/moderation/`, `lib/jobs/` | Safety checks and review; the job queue |
 | `lib/db/` | Database access, row types and migrations |
-| `web/` | Browser app and service worker, compiled into `public/` by `npm run build` |
+| `web/` | Browser app, compiled into `public/watch/` by `npm run build` |
 | `public/` | HTML, styles and images |
 | `test/` | Tests (`node --test`) |
 

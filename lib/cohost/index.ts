@@ -1,8 +1,9 @@
-// The AI Co-host: answers to mentions and unanswered questions, quiet-room polls, match momentum explanations and
-// Catch Me Up. Each re-checks room state and membership before publishing, and never publishes unchecked output.
+// The AI Co-host: answers to questions nobody answered, quiet-room polls, match momentum explanations and Catch Me
+// Up (its private Q&A, the Dream Bot, is in bot.ts). Each re-checks room state and membership before publishing, and
+// never publishes unchecked output.
 import { config } from '../config.ts';
 import { one, many, type Db } from '../db/index.ts';
-import type { AnswerState, JobRow, MatchRow, MessageRow, PollRow, RoomEventRow, RoomRow, SignalRow } from '../db/rows.ts';
+import type { JobRow, MatchRow, MessageRow, PollRow, RoomEventRow, RoomRow, SignalRow } from '../db/rows.ts';
 import type { SessionUser } from '../auth/sessions.ts';
 import { HttpError, badRequest, conflict, onlyKeys, clamp, newId, errorCode, type RequestBody } from '../util.ts';
 import { log } from '../log.ts';
@@ -16,14 +17,13 @@ import { createPoll } from '../chat/polls.ts';
 import { matchContext, askedContext, roomMessages, eventsSince, publishedSignalsSince } from './context.ts';
 import { matchState } from '../match/feed.ts';
 import { fixtureFor } from '../match/fixture.ts';
-import { queueMomentumPushes, queueAnswerPush } from '../notify/index.ts';
 import { recordModeration } from '../moderation/audit.ts';
 import { cached } from '../ai/context-cache.ts';
 
 const AI_LABEL = 'AI Co-host';
 
 // Jobs as the handlers read them (payloads hold ids only; lib/chat/messages.ts and lib/match/feed.ts queue them).
-type AnswerJob = Pick<JobRow, 'room_id'> & { payload: { message_id: string; mode: 'mention' | 'unanswered' } };
+type AnswerJob = Pick<JobRow, 'room_id'> & { payload: { message_id: string } };
 type MomentumJob = { payload: { signal_id: string } };
 // The claimed question: a member's message, so it always has a sender and text.
 type Question = Pick<MessageRow, 'id' | 'room_id' | 'seq' | 'thread_id' | 'match_seq'> & { sender_id: string; body: string };
@@ -32,16 +32,17 @@ type PollSummary = Pick<PollRow, 'question' | 'options' | 'status'> & { counts: 
 // A fresh poll for a quiet room: AI-written, or the sport's template when the AI is off or fails.
 interface PollIdea { question: string; options: string[]; source: string }
 
+// The AI budgets: AI_ROOM_REQUESTS_PER_10_MIN per room and AI_USER_REQUESTS_PER_5_MIN per person.
+export const roomAiToken = (db: Db, roomId: string) => takeToken(db, `ai_room:${roomId}`, { limit: config().cohost.roomAiPer10Min, windowSeconds: 600 });
+export const userAiToken = (db: Db, userId: string) => takeToken(db, `ai_user:${userId}`, { limit: config().cohost.userAiPer5Min, windowSeconds: 300 });
+
 async function aiBudget(db: Db, room: Pick<RoomRow, 'id'>, userId: string | null) {
-  const c = config().cohost;
-  const roomOk = await takeToken(db, `ai_room:${room.id}`, { limit: c.roomAiPer10Min, windowSeconds: 600 });
-  if (!roomOk.ok) return false;
-  if (!userId) return true;
-  return (await takeToken(db, `ai_user:${userId}`, { limit: c.userAiPer5Min, windowSeconds: 300 })).ok;
+  if (!(await roomAiToken(db, room.id)).ok) return false;
+  return !userId || (await userAiToken(db, userId)).ok;
 }
 
 export async function handleAnswerJob(db: Db, job: AnswerJob) {
-  const { message_id: messageId, mode } = job.payload;
+  const { message_id: messageId } = job.payload;
   // Compare-and-set: only one path (a human reply or this job) can win the question.
   const q = await one<Question>(db,
     `UPDATE messages SET answer_state = 'ai_claimed' WHERE id = $1 AND room_id = $2 AND answer_state = 'pending'
@@ -49,21 +50,17 @@ export async function handleAnswerJob(db: Db, job: AnswerJob) {
   if (!q) return 'cancelled';
   const room = await one<RoomRow>(db, 'SELECT * FROM rooms WHERE id = $1', [q.room_id]);
   const asker = await one<{ status: MemberStatus }>(db, `SELECT status FROM room_members WHERE room_id = $1 AND user_id = $2`, [q.room_id, q.sender_id]);
-  const giveUp = async (state: AnswerState, visible: boolean) => {
-    await db.tx(async (t) => {
-      await t.query(`UPDATE messages SET answer_state = $2 WHERE id = $1 AND answer_state = 'ai_claimed'`, [q.id, state]);
-      if (visible) await appendEvent(t, q.room_id, 'message_update', q.id);
-    }).catch((err: unknown) => { if (!(err instanceof RoomEndedError)) throw err; });
-    if (visible) notifyRoom(q.room_id);
-    return state;
+  // Nobody asked the Co-host by name, so an answer it cannot give is dropped quietly.
+  const giveUp = async () => {
+    await db.query(`UPDATE messages SET answer_state = 'cancelled' WHERE id = $1 AND answer_state = 'ai_claimed'`, [q.id]);
+    return 'cancelled';
   };
-  if (!room || room.status !== 'active' || !room.ai_enabled || asker?.status !== 'active') return giveUp('cancelled', false);
-  if (!(await aiBudget(db, room, mode === 'mention' ? q.sender_id : null))) return giveUp(mode === 'mention' ? 'ai_unavailable' : 'cancelled', mode === 'mention');
+  if (!room || room.status !== 'active' || !room.ai_enabled || asker?.status !== 'active') return giveUp();
+  if (!(await aiBudget(db, room, null))) return giveUp();
 
   const orchestrator = await ai();
   const mc = await matchContext(db, room);
   const asked = await askedContext(db, room, q.match_seq);
-  const question = q.body.replace(/(^|\s)@huddle\b/gi, ' ').trim() || q.body;
   const recent = await roomMessages(db, room.id, { limit: 12 });
   const grounding = {
     allowedEventIds: new Set<string>([...mc.allowedEventIds, ...(asked?.eventIds || [])]),
@@ -76,17 +73,15 @@ export async function handleAnswerJob(db: Db, job: AnswerJob) {
       VERIFIED_MATCH_DATA: mc.facts, COMMENTARY: mc.commentary, DATA_FRESHNESS: mc.freshness,
       RULES_SHEET: asked?.rules, ROSTER: asked?.roster,
       ROOM_MESSAGES_UNTRUSTED: recent.filter((m) => m.message_id !== q.id).map(({ from, text }) => ({ from, text })),
-      QUESTION_UNTRUSTED: question,
+      QUESTION_UNTRUSTED: q.body,
     }),
     validate: (v) => validateOutput('answer', v, grounding),
     isCancelled: async () => (await one<Pick<RoomRow, 'status'>>(db, `SELECT status FROM rooms WHERE id = $1`, [room.id]))?.status !== 'active',
   });
   if (!result.ok) {
-    log.info('cohost.answer_unavailable', { room: room.id, category: result.category, mode });
-    if (result.reason === 'unsafe_output' || result.reason === 'needs_human_review') {
-      await recordModeration(db, { roomId: room.id, eventType: 'ai_output_blocked', severity: 'medium', categories: [result.reason], action: 'not_published' });
-    }
-    return giveUp(mode === 'mention' ? 'ai_unavailable' : 'cancelled', mode === 'mention');
+    log.info('cohost.answer_unavailable', { room: room.id, category: result.category });
+    await recordBlockedOutput(db, room.id, result.reason);
+    return giveUp();
   }
   const v = result.value;
   const meta = {
@@ -112,8 +107,14 @@ export async function handleAnswerJob(db: Db, job: AnswerJob) {
   }).catch((err: unknown) => { if (err instanceof RoomEndedError) return null; throw err; });
   if (!published) return 'discarded';
   notifyRoom(room.id);
-  await queueAnswerPush(db, { roomId: room.id, userId: q.sender_id, messageId: q.id });
   return 'published';
+}
+
+// Unsafe output, or output the model itself flagged for a human, leaves an audit row (no text) for moderators.
+export async function recordBlockedOutput(db: Db, roomId: string, reason: string | undefined) {
+  if (reason === 'unsafe_output' || reason === 'needs_human_review') {
+    await recordModeration(db, { roomId, eventType: 'ai_output_blocked', severity: 'medium', categories: [reason], action: 'not_published' });
+  }
 }
 
 async function generatePoll(db: Db, room: Pick<RoomRow, 'id' | 'match_id' | 'ai_enabled'>, userId: string | null): Promise<PollIdea | null> {
@@ -227,7 +228,6 @@ export async function handleMomentumJob(db: Db, job: MomentumJob) {
       if (!(err instanceof RoomEndedError) && !duplicate) throw err;
     }
   }
-  await queueMomentumPushes(db, signal); // applies the priority filter and the per-match cap
   return 'published';
 }
 
@@ -266,7 +266,7 @@ export async function catchUp(db: Db, user: SessionUser, roomId: string, body: R
       }),
     ].slice(0, 3),
   };
-  const base = { data_as_of: mc.freshness?.latest_verified_update || null, stale: Boolean(mc.freshness?.stale), source_label: 'Match facts from the demo replay feed' };
+  const base = { data_as_of: mc.freshness?.latest_verified_update || null, stale: Boolean(mc.freshness?.stale), source_label: 'Match facts from the match feed' };
   if (!messages.length && !events.length) return { ...fallback, ...base, source: 'match_data', note: 'Nothing new since you looked away.' };
 
   const orchestrator = await ai();

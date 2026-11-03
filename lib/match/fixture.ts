@@ -1,5 +1,5 @@
-// One scripted, simulated game per sport. With no licensed live data provider, the backend replays these as
-// timestamped feeds, labelled as simulated wherever they appear; a real provider would replace only these modules.
+// One scripted game per sport (fixture data: real names, made-up games). With no licensed live data provider, the
+// backend plays these as timestamped feeds; a real provider would replace only these modules.
 import { one, type Queryable } from '../db/index.ts';
 import type { MatchRow, Priority } from '../db/rows.ts';
 import type { Fan } from './fans.ts';
@@ -9,8 +9,6 @@ import { BASKETBALL } from './sports/basketball.ts';
 import { HOCKEY } from './sports/hockey.ts';
 
 export interface Team { code: string; name: string; logo?: string }
-// A named point in the script that a replay can jump to; `index` is the script item it starts at.
-interface Moment { id: string; label: string; index: number }
 // The #thread a big moment opens in every room following the match.
 export interface MomentThread { slug: string; about: string; keywords: string[] }
 export interface Topic { slug: string; keywords: string[] }
@@ -42,6 +40,18 @@ export interface FactsInput<Score> {
 // What the AI may state about the game, built from the verified snapshot only.
 interface Facts { headline: string; [field: string]: unknown }
 
+// A played item as the Match Centre lists it: cricket's over.ball (or the overs bowled, for an event) or the game
+// clock, and a ball's symbol. label and text stand in for items the feed gives none (cricket's end of over).
+export interface PlayLabel { over: string; symbol: string | null; label?: string; text?: string }
+
+// The Match Centre's graphs (GET /api/rooms/:id/match?detail=1). Cricket: each over of the feed with its runs,
+// wickets and the innings total at its end. Basketball and hockey: the score (a for teams[0], b for teams[1]) at the
+// start, after each change and now. F1: each lap's gaps to the leader of the top three drivers as they stand now.
+export type Graphs =
+  | { kind: 'cricket'; target: number | null; overs: { over: number; runs: number; wickets: number; total: number }[] }
+  | { kind: 'score'; teams: string[]; points: { label: string; a: number; b: number }[] }
+  | { kind: 'gaps'; drivers: string[]; laps: { lap: number; gaps: Record<string, number> }[] };
+
 // `ball` is what an item was, for engines whose rules read it (cricket's delivery), else null.
 interface Engine<State, Item, Score> {
   initialState(fixture: Fixture<State, Item, Score>): State;
@@ -51,6 +61,9 @@ interface Engine<State, Item, Score> {
   facts(snap: FactsInput<Score>): Facts;
   templatePoll(state: State): PollTemplate;
   threadForItem(item: Item): MomentThread | null;
+  describe(item: Item, prev: State, next: State, ball: unknown): PlayLabel;
+  // states: the game before the run's first item, then after each item played since.
+  graphs(states: State[]): Graphs;
 }
 
 interface Crowd<State, Item> {
@@ -62,8 +75,8 @@ interface Crowd<State, Item> {
   momentCues: Set<string>;
 }
 
-// A sport's simulated game. Each sports/*.ts file types its own state, items and scoreboard; code that serves every
-// sport (feed, crowd, replay, co-host) sees them as `any` through the defaults.
+// A sport's scripted game. Each sports/*.ts file types its own state, items and scoreboard; code that serves every
+// sport (feed, crowd, Match Centre, co-host) sees them as `any` through the defaults.
 export interface Fixture<State = any, Item = any, Score = any> {
   key: string;
   sport: string;
@@ -73,7 +86,6 @@ export interface Fixture<State = any, Item = any, Score = any> {
   format: string;
   sourceLabel: string;
   items: Item[];
-  moments: Moment[];
   engine: Engine<State, Item, Score>;
   crowd: Crowd<State, Item>;
   topics: Topic[];
@@ -106,7 +118,7 @@ export async function fixtureForMatch(q: Queryable, matchId: string | null | und
   return m ? fixtureFor(m) : null;
 }
 
-// What the replay clock reads from a script item: its kind, and how long to dwell on it (ms).
+// What the feed clock reads from a script item: its kind, and how long to dwell on it (ms).
 interface Paced { kind: string; pause?: number }
 
 // Seconds after feed start at which each item is published. Deterministic, so every server instance agrees.

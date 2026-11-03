@@ -1,7 +1,7 @@
 // Formula 1: the final 13 laps of a made-up Italian Grand Prix at Monza, with real drivers.
-import type { FactsInput, Fixture, PollTemplate } from '../fixture.ts';
+import type { FactsInput, Fixture, Graphs, PollTemplate } from '../fixture.ts';
 import { makeFans } from '../fans.ts';
-import { scriptedSignals, scriptedThread, scriptedBurst, ROLE, type ScriptedItem } from './scripted.ts';
+import { scriptedSignals, scriptedThread, scriptedBurst, scriptedDescribe, ROLE, type ScriptedItem } from './scripted.ts';
 
 interface Driver { name: string; short: string; team: string }
 type Tyre = 'S' | 'M' | 'H';
@@ -183,6 +183,14 @@ function facts(snap: FactsInput<F1Score>) {
   };
 }
 
+// Each lap's gaps to the leader (as they stood at the end of that lap) for the top three now.
+function graphs(states: F1State[]): Graphs {
+  const drivers = states[states.length - 1].order.slice(0, 3);
+  const laps = new Map<number, Record<string, number>>();
+  for (const s of states) laps.set(s.lap, Object.fromEntries(drivers.map((code) => [code, s.gaps[code]])));
+  return { kind: 'gaps', drivers, laps: [...laps].map(([lap, gaps]) => ({ lap, gaps })) };
+}
+
 function templatePoll(s: F1State): PollTemplate {
   if (s.result) return { question: 'Driver of the day?', options: [short(s.order[0]), short(s.order[2])] };
   return { question: 'Who wins at Monza?', options: [`${short(s.order[0])} holds on`, `${short(s.order[1])} wins it`] };
@@ -262,16 +270,13 @@ export const F1: Fixture<F1State, F1Item, F1Score> = {
   title: 'Italian Grand Prix',
   teams: [{ code: 'MCL', name: 'McLaren' }, { code: 'RBR', name: 'Red Bull' }],
   format: 'Grand Prix',
-  sourceLabel: 'Simulated race · demo data, not a live feed',
+  sourceLabel: 'Lap-by-lap race feed',
   items: SCRIPT,
-  moments: [
-    { id: 'safety-car', label: 'Safety car' }, { id: 'restart', label: 'Restart' },
-    { id: 'lead-change', label: 'Lead change' }, { id: 'last-lap', label: 'Last lap' },
-  ].map((m) => ({ ...m, index: SCRIPT.findIndex((s) => s.moment === m.id) })),
   engine: {
-    initialState, applyItem, snapshot, facts, templatePoll,
+    initialState, applyItem, snapshot, facts, templatePoll, graphs,
     detectSignals: (_prev, next, item, _ball, seq) => scriptedSignals(next, item, seq),
     threadForItem: scriptedThread,
+    describe: scriptedDescribe,
   },
   crowd: {
     lines: CROWD,

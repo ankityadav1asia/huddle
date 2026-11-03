@@ -45,21 +45,22 @@ async function presence(db: Queryable, roomId: string) {
   return { online: rows.map((r) => r.user_id), active: rows.filter((r) => r.state === 'active').map((r) => r.user_id) };
 }
 
-// Changes with every new ball and replay control (start, pause, speed, restart), so clients know when to refetch the match.
+// Changes with every new ball, the game's status and pace, and a room moving to another game, so clients know when to
+// refetch the match.
 async function matchRev(db: Queryable, room: Pick<RoomRow, 'match_id'>) {
   if (!room.match_id) return null;
-  const m = await one<Pick<MatchRow, 'id' | 'status' | 'ball_interval_ms'> & { paused: boolean; seq: number }>(db,
-    `SELECT m.id, m.status, m.paused_at IS NOT NULL AS paused, m.ball_interval_ms,
+  const m = await one<Pick<MatchRow, 'id' | 'status' | 'ball_interval_ms'> & { seq: number }>(db,
+    `SELECT m.id, m.status, m.ball_interval_ms,
             COALESCE((SELECT max(seq) FROM match_events e WHERE e.match_id = m.id), -1)::int AS seq
        FROM matches m WHERE m.id = $1`, [room.match_id]);
-  return m ? `${m.id}:${m.seq}:${m.status}:${m.paused ? 'paused' : 'playing'}:${m.ball_interval_ms}` : null;
+  return m ? `${m.id}:${m.seq}:${m.status}:${m.ball_interval_ms}` : null;
 }
 
 // An ended room's state; `{ id }` alone when its row could not be read.
 const endedState = (room: Pick<RoomRow, 'id'> & Partial<Pick<RoomRow, 'status' | 'ended_at'>>) => ({ id: room.id, status: room.status === 'active' ? 'ended' : room.status, ended_at: room.ended_at || null });
 
 // rev: the match_rev the client already has. The poll also returns as soon as the match moves on from it (a new
-// ball, a replay control), so the score and the simulated fans keep pace in a quiet room instead of every 20 s.
+// ball, say), so the score and the simulated fans keep pace in a quiet room instead of every 20 s.
 export async function pollEvents(db: Queryable, user: SessionUser, roomId: string, { after, wait, visibility, pump, rev: knownRev }: PollOptions) {
   const cursor = Number.isInteger(after) && after >= 0 ? after : 0;
   const deadline = Date.now() + (wait ? 20000 : 0);
@@ -155,11 +156,11 @@ export async function roomBootstrap(db: Queryable, user: SessionUser, roomId: st
         : { managed_by: 'room', level: policy.level, description: LEVEL_INFO[policy.level], notice: 'Mandatory safety protections stay on at every level.' },
       retention_notice: `Messages disappear for everyone when the watch party ends and are deleted from our servers within ${config().retention.messageHours} hours.`,
       ai_notice: room.ai_enabled
-        ? 'The AI Co-host reads recent messages in this room only, to answer questions, catch you up and suggest polls. Match facts come from the demo feed.'
-        : 'The AI Co-host is off in this room.',
+        ? 'The AI Co-host (AI) reads recent messages in this room only, to answer questions nobody answers, catch you up and suggest polls. Dream Bot (AI) answers only you, from the match data. Match facts come from the match feed.'
+        : 'The AI Co-host and Dream Bot are off in this room.',
     },
     members,
-    // The public watch party's simulated fans (labelled in the UI); private rooms have none.
+    // The public watch party's simulated fans (the Match Centre's note covers them); private rooms have none.
     simulated_fans: fixture && room.room_type === 'public' ? fixture.crowd.fans : [],
     items,
     threads: [...(await hydrateThreads(db, roomId)).values()],
