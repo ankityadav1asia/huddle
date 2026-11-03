@@ -8,7 +8,7 @@ import type { SessionUser } from '../auth/sessions.ts';
 import { HttpError, badRequest, cleanText, onlyKeys, type RequestBody } from '../util.ts';
 import { log } from '../log.ts';
 import { ai } from '../ai/index.ts';
-import { SYSTEM, SCHEMAS, buildPrompt, validateOutput, allowedNumbersFrom } from '../ai/tasks.ts';
+import { BOT_SYSTEM, SCHEMAS, buildPrompt, validateOutput, allowedNumbersFrom } from '../ai/tasks.ts';
 import { cached, forget } from '../ai/context-cache.ts';
 import { roomAccess } from '../rooms/service.ts';
 import { classify } from '../moderation/classifier.ts';
@@ -17,7 +17,8 @@ import { matchContext, askedContext } from './context.ts';
 import { roomAiToken, userAiToken, recordBlockedOutput } from './index.ts';
 
 type Grounding = 'grounded' | 'rules_sheet' | 'insufficient_data' | 'not_applicable';
-interface BotReply { answer: string; asked_at: string | null; grounding: Grounding | null; source: 'ai' | 'unavailable' }
+// background: what the AI knows about the players, teams or sport, apart from this game's data (null when none).
+interface BotReply { answer: string; background: string | null; asked_at: string | null; grounding: Grounding | null; source: 'ai' | 'unavailable' }
 type BotRoom = Pick<RoomRow, 'id' | 'match_id' | 'ai_enabled'>;
 
 const REPEAT_MS = 60_000; // a retried request (same client_request_id) gets the same reply, without a second AI call
@@ -46,7 +47,7 @@ async function reply(db: Db, user: SessionUser, room: BotRoom, level: Moderation
   const asked = await askedContext(db, room, latest?.seq ?? null);
   const askedAt = asked?.whenAsked?.at || null;
   const headline = mc.facts?.headline ? ` Latest: ${mc.facts.headline}.` : '';
-  const unavailable = (answer: string): BotReply => ({ answer, asked_at: askedAt, grounding: null, source: 'unavailable' });
+  const unavailable = (answer: string): BotReply => ({ answer, background: null, asked_at: askedAt, grounding: null, source: 'unavailable' });
   if (!room.ai_enabled) return unavailable(`AI answers are switched off in this room.${headline}`);
   // The chat's safety baseline applies to questions too: one it would stop never reaches an AI provider.
   const decision = classify(question, { level });
@@ -62,14 +63,14 @@ async function reply(db: Db, user: SessionUser, room: BotRoom, level: Moderation
     allowedNumbers: new Set<string>([...mc.allowedNumbers, ...allowedNumbersFrom(asked?.rules, asked?.roster, asked?.whenAsked)]),
   };
   const result = await orchestrator.run({
-    task: 'bot', system: SYSTEM, schema: SCHEMAS.answer, roomId: room.id, userId: user.id, deadline: 14000, timeoutMs: 6000,
-    user: buildPrompt('answer', {
+    task: 'bot', system: BOT_SYSTEM, schema: SCHEMAS.bot, roomId: room.id, userId: user.id, deadline: 14000, timeoutMs: 6000,
+    user: buildPrompt('bot', {
       SPORT: asked?.sport, MATCH_WHEN_ASKED: asked?.whenAsked || undefined,
       VERIFIED_MATCH_DATA: mc.facts, COMMENTARY: mc.commentary, DATA_FRESHNESS: mc.freshness,
       RULES_SHEET: asked?.rules, ROSTER: asked?.roster,
       QUESTION_UNTRUSTED: question,
     }),
-    validate: (v) => validateOutput('answer', v, grounding),
+    validate: (v) => validateOutput('bot', v, grounding),
     isCancelled: async () => (await one<Pick<RoomRow, 'status'>>(db, 'SELECT status FROM rooms WHERE id = $1', [room.id]))?.status !== 'active',
   });
   await roomAccess(db, room.id, user); // the room may have ended, or the asker left, while the answer was written
@@ -78,5 +79,6 @@ async function reply(db: Db, user: SessionUser, room: BotRoom, level: Moderation
     await recordBlockedOutput(db, room.id, result.reason);
     return unavailable(`Dream AI can't answer right now.${headline}`);
   }
-  return { answer: result.value.text, asked_at: askedAt, grounding: result.value.grounding.status, source: 'ai' };
+  const v = result.value;
+  return { answer: v.text, background: v.background.trim() || null, asked_at: askedAt, grounding: v.grounding.status, source: 'ai' };
 }

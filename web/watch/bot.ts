@@ -9,6 +9,7 @@ import { el, icon, aiLabel, type Child } from './ui.ts';
 // POST /api/rooms/:id/bot. With source 'unavailable' the AI could not answer, and answer says so.
 interface BotAnswer {
   answer: string;
+  background: string | null; // what the AI knows about the players, teams or sport, apart from this game's data
   asked_at: string | null; // the clock or over of the latest play, e.g. "Over 18.4"
   grounding: 'grounded' | 'rules_sheet' | 'insufficient_data' | 'not_applicable' | null;
   source: 'ai' | 'unavailable';
@@ -187,7 +188,8 @@ function mount(chat: Chat): View {
     }
     const r = t.reply;
     if (r.source !== 'ai') return bot('muted', el('p', { class: 'db-answer', text: r.answer }), provenance(r), again(() => askAgain(chat, t)));
-    return bot('answer', el('p', { class: 'db-answer', text: r.answer }), provenance(r));
+    return bot('answer', r.answer ? el('p', { class: 'db-answer', text: r.answer }) : null, r.answer ? provenance(r) : null,
+      r.background ? el('div', { class: 'db-bg' }, el('p', { class: 'db-bg-label' }, icon('ai'), 'From AI knowledge · not from the match data'), el('p', { class: 'db-bg-text', text: r.background })) : null);
   }
 
   function render() {

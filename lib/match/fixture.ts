@@ -4,6 +4,7 @@ import { one, type Queryable } from '../db/index.ts';
 import type { MatchRow, Priority } from '../db/rows.ts';
 import type { Fan } from './fans.ts';
 import { CRICKET } from './sports/cricket.ts';
+import { KABADDI } from './sports/kabaddi.ts';
 import { FOOTBALL } from './sports/football.ts';
 import { BASKETBALL } from './sports/basketball.ts';
 
@@ -98,7 +99,7 @@ export interface Fixture<State = any, Item = any, Score = any> {
 interface SportBacking { sport: string; label: string; title: string; teams: Team[]; players: BackedPlayer[] }
 
 export const DEMO_FIXTURE = CRICKET;
-export const FIXTURE_ORDER: Fixture[] = [CRICKET, FOOTBALL, BASKETBALL];
+export const FIXTURE_ORDER: Fixture[] = [CRICKET, KABADDI, FOOTBALL, BASKETBALL];
 export const FIXTURES: Record<string, Fixture> = Object.fromEntries(FIXTURE_ORDER.map((f) => [f.key, f]));
 export const sportRank = (fixtureKey: string) => FIXTURE_ORDER.findIndex((f) => f.key === fixtureKey);
 // Backing per sport, in home-screen order (one fixture per sport).

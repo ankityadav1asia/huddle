@@ -14,7 +14,7 @@ function fake(text: string, extra: Record<string, unknown> = {}): Fake {
     name: 'fake', model: 'fake-1', requests: [],
     async generate(req) {
       p.requests.push(req);
-      const content = { type: 'answer', text, language: 'english', confidence: 'high', grounding: { status: 'grounded', sourceEventIds: [] }, needsHumanReview: false, ...extra };
+      const content = { type: 'answer', text, background: '', language: 'english', confidence: 'high', grounding: { status: 'grounded', sourceEventIds: [] }, needsHumanReview: false, ...extra };
       return { content, provider: 'fake', model: 'fake-1', requestId: null, latencyMs: 5, usage: { input: 1, output: 1 } };
     },
   };
@@ -49,7 +49,7 @@ test('Dream AI answers the asker privately, from the match data, rules and roste
   const before = await roomCounts();
   const r = await ask(fan, 'Kitne runs chahiye CSK ko?');
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(r.body, { answer: 'CSK need 52 off 34, and Dube just hit a six.', asked_at: 'Over 14.2', grounding: 'grounded', source: 'ai' });
+  assert.deepEqual(r.body, { answer: 'CSK need 52 off 34, and Dube just hit a six.', background: null, asked_at: 'Over 14.2', grounding: 'grounded', source: 'ai' });
   assert.deepEqual(await roomCounts(), before); // no message, no room event
   const [req] = p.requests;
   assert.equal(req.name, 'bot');
@@ -71,7 +71,7 @@ test('an answer with a number the verified data does not have is rejected: an ho
   const r = await ask(fan, 'What does CSK need?');
   assert.equal(r.status, 200);
   assert.equal(p.requests.length, 1);
-  assert.deepEqual(r.body, { answer: "Dream AI can't answer right now. Latest: CSK 135/2 (14.2) · need 52 off 34.", asked_at: 'Over 14.2', grounding: null, source: 'unavailable' });
+  assert.deepEqual(r.body, { answer: "Dream AI can't answer right now. Latest: CSK 135/2 (14.2) · need 52 off 34.", background: null, asked_at: 'Over 14.2', grounding: null, source: 'unavailable' });
   // The same goes for unsafe text.
   fake('Only an idiot would bowl Tilak there.');
   assert.equal((await ask(fan, 'Should Tilak bowl?')).body.source, 'unavailable');
@@ -137,4 +137,18 @@ test('members only, a room with a game only, and strict input', async () => {
   const ended = await makePrivateRoom(app, fan, []);
   await fan.post(`/api/rooms/${ended}/end`);
   assert.equal((await ask(fan, 'What is the score?', msgId(), ended)).status, 410);
+});
+
+test('Dream AI may add background from its own knowledge, labelled apart; numbers about this game are still checked', async () => {
+  await app.db.query('DELETE FROM rate_events');
+  const background = 'MS Dhoni captained India to the 2011 World Cup and is famous as one of the coolest finishers in the game. CSK fans call him Thala.';
+  fake("Dhoni hasn't batted yet in this chase; he is CSK's wicketkeeper-batter.", { background });
+  const r = await ask(fan, 'Who is MS Dhoni?');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.source, 'ai');
+  assert.equal(r.body.background, background, 'well-known facts (2011) are allowed in the background');
+  await app.db.query('DELETE FROM rate_events');
+  fake('Dhoni has 99 runs today.', { background });
+  const made = await ask(fan, 'How many has Dhoni scored?');
+  assert.equal(made.body.source, 'unavailable', 'an invented number about this game is still rejected');
 });

@@ -159,6 +159,11 @@
 .db-prov::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
 .db-prov.data::before { background: var(--accent); box-shadow: 0 0 0 3px rgba(15, 157, 99, 0.15); }
 .db-prov.rules::before { background: var(--db-violet); box-shadow: 0 0 0 3px rgba(106, 79, 240, 0.15); }
+.db-bg { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: linear-gradient(135deg, rgba(59, 108, 255, 0.07), rgba(236, 72, 153, 0.07)); border: 1px solid rgba(139, 92, 246, 0.18); }
+.db-answer + .db-bg, .db-prov + .db-bg { margin-top: 10px; }
+.db-bg-label { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; color: var(--db-violet); font-size: 11px; font-weight: 800; letter-spacing: 0.02em; }
+.db-bg-label .ico { width: 13px; height: 13px; }
+.db-bg-text { margin: 0; color: var(--text); font-size: 14px; line-height: 1.5; }
 .db-prov.none::before { background: #d99a00; box-shadow: 0 0 0 3px rgba(217, 154, 0, 0.15); }
 .db-msg.muted .db-bubble { border-style: dashed; background: #eef0f5; color: var(--muted); box-shadow: none; }
 .db-msg.error .db-bubble { border-color: #f6c9cd; background: #fdecee; color: #b4232f; box-shadow: none; }
