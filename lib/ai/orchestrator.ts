@@ -2,7 +2,7 @@
 // transient failures (timeout, 5xx, overload, rate limit) within one overall deadline; safety refusals, invalid
 // requests, auth errors, bad responses and output that fails validation end the run.
 import { AIError, RETRYABLE, type Provider } from './providers.ts';
-import { newId } from '../util.ts';
+import { newId, errorMessage } from '../util.ts';
 import type { Queryable } from '../db/index.ts';
 import { log } from '../log.ts';
 
@@ -231,6 +231,8 @@ export function createOrchestrator({
               const failure = err instanceof AIError ? err : null;
               const category = failure?.category || 'unavailable';
               lastCategory = category;
+              // The vendor's own error text (never the key) is what tells a bad model name from a bad key or schema.
+              log.warn('ai.provider_error', { task, provider: p.name, model: p.model, attempt, category, status: failure?.status ?? null, message: failure?.message ?? errorMessage(err), ms: now() - t0, correlationId });
               await record({ correlationId, task, roomId, userId, provider: p.name, model: p.model, attempt, outcome: 'error', error_category: category, fallback_reason: fallbackReason, latency_ms: now() - t0 });
               if (!RETRYABLE.has(category)) {
                 // Refusals, bad requests, auth failures and malformed output stop here: no provider switch.
