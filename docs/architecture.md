@@ -11,7 +11,7 @@ the UI), **Planned** (not built).
 
 | Capability | Status |
 |---|---|
-| Joining (guest profile: display name + @handle), sessions | Implemented. No phone number or password: a 30-day HttpOnly session cookie keeps the browser signed in; new profiles are limited per network |
+| Joining (one tap: a guest profile with a username Huddle picks), sessions | Implemented. No name, phone number or password: a 30-day HttpOnly session cookie keeps the browser signed in; new profiles are limited per network |
 | Public and private Watch Party rooms, invitations, roles, presence | Implemented; six labelled **demo friends** can be invited to try invitations alone |
 | Realtime chat, reactions, polls (long-polling) | Implemented |
 | Moment threads: #topics for big moments and for what the room argues about | Implemented (deterministic rules) |
@@ -118,7 +118,7 @@ erDiagram
 ### Identity and access
 | Table | Purpose | Key columns |
 |---|---|---|
-| `users` | One row per profile | `handle` (unique, public), `display_name`, `sports` (per sport: the team backed or null, and up to 3 players, migration `010`); `is_demo` (the labelled demo friends, migration `005`). Migration `011` dropped the old `team`, `picks` and `phone_e164` columns |
+| `users` | One row per profile | `handle` (the username: unique, public), `display_name` (no longer written or read), `sports` (per sport: the team backed or null, and up to 3 players, migration `010`); `is_demo` (the labelled demo friends, migration `005`). Migration `011` dropped the old `team`, `picks` and `phone_e164` columns |
 | `sessions` | Server-side sessions | `token_hash` (SHA-256 of the cookie token), `expires_at`, `revoked_at` |
 
 ### Match Intelligence (shared across rooms; never per room)
@@ -179,9 +179,9 @@ When a room ends, every user-facing read of this content stops at once. The purg
 ## 4. Workflows
 
 ### 4.1 Joining
-1. A new visitor picks a display name, an @handle and optionally a team and players per sport: `POST /api/auth/guest`. Names and handles
-   pass the same strict safety check as other public labels, handles are unique, and reserved handles (huddle,
-   admin, moderator…) are refused.
+1. A new visitor taps Join: `POST /api/auth/guest {}`. The server picks a unique username (`fan_` and four digits,
+   one more digit after each clash). Usernames chosen later in Edit profile pass the same strict safety check as other
+   public labels, are unique, and reserved names (huddle, admin, moderator…) are refused.
 2. The server creates the profile and a session. The browser holds a random token in an HttpOnly, SameSite=Lax
    cookie (`__Host-` prefixed and Secure in production); the database keeps only its SHA-256 hash. Sessions last
    30 days. There is no password, so a profile cannot be recovered after signing out or clearing the browser.

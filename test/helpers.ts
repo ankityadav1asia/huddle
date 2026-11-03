@@ -99,10 +99,10 @@ export function client(base: string): Client {
   return c;
 }
 
-// Joins as a guest (display name + handle, backing a cricket team) and returns a client holding that session.
+// Joins as a guest with a fixed username (handle), backing a cricket team, and returns a client holding that session.
 export async function signUp(base: string, handle: string, { team = 'CSK' } = {}): Promise<Client> {
   const c = client(base);
-  const r = await c.post('/api/auth/guest', { display_name: handle, handle, sports: { cricket: { team } } });
+  const r = await c.post('/api/auth/guest', { handle, sports: { cricket: { team } } });
   if (r.status !== 201) throw new Error(`guest join failed: ${JSON.stringify(r.body)}`);
   c.user = r.body.user;
   return c;

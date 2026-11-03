@@ -35,7 +35,7 @@ type Room = {
 );
 
 // A member, with the team they back in this room's sport.
-interface Member { id: string; handle: string | null; name: string | null; team: string | null; role: Role }
+interface Member { id: string; handle: string | null; team: string | null; role: Role }
 
 // Who has the room open, and who has it in front (active).
 interface Presence { online: string[]; active: string[] }
@@ -178,7 +178,7 @@ interface CatchUp {
 }
 
 // An invitation as the room's owner and admins see it (GET /api/rooms/:id/invitations).
-interface RoomInvitation { id: string; user_id: string; handle: string; display_name: string | null; status: string }
+interface RoomInvitation { id: string; user_id: string; handle: string; status: string }
 
 // A control for a private room's own replay (POST /api/rooms/:id/replay).
 type ReplayControl = { action: string; speed?: number; moment?: string };
@@ -588,7 +588,7 @@ function applyMember(state: RoomState, ev: MemberEvent) {
   const prev = state.members.get(m.id);
   let line = '';
   if (m.status === 'active') {
-    state.members.set(m.id, { id: m.id, handle: m.handle, name: m.name, team: m.team, role: m.role });
+    state.members.set(m.id, { id: m.id, handle: m.handle, team: m.team, role: m.role });
     if (!prev) line = `@${m.handle} joined`;
     else if (prev.role !== m.role) line = `@${m.handle} is now ${m.role === 'admin' ? 'an admin' : 'a member'}`;
   } else if (prev) {
@@ -800,7 +800,7 @@ function openQuickPrivate(state: RoomState) {
   const me = state.ctx.me;
   const s = openSheet({ title: 'Start a private room', lede: 'Watch this match with only the people you invite. Match moments, #threads and the AI Co-host come with it; simulated fans stay here.' });
   const error = el('p', { class: 'form-error', role: 'alert' });
-  const name = el('input', { id: 'quick-room-name', maxlength: '40', value: `${me.display_name || me.handle}'s room`.slice(0, 40) });
+  const name = el('input', { id: 'quick-room-name', maxlength: '40', value: `${me.handle}'s room`.slice(0, 40) });
   const own = el('input', { type: 'checkbox', id: 'quick-own-replay' });
   const picker = friendPicker({ excludeIds: new Set([me.id]) });
   const create = el('button', { type: 'submit', class: 'btn primary', text: 'Create and invite' });
@@ -1599,7 +1599,7 @@ function openMembers(state: RoomState) {
       return el('li', { class: 'member-row' },
         el('span', { class: `online-dot${online.has(m.id) ? ' on' : ''}`, title: online.has(m.id) ? 'Online' : 'Away' }),
         avatar(m),
-        el('span', { class: 'member-main' }, el('b', { text: me ? `@${m.handle} (you)` : `@${m.handle}` }), el('small', { text: `${m.name || ''}${online.has(m.id) ? ' · online' : ''}` })),
+        el('span', { class: 'member-main' }, el('b', { text: me ? `@${m.handle} (you)` : `@${m.handle}` }), el('small', { text: online.has(m.id) ? 'online' : '' })),
         ROLE_LABEL[m.role] ? el('span', { class: `role-badge ${m.role}`, text: ROLE_LABEL[m.role] }) : null,
         actions);
     }));
@@ -1621,7 +1621,7 @@ async function loadInvites(state: RoomState, s: ReturnType<typeof openSheet>, sl
       if (!s.isOpen()) return;
       picker.hide(r.invitations.filter((i) => i.status === 'pending').map((i) => i.user_id));
       statusList.replaceChildren(...(r.invitations.length ? r.invitations.map((i) => el('li', { class: 'invite-row' },
-        el('span', { class: 'member-main' }, el('b', { text: `@${i.handle}` }), el('small', { text: i.display_name || '' })),
+        el('span', { class: 'member-main' }, el('b', { text: `@${i.handle}` })),
         el('span', { class: `status-pill inv-${i.status}`, text: i.status }),
         i.status === 'pending' ? el('button', { type: 'button', class: 'ctl', text: 'Revoke', onclick: async (e) => {
           e.currentTarget.disabled = true;

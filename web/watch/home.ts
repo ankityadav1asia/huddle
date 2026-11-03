@@ -26,7 +26,7 @@ interface Game { id: string; title: string; sport: string }
 interface RoomLists { public_rooms: PublicRoom[]; my_rooms: MyRoom[]; matches: Game[] }
 
 // A fan found by handle or name, or one of the labelled demo friends (GET /api/users/search, /api/users/demo).
-interface FoundUser { id: string; handle: string; name: string | null; teams: string[]; demo: boolean }
+interface FoundUser { id: string; handle: string; teams: string[]; demo: boolean }
 
 let refreshTimer = 0;
 
@@ -56,7 +56,7 @@ export async function renderHome(ctx: ReadyCtx) {
       el('header', { class: 'top' },
         el('div', { class: 'top-title' },
           el('b', { class: 'brand', text: 'Huddle' }),
-          el('span', { class: 'top-sub', text: `Hi ${ctx.me.display_name || ctx.me.handle} · @${ctx.me.handle}` })),
+          el('span', { class: 'top-sub', text: `Hi @${ctx.me.handle}` })),
         bell, menu)),
     el('div', { class: 'scroll-body', id: 'home-body' },
       invites, live, mine,
@@ -189,10 +189,9 @@ function backingLine(ctx: ReadyCtx) {
 }
 
 function openMenu(ctx: ReadyCtx) {
-  const s = openSheet({ title: ctx.me.display_name || ctx.me.handle });
+  const s = openSheet({ title: `@${ctx.me.handle}` });
   const backing = backingLine(ctx);
   s.body.append(
-    el('p', { class: 'lede', text: `@${ctx.me.handle}` }),
     ...(backing ? [el('p', { class: 'fine', text: backing })] : []),
     el('p', { class: 'fine', text: `Account ID: ${ctx.me.id}` }),
     el('div', { class: 'menu-list' },
@@ -241,7 +240,7 @@ export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?
       e.currentTarget.setAttribute('aria-pressed', String(selected.has(u.id)));
       renderChips();
       onChange?.([...selected.keys()]);
-    } }, el('b', { text: `@${u.handle}` }), el('span', { text: u.name || '' }),
+    } }, el('b', { text: `@${u.handle}` }),
     u.demo ? el('small', { class: 'demo-tag', text: 'Demo' }) : null,
     u.teams?.length ? el('small', { text: u.teams.join(' · ') }) : null));
 

@@ -13,20 +13,20 @@ with a `Retry-After` header. A private room the caller cannot see answers `404`,
 |---|---|---|
 | GET | `/api/health` | `{ ok, db }` |
 | GET | `/api/config` | `auth { mode: guest, available }`, `notifications { max_per_match }`, push key, demo controls flag, AI availability, chat limits and reactions, moderation levels and the public policy, retention hours, `sports [{ sport, label, title, teams [{ code, name, logo? }], players [{ name, short, team }] }]` and `max_picks` (3): what a fan can back in each sport |
-| POST | `/api/auth/guest` | `{ display_name, handle, sports? }`. `sports` is keyed by sport: `{ "<sport>": { team: code \| null, picks?: [names] } }`, a team from that sport (else `400 invalid_team`) and up to 3 different players from it (else `400 invalid_picks`); an unknown sport is `400 invalid_sport` → `201 { user, needs_profile: false }` + session cookie. `400` invalid or unsafe name/handle, `409 handle_taken`, `429` too many new profiles from this network, `503` server not configured |
+| POST | `/api/auth/guest` | `{ handle?, sports? }`, usually `{}`: without a `handle` the server picks one (`fan_` and digits). `sports` is keyed by sport: `{ "<sport>": { team: code \| null, picks?: [names] } }`, a team from that sport (else `400 invalid_team`) and up to 3 different players from it (else `400 invalid_picks`); an unknown sport is `400 invalid_sport` → `201 { user, needs_profile: false }` + session cookie. `400` invalid or unsafe username, `409 handle_taken`, `429` too many new profiles from this network, `503` server not configured |
 
 ## Account
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/auth/logout` | Revokes the session |
 | POST | `/api/auth/logout-all` | Revokes every session of this user (all devices) |
-| GET | `/api/me` | `{ user: { id, handle, display_name, sports, is_moderator }, needs_profile }`. A sport missing from `sports` was never answered (its rooms ask once); `team: null` means the fan backs nobody there |
-| PUT | `/api/me/profile` | `{ display_name, handle, sports? }` (handles 3–20 of a-z 0-9 _). Each sport sent replaces that sport's choice (leaving out its `picks` keeps them, `[]` clears them), `null` forgets it, and sports left out are kept |
+| GET | `/api/me` | `{ user: { id, handle, sports, is_moderator }, needs_profile }`. A sport missing from `sports` was never answered (its rooms ask once); `team: null` means the fan backs nobody there |
+| PUT | `/api/me/profile` | `{ handle, sports? }` (usernames are 3–20 of a-z 0-9 _). Each sport sent replaces that sport's choice (leaving out its `picks` keeps them, `[]` clears them), `null` forgets it, and sports left out are kept |
 | PUT | `/api/me/sports/:sport` | `{ team: code \| null, picks? }` → `{ user }`: one sport's choice, as a room asks it ("Who are you backing?") |
 | GET / PUT | `/api/me/notifications` | `{ push_momentum, push_answers, push_invites }` (+ `push_subscribed`, `push_available`, `vapid_public_key` on GET) |
 | POST / DELETE | `/api/me/push-subscriptions` | Browser `PushSubscription.toJSON()` / remove all |
 | GET | `/api/me/invitations` | Pending, unexpired invitations to active rooms |
-| GET | `/api/users/search?q=` | Handle or display-name prefix (≥2 chars), max 10, public fields only: `{ users: [{ id, handle, name, teams, demo }] }` (`teams`: the codes they back, one per sport), real profiles first |
+| GET | `/api/users/search?q=` | Username prefix (≥2 chars), max 10, public fields only: `{ users: [{ id, handle, teams, demo }] }` (`teams`: the codes they back, one per sport), real profiles first |
 | GET | `/api/users/demo` | The labelled demo friends to invite, each with `demo: true` (nobody signs in as them, so their invitations stay pending). `DEMO_USERS=false` empties this list and leaves them out of search |
 
 ## Rooms

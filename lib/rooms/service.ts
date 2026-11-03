@@ -166,13 +166,13 @@ export async function inviteToRoom(db: Db, user: SessionUser, roomId: string, bo
 
 // An invitation as the room's owner and admins list it, with the invitee's profile.
 type RoomInvitationRow = Pick<InvitationRow, 'id' | 'status' | 'created_at' | 'expires_at' | 'responded_at'>
-  & { user_id: string; handle: string | null; display_name: string | null; lapsed: boolean };
+  & { user_id: string; handle: string | null; lapsed: boolean };
 
 export async function roomInvitations(db: Queryable, user: SessionUser, roomId: string) {
   const { room, role } = await roomAccess(db, roomId, user);
   if (room.room_type !== 'private' || !isAdminRole(role)) throw forbidden('Only the room owner or an admin can see invitations.');
   const rows = await many<RoomInvitationRow>(db,
-    `SELECT i.id, i.status, i.created_at, i.expires_at, i.responded_at, u.id AS user_id, u.handle, u.display_name,
+    `SELECT i.id, i.status, i.created_at, i.expires_at, i.responded_at, u.id AS user_id, u.handle,
             (i.status = 'pending' AND i.expires_at <= now()) AS lapsed
        FROM room_invitations i JOIN users u ON u.id = i.invitee_id
       WHERE i.room_id = $1 ORDER BY i.created_at DESC LIMIT 100`, [roomId]);
@@ -188,14 +188,13 @@ interface MyInvitationRow {
   room_name: string | null;
   moderation_level: ModerationLevel | null;
   inviter_handle: string | null;
-  inviter_name: string | null;
   match_title: string | null;
 }
 
 export async function myInvitations(db: Queryable, user: SessionUser) {
   const rows = await many<MyInvitationRow>(db,
     `SELECT i.id, i.expires_at, i.created_at, r.id AS room_id, r.name AS room_name, r.moderation_level,
-            inv.handle AS inviter_handle, inv.display_name AS inviter_name, mt.title AS match_title
+            inv.handle AS inviter_handle, mt.title AS match_title
        FROM room_invitations i
        JOIN rooms r ON r.id = i.room_id
        JOIN users inv ON inv.id = i.inviter_id

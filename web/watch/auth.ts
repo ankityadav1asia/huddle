@@ -1,6 +1,7 @@
-// Joining Huddle: a display name, a handle and, optionally, the team and up to three players you back in each sport.
-// The server creates a guest profile and keeps this browser signed in with an HttpOnly session cookie.
-import { api, errorMessage, type Config, type Me, type SportChoice, type SportInfo } from './api.ts';
+// Joining takes one tap: the server creates a guest profile with a username it picks (@fan_4821) and keeps this
+// browser signed in with an HttpOnly session cookie. Edit profile changes the username and the teams and players
+// someone backs in each sport.
+import { api, errorMessage, type Config, type SportChoice, type SportInfo } from './api.ts';
 import { el, setRail, railIntro, teamClass, type Child } from './ui.ts';
 import type { Ctx } from './app.ts';
 
@@ -15,75 +16,69 @@ function shell(view: HTMLElement, subtitle: string, ...content: Child[]) {
   );
 }
 
-const field = (id: string, label: string, input: HTMLElement, hint?: string) => el('div', { class: 'field' },
-  el('label', { for: id, text: label }), input, hint ? el('p', { class: 'field-hint', id: `${id}-hint`, text: hint }) : null);
-
-// New visitors: create a guest profile.
+// New visitors: one button.
 export function renderAuth(ctx: Ctx) {
-  renderProfileForm(ctx, {
-    subtitle: 'Sports watch parties with friends',
-    title: 'Join the watch party',
-    lede: 'Pick a name for the chat. No phone number or password needed: this browser keeps you signed in.',
-    button: 'Join Huddle',
-    submit: (body) => api.post('/api/auth/guest', body),
-    note: 'Your profile lives in this browser. If you sign out or clear your browser data, it cannot be recovered.',
-  });
-}
-
-// Signed-in users: setting up a profile that has no handle yet, and Edit profile.
-export function renderProfile(ctx: Ctx) {
-  renderProfileForm(ctx, {
-    subtitle: 'Almost there',
-    title: 'Set up your profile',
-    lede: 'Fans see your name, your handle and the teams and players you back.',
-    button: 'Save and continue',
-    submit: (body) => api.put('/api/me/profile', body),
-  });
-}
-
-type ProfileForm = { subtitle: string; title: string; lede: string; button: string; submit: (body: unknown) => Promise<{ user: Me }>; note?: string };
-
-function renderProfileForm(ctx: Ctx, { subtitle, title, lede, button, submit, note }: ProfileForm) {
   setRail(railIntro());
   const view = document.getElementById('view');
   if (!view) return;
   const error = el('p', { class: 'form-error', role: 'alert' });
-  const name = el('input', { id: 'display-name', maxlength: '30', required: true, autocomplete: 'nickname', value: ctx.me?.display_name || '' });
+  const join = el('button', { type: 'button', class: 'btn primary', text: 'Join Huddle' });
+  join.addEventListener('click', async () => {
+    join.disabled = true;
+    error.textContent = '';
+    try {
+      ctx.signedIn((await api.post('/api/auth/guest', {})).user, false);
+    } catch (err) {
+      error.textContent = errorMessage(err);
+      join.disabled = false;
+    }
+  });
+  shell(view, 'Sports watch parties with friends',
+    el('div', { class: 'card form-card' },
+      el('h2', { class: 'card-title', text: 'Join the watch party' }),
+      el('p', { class: 'card-lede', text: 'One tap, no name, phone number or password. Huddle gives you a username like @fan_4821; change it, and pick the teams you back, any time in Edit profile.' }),
+      error, join),
+    el('p', { class: 'fine center', text: 'Your profile lives in this browser. If you sign out or clear your browser data, it cannot be recovered.' }));
+  join.focus();
+}
+
+// Signed-in users: Edit profile, and older profiles that have no username yet.
+export function renderProfile(ctx: Ctx) {
+  setRail(railIntro());
+  const view = document.getElementById('view');
+  if (!view) return;
+  const error = el('p', { class: 'form-error', role: 'alert' });
   const handle = el('input', { id: 'handle', maxlength: '20', required: true, autocapitalize: 'off', spellcheck: 'false', value: ctx.me?.handle || '', 'aria-describedby': 'handle-hint' });
   const backing = sportPicker(ctx.config, ctx.me?.sports);
-  const save = el('button', { type: 'submit', class: 'btn primary', text: button });
+  const save = el('button', { type: 'submit', class: 'btn primary', text: 'Save' });
   const form = el('form', { class: 'card form-card', novalidate: '' },
-    el('h2', { class: 'card-title', text: title }),
-    el('p', { class: 'card-lede', text: lede }),
-    field('display-name', 'Display name', name),
-    field('handle', 'Handle', el('div', { class: 'phone-input' }, el('span', { class: 'cc', 'aria-hidden': 'true', text: '@' }), handle), '3–20 letters, numbers or underscores. Friends find you by this.'),
+    el('h2', { class: 'card-title', text: 'Your profile' }),
+    el('p', { class: 'card-lede', text: 'Fans see your username and the teams and players you back.' }),
+    el('div', { class: 'field' },
+      el('label', { for: 'handle', text: 'Username' }),
+      el('div', { class: 'phone-input' }, el('span', { class: 'cc', 'aria-hidden': 'true', text: '@' }), handle),
+      el('p', { class: 'field-hint', id: 'handle-hint', text: '3–20 letters, numbers or underscores. Friends find you by this.' })),
     backing.node,
     error, save);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const h = handle.value.trim().replace(/^@/, '').toLowerCase();
-    if (!name.value.trim()) {
-      error.textContent = 'Enter a display name.';
-      name.focus();
-      return;
-    }
     if (!/^[a-z0-9_]{3,20}$/.test(h)) {
-      error.textContent = 'Handles use 3–20 letters, numbers or underscores.';
+      error.textContent = 'Usernames use 3–20 letters, numbers or underscores.';
       handle.focus();
       return;
     }
     save.disabled = true;
     error.textContent = '';
     try {
-      const r = await submit({ display_name: name.value, handle: h, sports: backing.value() });
-      ctx.signedIn(r.user, false);
+      ctx.signedIn((await api.put('/api/me/profile', { handle: h, sports: backing.value() })).user, false);
     } catch (err) {
       error.textContent = errorMessage(err);
       save.disabled = false;
     }
   });
-  shell(view, subtitle, form, note ? el('p', { class: 'fine center', text: note }) : null);
-  name.focus();
+  shell(view, 'Your profile', form);
+  handle.focus();
 }
 
 // The team you back (or none) and up to three players in each sport, one sport at a time. A sport you leave alone

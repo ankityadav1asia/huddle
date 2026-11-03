@@ -15,13 +15,10 @@ after(async () => { await app.close(); });
 test('at least five clearly labelled demo friends exist, created once', async () => {
   resetDemoFriendsFlag();
   await ensureDemoFriends(app.db); // a second run (restart, another instance) adds nothing
-  const rows = (await app.db.query('SELECT handle, display_name, is_demo FROM users WHERE is_demo ORDER BY handle')).rows;
+  const rows = (await app.db.query('SELECT handle, is_demo FROM users WHERE is_demo ORDER BY handle')).rows;
   assert.ok(rows.length >= 5);
   assert.equal(rows.length, DEMO_FRIENDS.length);
-  for (const r of rows) {
-    assert.match(r.handle, /^demo_/);
-    assert.match(r.display_name, /\(demo\)$/);
-  }
+  for (const r of rows) assert.match(r.handle, /^demo_/);
   const sessions = (await app.db.query('SELECT count(*)::int AS n FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.is_demo')).rows[0].n;
   assert.equal(sessions, 0); // nobody can be signed in as a demo friend
 });
@@ -50,9 +47,9 @@ test('a private room can invite demo friends; their invitations stay pending', a
 });
 
 test('nobody can join with a demo_ handle, so a real person is never mistaken for a demo friend', async () => {
-  const r = await client(app.base).post('/api/auth/guest', { display_name: 'Faker', handle: 'demo_faker' });
+  const r = await client(app.base).post('/api/auth/guest', { handle: 'demo_faker' });
   assert.equal(r.status, 400);
-  const taken = await client(app.base).post('/api/auth/guest', { display_name: 'Aarav', handle: 'demo_aarav' });
+  const taken = await client(app.base).post('/api/auth/guest', { handle: 'demo_aarav' });
   assert.equal(taken.status, 400);
 });
 

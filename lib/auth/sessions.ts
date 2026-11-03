@@ -49,7 +49,6 @@ export function isModerator(user: { id: string }) {
 export interface SessionUser {
   id: string;
   handle: string | null;
-  display_name: string | null;
   sports: Sports;
   is_moderator: boolean;
 }
@@ -64,7 +63,6 @@ interface SessionLookupRow {
   last_used_at: Date;
   id: string;
   handle: string | null;
-  display_name: string | null;
   sports: Sports | null;
 }
 
@@ -73,7 +71,7 @@ export async function sessionUser(db: Queryable, req: IncomingMessage): Promise<
   const token = readCookie(req, cookieName());
   if (!token || token.length > 100) return null;
   const { rows } = await db.query(
-    `SELECT s.id AS session_id, s.last_used_at, u.id, u.handle, u.display_name, u.sports
+    `SELECT s.id AS session_id, s.last_used_at, u.id, u.handle, u.sports
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`,
     [sha256(token)],
@@ -83,7 +81,7 @@ export async function sessionUser(db: Queryable, req: IncomingMessage): Promise<
   if (Date.now() - new Date(row.last_used_at).getTime() > 5 * 60 * 1000) {
     await db.query('UPDATE sessions SET last_used_at = now() WHERE id = $1', [row.session_id]);
   }
-  const user: SessionUser = { id: row.id, handle: row.handle, display_name: row.display_name, sports: row.sports || {}, is_moderator: false };
+  const user: SessionUser = { id: row.id, handle: row.handle, sports: row.sports || {}, is_moderator: false };
   user.is_moderator = isModerator(user);
   return { user, session: { id: row.session_id } };
 }

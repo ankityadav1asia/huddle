@@ -107,7 +107,7 @@ export async function pollEvents(db: Queryable, user: SessionUser, roomId: strin
 }
 
 // A member as the room lists them, with the team they back in the room's sport.
-interface RoomMemberRow { id: string; handle: string | null; name: string | null; team: string | null; role: RoomRole }
+interface RoomMemberRow { id: string; handle: string | null; team: string | null; role: RoomRole }
 
 // Room bootstrap for an active member: details plus a short recent window, never the full history.
 export async function roomBootstrap(db: Queryable, user: SessionUser, roomId: string) {
@@ -142,7 +142,7 @@ export async function roomBootstrap(db: Queryable, user: SessionUser, roomId: st
   const matchRow = room.match_id ? await one<Pick<MatchRow, 'id' | 'title' | 'status' | 'fixture_key'>>(db, 'SELECT id, title, status, fixture_key FROM matches WHERE id = $1', [room.match_id]) : null;
   const fixture = matchRow ? fixtureFor(matchRow) : null;
   const members = await many<RoomMemberRow>(db,
-    `SELECT u.id, u.handle, u.display_name AS name, u.sports -> $2::text ->> 'team' AS team, m.role FROM room_members m JOIN users u ON u.id = m.user_id
+    `SELECT u.id, u.handle, u.sports -> $2::text ->> 'team' AS team, m.role FROM room_members m JOIN users u ON u.id = m.user_id
       WHERE m.room_id = $1 AND m.status = 'active' ORDER BY (m.role = 'owner') DESC, (m.role = 'admin') DESC, m.joined_at`, [roomId, fixture?.sport ?? null]);
   const cooldown = await one<{ next_allowed_at: Date }>(db, 'SELECT next_allowed_at FROM user_send_cooldowns WHERE user_id = $1 AND next_allowed_at > now()', [user.id]);
   const match = matchRow ? { id: matchRow.id, title: matchRow.title, status: matchRow.status, sport: fixture!.sport, sport_name: fixture!.sportName } : null;

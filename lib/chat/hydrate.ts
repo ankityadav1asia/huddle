@@ -9,7 +9,7 @@ import { fixtureFor } from '../match/fixture.ts';
 
 export const REACTIONS = ['🔥', '😂', '😮', '👏', '😢', '🏏'];
 
-interface Sender { type: 'user' | 'ai'; id: string | null; handle: string | null; name: string | null; team: string | null }
+interface Sender { type: 'user' | 'ai'; id: string | null; handle: string | null; team: string | null }
 interface ReactionCount { emoji: string; count: number; mine: boolean }
 
 interface MessageItem {
@@ -56,7 +56,6 @@ interface InsightItem {
 interface MemberItem {
   id: string;
   handle: string | null;
-  name: string | null;
   team: string | null;
   role: RoomRole | null; // null (with status) for someone who has no membership row in this room
   status: MemberStatus | null;
@@ -69,7 +68,6 @@ interface RoomUpdate { seq: number; type: RoomEventType; data: MessageItem | Pol
 // A message with its sender's profile, the message it replies to and its thread (LEFT JOINs: null where absent).
 interface MessageViewRow extends MessageRow {
   handle: string | null;
-  display_name: string | null;
   team: string | null;
   reply_sender_type: MessageRow['sender_type'] | null;
   reply_handle: string | null;
@@ -87,11 +85,9 @@ type PollViewRow = PollRow & { is_open: boolean; my_vote: number | null; counts:
 type InsightViewRow = Pick<SignalRow, 'trigger' | 'priority' | 'label' | 'fact_text' | 'ai_text' | 'expires_at'>
   & { id: string; seq: number; created_at: Date; occurred_at: Date; event_id: string };
 
-type MemberViewRow = Omit<MemberItem, 'name'> & { display_name: string | null };
-
 const sender = (r: MessageViewRow): Sender => (r.sender_type === 'ai'
-  ? { type: 'ai', id: null, handle: 'huddle', name: 'Huddle Co-host', team: null }
-  : { type: 'user', id: r.sender_id, handle: r.handle, name: r.display_name, team: r.team });
+  ? { type: 'ai', id: null, handle: 'huddle', team: null }
+  : { type: 'user', id: r.sender_id, handle: r.handle, team: r.team });
 
 // The sport of a room's game: people show the team they back in it there. Null for a room without a game.
 async function roomSport(q: Queryable, roomId: string): Promise<string | null> {
@@ -103,7 +99,7 @@ export async function hydrateMessages(q: Queryable, roomId: string, ids: string[
   if (!ids.length) return new Map();
   if (sport === undefined) sport = await roomSport(q, roomId);
   const rows = await many<MessageViewRow>(q,
-    `SELECT m.*, u.handle, u.display_name, u.sports -> $3::text ->> 'team' AS team, p.sender_type AS reply_sender_type, pu.handle AS reply_handle,
+    `SELECT m.*, u.handle, u.sports -> $3::text ->> 'team' AS team, p.sender_type AS reply_sender_type, pu.handle AS reply_handle,
             p.body AS reply_body, p.status AS reply_status, t.title AS thread_title
        FROM messages m
        LEFT JOIN users u ON u.id = m.sender_id
@@ -182,12 +178,12 @@ export async function hydrateInsights(q: Queryable, roomId: string, ids: string[
 async function hydrateMembers(q: Queryable, roomId: string, ids: string[], sport?: string | null): Promise<Map<string, MemberItem>> {
   if (!ids.length) return new Map();
   if (sport === undefined) sport = await roomSport(q, roomId);
-  const rows = await many<MemberViewRow>(q,
-    `SELECT u.id, u.handle, u.display_name, u.sports -> $3::text ->> 'team' AS team, m.role, m.status FROM users u
+  const rows = await many<MemberItem>(q,
+    `SELECT u.id, u.handle, u.sports -> $3::text ->> 'team' AS team, m.role, m.status FROM users u
        LEFT JOIN room_members m ON m.user_id = u.id AND m.room_id = $1
       WHERE u.id IN (SELECT jsonb_array_elements_text($2::jsonb))`,
     [roomId, JSON.stringify(ids), sport]);
-  return new Map(rows.map((r) => [r.id, { id: r.id, handle: r.handle, name: r.display_name, team: r.team, role: r.role, status: r.status }]));
+  return new Map(rows.map((r) => [r.id, r]));
 }
 
 export async function hydrateEvents(q: Queryable, room: Pick<RoomRow, 'id' | 'ai_enabled'>, viewerId: string, events: RoomEventRef[]) {

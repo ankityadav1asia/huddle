@@ -12,7 +12,7 @@ live match. Product rules: [CLAUDE.md](CLAUDE.md). Design: [docs/architecture.md
 
 | Feature | Status |
 |---|---|
-| Guest profiles: display name, @handle, and the team and up to 3 players you back in each sport. No phone number or password; the browser stays signed in for 30 days | Implemented |
+| One-tap join: Huddle picks a username like @fan_4821, which you can change, along with the team and up to 3 players you back in each sport. No name, phone number or password; the browser stays signed in for 30 days | Implemented |
 | One public watch party per sport (up to 100 members, moderated by Huddle) and private rooms (up to 50; the owner picks relaxed, balanced or strict moderation), with invitations, roles, leaving and removal | Implemented |
 | Realtime chat (long-polling), reactions, polls, presence and replies; one message per person every 10 s across all rooms and devices | Implemented |
 | A scoreboard for each sport, play by play, and big-moment alerts (deduplicated; at most 8 pushes per match) | Implemented on simulated games |
@@ -54,7 +54,7 @@ review queue at `/mod`, are listed by account id in `MODERATOR_USER_IDS`; your i
 ## Test
 
 ```bash
-npm test            # 119 tests against the real API and an in-memory database
+npm test            # 120 tests against the real API and an in-memory database
 npm run typecheck   # strict TypeScript: server, tests, browser app and service worker
 ```
 

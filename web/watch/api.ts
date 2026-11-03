@@ -73,11 +73,10 @@ export type ModerationLevel = 'relaxed' | 'balanced' | 'strict';
 // The team a fan backs in a sport (null: nobody) and up to three of its players.
 export interface SportChoice { team: string | null; picks: string[] }
 
-// The signed-in user (GET /api/me and the profile endpoints). An account without a profile has no handle or name.
+// The signed-in user (GET /api/me and the profile endpoints). An older account may have no username yet.
 export interface Me {
   id: string;
   handle: string | null;
-  display_name: string | null;
   sports: Record<string, SportChoice>; // a sport left out was never answered
   is_moderator: boolean;
 }
