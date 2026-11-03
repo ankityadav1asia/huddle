@@ -134,15 +134,16 @@ export function setRail(...children: (Node | null | readonly Node[])[]) {
 
 export function railIntro() {
   return [
-    el('p', { class: 'rail-kicker', text: 'Prototype · Sports watch parties' }),
+    el('p', { class: 'rail-kicker', text: 'Live sports watch parties' }),
     el('h1', { class: 'rail-title', text: 'Huddle' }),
-    el('p', { class: 'rail-lede', text: 'Watch parties for cricket, kabaddi, football and basketball fans: invite friends, chat in real time and follow the live scorecard, with an AI Co-host in the chat and Dream AI for your own questions.' }),
+    el('p', { class: 'rail-lede', text: 'Watch IPL cricket, Pro Kabaddi, ISL football and NBA basketball with your friends. Chat as it happens, follow every ball, raid and goal in the Match Centre, and let the AI keep you in the game.' }),
     el('ul', { class: 'rail-features' },
-      el('li', {}, el('b', { text: 'Watch parties' }), el('span', { text: 'A public room for every sport run by Huddle, and private rooms you start in one tap and invite friends to by username.' })),
-      el('li', {}, el('b', { text: 'Match Centre' }), el('span', { text: 'The full scorecard, commentary, over by over and graphs sit in tabs beside the chat: swipe across, or tap the scorecard.' })),
-      el('li', {}, el('b', { text: 'AI Co-host' }), el('span', { text: 'Posts the big moments and quick polls in the chat, and answers the questions nobody else does. Its messages are labelled as AI.' })),
-      el('li', {}, el('b', { text: 'Dream AI' }), el('span', { text: 'Ask the AI anything about the game, its players or its rules. Only you see the answers, which come from verified match data and a checked rules sheet.' })),
-      el('li', {}, el('b', { text: 'Safe by default' }), el('span', { text: 'Choose relaxed, balanced or strict moderation. Core safety protections are always on.' }))),
+      el('li', {}, el('b', { text: 'Watch parties' }), el('span', { text: 'A public room for every game, and private rooms for your friends: start one in a tap and invite them by username.' })),
+      el('li', {}, el('b', { text: 'Match Centre' }), el('span', { text: 'Commentary, the full scorecard with over by over, team stats and graphs with a live win predictor, one swipe from the chat.' })),
+      el('li', {}, el('b', { text: 'AI Co-host' }), el('span', { text: 'Calls the big moments, runs polls on what the room is arguing about and answers the questions nobody else does. Always labelled as AI.' })),
+      el('li', {}, el('b', { text: 'Dream AI' }), el('span', { text: 'Your own match analyst: ask about the game, a rule or a player. Facts about the game come from verified match data; background from the AI is labelled.' })),
+      el('li', {}, el('b', { text: 'Catch me up' }), el('span', { text: 'Stepped away? See how the score moved, the wickets, sixes and goals you missed, and what the room said about them.' })),
+      el('li', {}, el('b', { text: 'Safe by default' }), el('span', { text: 'Pick relaxed, balanced or strict moderation for your room. Core safety protections are always on.' }))),
     el('p', { class: 'rail-fine', text: 'Messages disappear when a watch party ends.' }),
   ];
 }

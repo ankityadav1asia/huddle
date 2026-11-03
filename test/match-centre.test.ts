@@ -4,9 +4,12 @@ import { startApp, signUp, type App, type Client } from './helpers.ts';
 import { ingestDue } from '../lib/match/feed.ts';
 import { FIXTURES, schedule } from '../lib/match/fixture.ts';
 
-// The Match Centre (GET /api/rooms/:id/match?detail=1): every play labelled, and graphs per sport.
+// The Match Centre (GET /api/rooms/:id/match?detail=1): every play labelled, graphs, stats and the win predictor per sport.
 interface Play { event_id: string; kind: string; over: string; symbol: string | null; label: string | null; text: string; occurred_at: string }
 interface Over { over: number; runs: number; wickets: number; total: number }
+interface Point { label: string; a: number; b: number; draw?: number }
+interface Row { label: string; value?: string; note?: string; a?: number; b?: number }
+interface Section { title: string; kind: 'compare' | 'list'; teams?: string[]; rows: Row[] }
 
 let app: App; let fan: Client; let rooms: { id: string; sport: string; match_id: string }[];
 const roomOf = (sport: string) => rooms.find((r) => r.sport === sport)!;
@@ -55,6 +58,24 @@ test('cricket mid-over: every play has its over, balls their symbol, and the ove
   const dube = score.fall_of_wickets.at(-1);
   assert.deepEqual([dube.name, dube.fours, dube.sixes], ['Shivam Dube', 3, 6]);
   for (const b of score.batters) assert.ok(Number.isInteger(b.fours) && Number.isInteger(b.sixes), b.name);
+});
+
+test('cricket mid-chase: the predictor has a point per play, projections from the scorecard, and stats from the card', async () => {
+  const { prediction, score, stats, commentary } = await centre('cricket'); // CSK 157/3 after Dube's wicket at 15.5
+  const points: Point[] = prediction.points;
+  assert.equal(points.length, commentary.length + 1);
+  assert.equal(points[0].label, '14.0'); // the start of the feed
+  const { label: _, ...now } = points.at(-1)!;
+  assert.deepEqual(prediction.now, now);
+  assert.deepEqual(prediction.projections, [
+    { label: `At the current rate (${score.crr.toFixed(2)} an over)`, value: `CSK finish on ${Math.round(score.runs + (score.crr * score.need_balls) / 6)}` },
+    { label: 'Needed', value: `${score.rrr.toFixed(2)} an over` },
+    { label: 'Par from here with 7 wickets in hand', value: `${Math.round((score.need_balls / 6) * 9.5)} runs` },
+  ]);
+  const [innings, stands] = stats.sections as Section[];
+  assert.deepEqual(innings.rows.find((r) => r.label === 'Required rate'), { label: 'Required rate', value: score.rrr.toFixed(2), note: `${score.need_runs} off ${score.need_balls}` });
+  assert.deepEqual(stands.rows.map((r) => [r.label, r.value]), [['3rd wicket: Dube & Gaikwad', '29 (11)'], ['4th wicket: Gaikwad & Brevis', '0 (0)']]);
+  assert.match(stands.rows[0].note!, /^from 14\.0 ov, ended at 157\/3/); // the stand began before the feed
 });
 
 test('cricket at the end: the overs add up to the score', async () => {
@@ -112,6 +133,72 @@ test('kabaddi and football: the score worm ends on the final score, and every pl
 test('without detail=1 the snapshot stays light: the last plays, no graphs, no replay or moments', async () => {
   const snap = (await fan.get(`/api/rooms/${roomOf('cricket').id}/match`)).body;
   assert.ok(snap.commentary.length <= 10);
-  for (const key of ['graphs', 'replay', 'moments']) assert.equal(key in snap, false, key);
+  for (const key of ['graphs', 'replay', 'moments', 'stats', 'prediction']) assert.equal(key in snap, false, key);
   assert.ok(Array.isArray(snap.crowd));
+});
+
+const SECTIONS: Record<string, string[]> = {
+  cricket: ['This innings:list', 'Partnerships:list', 'Bowling:list'],
+  kabaddi: ['Points:compare', 'Raids:compare'],
+  football: ['Match stats:compare', 'Goals:list'],
+  basketball: ['Team:compare', 'Leaders:list'],
+};
+
+test('stats and the win predictor at the end of each run: the sport\'s sections, chances adding up to 100, the winner on 100', async () => {
+  for (const sport of Object.keys(SECTIONS)) {
+    await playTo(sport, fixtureOf(sport).items.length - 1);
+    const { stats, prediction, commentary, score, match } = await centre(sport);
+    const sections: Section[] = stats.sections;
+    assert.deepEqual(sections.map((s) => `${s.title}:${s.kind}`), SECTIONS[sport]);
+    const teams = match.teams.map((t: { code: string }) => t.code);
+    for (const s of sections) {
+      assert.ok(s.rows.length, `${sport} ${s.title}`);
+      if (s.kind === 'compare') assert.deepEqual(s.teams, teams);
+    }
+    assert.deepEqual(prediction.teams, teams);
+    assert.match(prediction.method, /^Huddle's estimate from /); // the app adds "not an official prediction" itself
+    const points: Point[] = prediction.points;
+    assert.deepEqual(points.slice(1).map((p) => p.label), [...commentary as Play[]].reverse().map((p) => p.over), sport); // one per play
+    for (const p of points) assert.equal(p.a + p.b + (p.draw ?? 0), 100, `${sport} ${JSON.stringify(p)}`);
+    const final: number[] = sport === 'cricket' ? [score.chase_won ? 0 : 1, score.chase_won ? 1 : 0]
+      : teams.map((code: string) => score.teams.find((t: { code: string }) => t.code === code).score);
+    const winner = final[0] > final[1] ? 'a' : 'b';
+    assert.equal(points.at(-1)![winner], 100, sport);
+    assert.equal(prediction.now[winner], 100, sport);
+    assert.deepEqual(prediction.projections, [], sport); // nothing left to project
+    if (sport !== 'cricket') { // the compare rows are the scoreboard's
+      const [first] = sections;
+      const total = (side: 'a' | 'b') => (sport === 'kabaddi' ? first.rows.reduce((n, r) => n + r[side]!, 0) : first.rows[0][side]);
+      assert.deepEqual([total('a'), total('b')], final, sport);
+    }
+  }
+  const cricket = (await centre('cricket')).stats.sections as Section[];
+  assert.deepEqual(cricket[2].rows[0], { label: 'Jasprit Bumrah', value: '4-0-23-2', note: 'economy 5.75' }); // best figures first
+  const goals = (await centre('football')).stats.sections[1].rows as Row[];
+  assert.deepEqual(goals.map((g) => g.label), ["23'", "58'", "82'", "90'", "90+5'"]);
+});
+
+test('cricket\'s chase predictor rises for CSK on a boundary and falls on a wicket', async () => {
+  const { prediction, commentary } = await centre('cricket');
+  const points: Point[] = prediction.points;
+  const plays = [...commentary as Play[]].reverse();
+  let checked = 0;
+  plays.forEach((p, i) => {
+    const [before, after] = [points[i].b, points[i + 1].b]; // CSK is teams[1]
+    if (p.symbol === '4' || p.symbol === '6') assert.ok(after > before, `${p.over} ${before} -> ${after}`);
+    if (p.symbol === 'W') assert.ok(after < before, `${p.over} ${before} -> ${after}`);
+    if (['4', '6', 'W'].includes(p.symbol!)) checked++;
+  });
+  assert.equal(checked, 10); // 8 boundaries and 2 wickets in the feed
+});
+
+test('football\'s predictor has a draw share while the score is level', async () => {
+  const { prediction, commentary } = await centre('football');
+  const points: Point[] = prediction.points;
+  const plays = [...commentary as Play[]].reverse();
+  const equaliser = plays.findIndex((p) => p.text.startsWith('GOAL! Cummings')) + 1; // 2-2
+  for (const p of [points[0], points[equaliser]]) { // 1-1 at the start, 2-2 after the penalty
+    assert.ok(p.draw! > p.a && p.draw! > p.b, JSON.stringify(p));
+  }
+  assert.deepEqual(prediction.now, { a: 100, b: 0, draw: 0 }); // Mohun Bagan won
 });

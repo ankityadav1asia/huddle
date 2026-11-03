@@ -6,7 +6,7 @@ import { api, ApiError, errorMessage, serverNow, newKey, type CreatedRoom, type 
 import { el, icon, aiLabel, initials, teamClass, teamLogo, clock, clockSeconds, ago, plural, toast, setRail, railIntro, type Child } from './ui.ts';
 import { openSheet, closeSheet, sheetActions, confirmSheet } from './sheets.ts';
 import { friendPicker, levelChooser, LEVEL_NAMES } from './home.ts';
-import { mountMatchTabs, matchTabNames, type MatchTabs } from './match.ts';
+import { mountMatchTabs, MATCH_TABS, type MatchTabs } from './match.ts';
 import { swipeTabs, type SwipeTabs } from './tabs.ts';
 import { dreamBotLauncher, openDreamBot, type BotOptions } from './bot.ts';
 import { openCatchUp } from './catchup.ts';
@@ -378,6 +378,8 @@ async function bootstrap(state: RoomState) {
   loop(state, state.loopToken);
 }
 
+const COMPETITION: Partial<Record<string, string>> = { cricket: 'IPL T20', kabaddi: 'Pro Kabaddi', football: 'Indian Super League', basketball: 'NBA' };
+
 // A public watch party goes by its game ("MI v CSK"); a private room keeps the name its owner gave it.
 const roomTitle = (room: Room) => (room.room_type === 'public' && room.match?.title) || room.name || 'Watch party';
 
@@ -391,7 +393,7 @@ function buildRoom(state: RoomState) {
   els.sub = el('span', { class: 'room-sub' });
   els.reconnect = el('span', { class: 'reconnect-pill', hidden: true, text: 'Reconnecting…' });
   const menu = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Room menu', onclick: () => openRoomMenu(state) }, icon('dots'));
-  els.score = el('button', { type: 'button', class: 'score score-btn', 'aria-label': 'Show the full scorecard', hidden: !room.match, onclick: () => state.tabs?.select(1) },
+  els.score = el('button', { type: 'button', class: 'score score-btn', 'aria-label': 'Show the full scorecard', hidden: !room.match, onclick: () => state.tabs?.select(1 + MATCH_TABS.indexOf('Scorecard')) },
     el('div', { class: 'skeleton' }));
   const catchUpBtn = el('button', { type: 'button', class: 'catch-btn', onclick: () => openCatch(state, null) }, icon('spark'), 'Catch me up');
   els.add = el('button', { type: 'button', class: 'add-btn', onclick: () => addFriends(state) },
@@ -441,7 +443,7 @@ function buildRoom(state: RoomState) {
   state.composerSize.observe(composer);
   const match = room.match ? mountMatchTabs(state.id) : undefined;
   state.matchTabs = match;
-  const tabs = swipeTabs('Chat and match', ['Chat', ...(room.match ? matchTabNames(room.match.sport) : [])],
+  const tabs = swipeTabs('Chat and match', ['Chat', ...(room.match ? MATCH_TABS : [])],
     [chatPanel, ...(match?.panels ?? [])], (i) => onTab(state, i));
   state.tabs = tabs;
   tabs.tablist.hidden = !match; // a room without a game has only the chat
@@ -1345,14 +1347,16 @@ function renderRail(state: RoomState) {
   if (state !== R) return;
   const room = state.room;
   const mod = room.room_type === 'public' ? 'Moderation managed by Huddle' : `${LEVEL_NAMES[room.moderation.level]} moderation · safety protections always on`;
+  const competition = room.match ? COMPETITION[room.match.sport] : null;
   setRail(
-    el('p', { class: 'rail-kicker', text: room.room_type === 'public' ? 'Public watch party' : 'Private watch party' }),
-    el('h1', { class: 'rail-title small', text: room.name }),
+    el('p', { class: 'rail-kicker', text: [competition, room.room_type === 'public' ? 'Public watch party' : 'Private watch party'].filter(Boolean).join(' · ') }),
+    el('h1', { class: 'rail-title small', text: roomTitle(room) }),
     el('ul', { class: 'rail-facts' },
-      el('li', { text: mod }),
+      room.match ? el('li', { text: 'Chat, Commentary, Scorecard, Stats and Graphs are tabs: swipe across, or tap the scorecard' }) : null,
       el('li', { text: room.ai_enabled ? 'AI Co-host on: big moments, polls and answers in the chat, labelled as AI' : 'AI Co-host off in this room' }),
-      room.match ? el('li', { text: 'Swipe from the chat to the full scorecard, commentary and graphs, or tap the scorecard' }) : null,
-      el('li', { text: 'Dream AI answers your own questions about the game, privately' }),
+      el('li', { text: 'Dream AI, the glowing button above the message box, answers your own questions privately' }),
+      el('li', { text: 'Catch me up shows what you missed while you were away' }),
+      el('li', { text: mod }),
       el('li', { text: 'Messages disappear when the watch party ends' })),
   );
 }

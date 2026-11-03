@@ -1,11 +1,12 @@
-// The room's match tabs, a Cricbuzz-style match page beside the chat: Scorecard, Commentary, Overs (Play by play for
-// kabaddi, football and basketball) and Graphs. They show GET /api/rooms/:id/match?detail=1, fetched the first time a
-// match tab opens; the room calls update() whenever the match moves on.
+// The room's match tabs, a Cricbuzz-style match page beside the chat: Commentary (play by play in every sport),
+// Scorecard (with the over-by-over record in cricket), Stats and Graphs (the win predictor first). They show
+// GET /api/rooms/:id/match?detail=1, fetched the first time a match tab opens; the room calls update() whenever the
+// match moves on.
 import { api, errorMessage } from './api.ts';
 import { el, icon, plural, teamClass, teamLogo, type Child } from './ui.ts';
 
-// panels: one per tab, in the order of matchTabNames(), for the room to place in its pager. Each ends with the one
-// note on the match data.
+// panels: one per tab, in the order of MATCH_TABS, for the room to place in its pager after the Chat tab. Each ends
+// with the one note on the match data.
 export interface MatchTabs {
   panels: HTMLElement[];
   open(): void; // a match tab is on screen: the first call fetches the detail
@@ -13,14 +14,14 @@ export interface MatchTabs {
   destroy(): void;
 }
 
-export const matchTabNames = (sport: string) => ['Scorecard', 'Commentary', sport === 'cricket' ? 'Overs' : 'Play by play', 'Graphs'];
+export const MATCH_TABS = ['Commentary', 'Scorecard', 'Stats', 'Graphs'];
 
 // The one place in the app that says what the match data are.
 const NOTE = 'Match data and crowd chat in this prototype are illustrative.';
 const REFETCH_MS = 2000;
 const DASH = '–';
-// Line colours for a series that has no team colour.
-const SPARE = ['#2a78d6', '#eb6834', '#1baf7a'];
+// What the win predictor always says about itself.
+const ESTIMATE = 'Estimate from the score and time left · not an official prediction';
 
 type Innings = 'current' | 'first';
 
@@ -38,6 +39,23 @@ interface OverPoint { over: number; runs: number; wickets: number; total: number
 interface CricketGraph { kind: 'cricket'; target: number | null; overs: OverPoint[] }
 interface ScoreGraph { kind: 'score'; teams: string[]; points: { label: string; a: number; b: number }[] }
 
+// The Stats tab: each team side by side (`a` and `b` follow `teams`), or a list of facts.
+type StatSection =
+  | { title: string; kind: 'compare'; teams: [string, string]; rows: { label: string; a: number; b: number; unit?: '%' }[] }
+  | { title: string; kind: 'list'; rows: ListRow[] };
+interface ListRow { label: string; value: string; note?: string }
+
+// The win predictor: whole percentages for teams [a, b] (and a draw in football) that add up to 100, at the start of
+// the run and after each play.
+interface Split { a: number; b: number; draw?: number }
+interface Prediction {
+  teams: [string, string];
+  points: (Split & { label: string })[];
+  now: Split;
+  projections: ListRow[];
+  method: string;
+}
+
 // GET /api/rooms/:id/match?detail=1: only the fields read here. Without detail the server sends no graphs and only
 // the last 10 lines of commentary, which the tabs show as they are.
 interface Detail {
@@ -45,6 +63,8 @@ interface Detail {
   score: unknown; // one shape per sport: see viewOf()
   commentary?: Line[] | null;
   graphs?: CricketGraph | ScoreGraph | null;
+  stats?: { sections: StatSection[] } | null;
+  prediction?: Prediction | null;
 }
 
 // The scorecards (lib/match/scorecard.ts and lib/match/sports/*.ts snapshot()).
@@ -201,7 +221,7 @@ export function mountMatchTabs(roomId: string): MatchTabs {
   function apply(d: Detail) {
     notify('');
     // The crowd lines and the freshness change on every call; only a change in the match redraws.
-    const sig = JSON.stringify([d.match, d.score, d.commentary, d.graphs]);
+    const sig = JSON.stringify([d.match, d.score, d.commentary, d.graphs, d.stats, d.prediction]);
     if (sig === signature) return;
     signature = sig;
     data = d;
@@ -251,10 +271,10 @@ export function mountMatchTabs(roomId: string): MatchTabs {
 
   function panelContent(i: number, d: Detail, v: View): Child {
     const lines = (d.commentary ?? []).filter((c) => c.text);
-    if (i === 0) return scorecard(v, d.match, innings, (which) => { innings = which; render(0); });
-    if (i === 1) return commentary(lines);
-    if (i === 2) return v.sport === 'cricket' ? oversPanel(lines, v.graph, v.score) : playByPlay(lines);
-    return graphsPanel(v, d.match, charts);
+    if (i === 0) return commentary(lines);
+    if (i === 1) return scorecard(v, d.match, lines, innings, (which) => { innings = which; render(1); });
+    if (i === 2) return statsPanel(d.stats?.sections ?? [], d.match);
+    return graphsPanel(v, d.match, d.prediction ?? null, charts);
   }
 }
 
@@ -340,9 +360,9 @@ function gameClock(v: Exclude<View, { sport: 'cricket' }>): string {
 
 // ---- Scorecard ----
 
-function scorecard(v: View, m: MatchInfo, innings: Innings, pick: (i: Innings) => void): Child {
+function scorecard(v: View, m: MatchInfo, lines: Line[], innings: Innings, pick: (i: Innings) => void): Child {
   switch (v.sport) {
-    case 'cricket': return cricketCard(v.score, m, innings, pick);
+    case 'cricket': return cricketCard(v.score, m, innings, pick, overByOver(lines, v.graph, v.score));
     case 'kabaddi': return kabaddiCard(v.score, gameClock(v));
     case 'football': return footballCard(v.score, gameClock(v));
     case 'basketball': return basketballCard(v.score, gameClock(v));
@@ -355,7 +375,8 @@ function parseInnings(text: string) {
   return m ? { team: m[1], score: `${m[2]}-${m[3]}`, overs: m[4] } : null;
 }
 
-function cricketCard(s: CricketScore, m: MatchInfo, innings: Innings, pick: (i: Innings) => void): Child {
+// `overs`: the over-by-over card, which follows the innings with ball-by-ball data.
+function cricketCard(s: CricketScore, m: MatchInfo, innings: Innings, pick: (i: Innings) => void, overs: HTMLElement): Child {
   const name = (code: string) => m.teams.find((t) => t.code === code)?.name || code;
   const first = s.target && s.first_innings ? parseInnings(s.first_innings) ?? { team: s.bowling, score: s.first_innings, overs: null } : null;
   const showFirst = Boolean(first) && innings === 'first';
@@ -378,6 +399,7 @@ function cricketCard(s: CricketScore, m: MatchInfo, innings: Innings, pick: (i: 
       el('div', { dataset: { key: 'fow' } }, fallOfWickets(s)),
       el('div', { dataset: { key: 'bowl' } }, bowlingTable(s))),
     chaseCard(s),
+    overs,
   ];
 }
 
@@ -577,7 +599,9 @@ function overScores(g: CricketGraph | null, s: CricketScore) {
   return out;
 }
 
-function oversPanel(lines: Line[], g: CricketGraph | null, s: CricketScore): Child {
+// The over-by-over record at the end of the scorecard, newest over first: each ball's badge, the runs in the over and
+// the score after it.
+function overByOver(lines: Line[], g: CricketGraph | null, s: CricketScore) {
   const byOver = new Map<number, Line[]>();
   for (let i = lines.length - 1; i >= 0; i--) { // oldest first, as the balls were bowled
     const k = overIndex(lines[i]);
@@ -585,8 +609,7 @@ function oversPanel(lines: Line[], g: CricketGraph | null, s: CricketScore): Chi
   }
   const after = overScores(g, s);
   const overs = [...new Set([...byOver.keys(), ...[...after.keys()].map((o) => o - 1)])].sort((a, b) => b - a);
-  if (!overs.length) return empty('No overs yet', 'Each over appears here once it is under way.');
-  return el('ol', { class: 'mc-overs' }, overs.map((k) => {
+  return card('overs', header('Over by over'), overs.length ? el('ol', { class: 'mc-overs' }, overs.map((k) => {
     const balls = byOver.get(k) ?? [];
     const info = after.get(k + 1);
     // Without the full commentary an over's first balls may be missing; say so rather than show a short over.
@@ -598,42 +621,55 @@ function oversPanel(lines: Line[], g: CricketGraph | null, s: CricketScore): Chi
           balls.map((b) => ball(b.symbol ?? '')))
         : el('p', { class: 'mc-over-none', text: 'No ball-by-ball record' }),
       el('div', { class: 'mc-over-total' }, info ? [el('b', { text: plural(info.runs, 'run') }), el('span', { text: `${s.batting} ${info.score}` })] : null));
-  }));
+  })) : el('p', { class: 'mc-card-note', text: 'No overs yet. Each over appears here once it is under way.' }));
 }
 
-// The part of the game a clock is in: "Q4 5:41" quarter 4, "2H 12:41" the second half, "72'" the second half.
-function periodOf(clock: string | null) {
-  if (!clock) return '';
-  const q = /^Q(\d+)\s/.exec(clock);
-  if (q) return `Quarter ${q[1]}`;
-  const h = /^(\d)H\s/.exec(clock);
-  if (h) return halfName(Number(h[1]));
-  const min = minuteOf(clock);
-  if (min) return halfName(min.base <= 45 ? 1 : 2);
-  return clock.split(' ').length > 1 ? clock.split(' ')[0] : '';
+// ---- Stats ----
+
+// Whole numbers as they are, anything else to one decimal place.
+const amount = (v: number, unit?: '%') => `${Number.isInteger(v) ? v : (Math.round(v * 10) / 10).toFixed(1)}${unit ?? ''}`;
+const teamOf = (m: MatchInfo, code: string): TeamRef => m.teams.find((t) => t.code === code) ?? { code, name: code };
+
+// Sets a bar segment's share; a segment with none is left out. The page's CSP allows no style attributes, so this goes
+// through the CSSOM.
+function share<T extends HTMLElement>(node: T, part: number): T {
+  node.style.flexGrow = String(Math.max(0, part));
+  node.hidden = !(part > 0);
+  return node;
 }
 
-const timeOf = (clock: string | null) => (!clock ? '' : /(\d{1,2}:\d{2})$/.exec(clock)?.[1] ?? clock);
+function statsPanel(sections: StatSection[], m: MatchInfo): Child {
+  if (!sections.length) return empty('No stats yet', 'Stats fill in as the match goes on.');
+  return sections.map((s, i) => (s.kind === 'compare' ? compareCard(s, m, `stats-${i}`) : card(`stats-${i}`,
+    el('h3', { class: 'mc-sub-head', text: s.title }),
+    s.rows.length ? factList(s.rows) : el('p', { class: 'mc-card-note', text: 'Nothing yet.' }))));
+}
 
-function playByPlay(lines: Line[]): Child {
-  if (!lines.length) return empty('No plays yet', 'Play by play appears once play starts.');
-  const groups: { name: string; rows: Line[] }[] = [];
-  for (const c of lines) {
-    const name = periodOf(c.over);
-    const last = groups[groups.length - 1];
-    if (last && last.name === name) last.rows.push(c);
-    else groups.push({ name, rows: [c] });
-  }
-  const seen = new Map<string, number>();
-  return groups.map((g) => {
-    const n = (seen.get(g.name) ?? 0) + 1;
-    seen.set(g.name, n);
-    return card(`pbp-${g.name}-${n}`,
-      g.name ? el('h3', { class: 'mc-sub-head', text: g.name }) : null,
-      el('ol', { class: 'mc-pbp' }, g.rows.map((c) => el('li', { class: 'mc-pbp-row', dataset: { key: lineKey(c) } },
-        el('span', { class: 'mc-pbp-time', text: timeOf(c.over) }),
-        el('p', {}, c.kind === 'event' && c.label ? el('b', { class: 'mc-tag', text: c.label }) : null, c.text)))));
-  });
+// Label and value rows, the value on the right and an optional note under the label.
+function factList(rows: ListRow[]) {
+  return el('ul', { class: 'mc-list' }, rows.map((r) => el('li', {},
+    el('span', { class: 'mc-list-label' }, r.label, r.note ? el('small', { text: r.note }) : null),
+    el('b', { class: 'mc-list-value', text: r.value }))));
+}
+
+// Cricbuzz-style head to head: the teams' logos in the header, then for each stat the label in the middle, each
+// team's value on its side and a bar split in the team colours. A screen reader hears one sentence per row.
+function compareCard(s: Extract<StatSection, { kind: 'compare' }>, m: MatchInfo, key: string) {
+  const [a, b] = s.teams.map((code) => teamOf(m, code));
+  const side = (t: TeamRef, end: boolean) => el('span', { class: `mc-vs-team${end ? ' is-b' : ''}` }, teamLogo(t), el('b', { text: t.code }));
+  return card(key,
+    el('div', { class: 'mc-vs' }, side(a, false), el('h3', { class: 'mc-vs-title', text: s.title }), side(b, true)),
+    s.rows.length ? el('ul', { class: 'mc-cmp' }, s.rows.map((r) => {
+      const total = r.a + r.b;
+      const value = (v: number, t: TeamRef, other: number) => el('b', { class: v > other ? `mc-cmp-v is-lead ${teamClass(t.code)}` : 'mc-cmp-v', text: amount(v, r.unit) });
+      return el('li', { class: 'mc-cmp-row' },
+        el('div', { class: 'mc-cmp-line', 'aria-hidden': 'true' },
+          value(r.a, a, r.b), el('span', { class: 'mc-cmp-label', text: r.label }), value(r.b, b, r.a),
+          el('span', { class: `mc-split${total > 0 ? '' : ' is-none'}` },
+            share(el('i', { class: teamClass(a.code) || 'mc-spare-0' }), total > 0 ? r.a : 1),
+            share(el('i', { class: teamClass(b.code) || 'mc-spare-1' }), total > 0 ? r.b : 1))),
+        sr(`${r.label}: ${a.name} ${amount(r.a, r.unit)}, ${b.name} ${amount(r.b, r.unit)}`));
+    })) : el('p', { class: 'mc-card-note', text: 'Nothing yet.' }));
 }
 
 // ---- Graphs: inline SVG, no libraries ----
@@ -643,8 +679,8 @@ interface ChartState { open: Set<string>; picks: Map<string, number> }
 
 interface Frame { w: number; h: number; l: number; r: number; t: number; b: number }
 interface Tick { x: number; label: string }
-type KeyKind = 'line' | 'dashed' | 'bar' | 'dot' | 'target';
-interface LegendKey { label: string; kind: KeyKind; cls?: string; style?: string | null }
+type KeyKind = 'line' | 'dashed' | 'bar' | 'dot' | 'target' | 'area';
+interface LegendKey { label: string; kind: KeyKind; cls?: string }
 
 // A chart: its marks, the x of each point a reader can pick, what each point says, and the marks that show the pick.
 interface Plot {
@@ -658,6 +694,7 @@ interface Plot {
   pick(i: number): SVGElement[];
   legend: LegendKey[];
   table?: { head: string[]; rows: (string | number)[][] };
+  team?: string; // the batting side the chart is about: it is drawn in that team's colours
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -717,17 +754,21 @@ function barPath(x: number, y: number, w: number, h: number, r = 3) {
   return `M${r2(x)},${r2(y + h)}V${r2(y + k)}Q${r2(x)},${r2(y)} ${r2(x + k)},${r2(y)}H${r2(x + w - k)}Q${r2(x + w)},${r2(y)} ${r2(x + w)},${r2(y + k)}V${r2(y + h)}Z`;
 }
 
-// Team colours come from the .t-<code> classes; a team without one gets a spare colour.
-function colour(code: string | null, i: number) {
-  const cls = teamClass(code);
-  return { cls, style: cls ? null : `--team: ${SPARE[i % SPARE.length]}` };
+// Team colours come from the .t-<code> classes (--team, --team-soft, --team-ink); a team without one gets a spare
+// colour class.
+const colour = (code: string | null, i: number) => teamClass(code) || `mc-spare-${i % 3}`;
+
+// The win predictor on top, then the sport's charts.
+function graphsPanel(v: View, m: MatchInfo, prediction: Prediction | null, charts: ChartState): Child {
+  const plots = chartsOf(v, m);
+  if (!prediction && !plots.length) return empty('No graphs yet', 'Graphs fill in as the match goes on.');
+  return [prediction ? predictorCard(prediction, v, m, charts) : null, ...plots.map((p) => plotCard(p, charts))];
 }
 
-function graphsPanel(v: View, m: MatchInfo, charts: ChartState): Child {
-  const none = empty('No graph yet', 'Graphs fill in as the match goes on.');
+function chartsOf(v: View, m: MatchInfo): Plot[] {
   if (v.sport === 'cricket') {
     const g = v.graph;
-    if (!g || !g.overs.length) return none;
+    if (!g || !g.overs.length) return [];
     const overs = [...g.overs].sort((a, b) => a.over - b.over);
     const sorted = { ...g, overs };
     // The x axis runs to the end of the innings, so the overs still to come show as room on the right.
@@ -735,13 +776,118 @@ function graphsPanel(v: View, m: MatchInfo, charts: ChartState): Child {
     const lastOver = limit ? Number(limit) : m.format === 'ODI' ? 50 : overs[overs.length - 1].over;
     // The last entry is the over in progress until its sixth legal ball.
     const live = !v.score.result && overs[overs.length - 1].over > v.score.balls / 6 ? v.score.balls : null;
-    return [plotCard(manhattan(sorted, lastOver, live), charts), plotCard(worm(sorted, lastOver, live), charts)];
+    const side = v.score.batting;
+    return [manhattan(sorted, lastOver, live, side), worm(sorted, lastOver, live, side)];
   }
   const plot = v.graph && scorePlot(v.graph, v.score.teams, v.sport === 'football' ? 'Goals' : 'Points');
-  return plot ? plotCard(plot, charts) : none;
+  return plot ? [plot] : [];
 }
 
+// ---- The win predictor ----
+
+// Whose chance the line follows: the chasing side in cricket, else the side ahead on the scoreboard (the favourite
+// when the scores are level).
+function trackedSide(p: Prediction, v: View): 0 | 1 {
+  let lead: string | null = null;
+  if (v.sport === 'cricket') lead = v.score.batting;
+  else {
+    const [x, y] = v.score.teams;
+    if (x && y && x.score !== y.score) lead = x.score > y.score ? x.code : y.code;
+  }
+  const i = lead ? p.teams.indexOf(lead) : -1;
+  if (i === 0 || i === 1) return i;
+  return p.now.b > p.now.a ? 1 : 0;
+}
+
+// Who is likelier to win now, as one bar in the team colours (the draw in the middle in football); the chase or lead
+// team's chance over the plays; what the estimate projects; and what it is.
+function predictorCard(p: Prediction, v: View, m: MatchInfo, charts: ChartState) {
+  const [a, b] = p.teams.map((code) => teamOf(m, code));
+  const draw = p.now.draw ?? null;
+  const plot = p.points.length > 1 ? winPlot(p, a, b, trackedSide(p, v)) : null;
+  const parts = plot ? plotParts(plot, charts) : null;
+  const side = (t: TeamRef, value: number, end: boolean) => el('span', { class: `mc-wp-team${end ? ' is-b' : ''}` },
+    teamLogo(t), el('span', { class: 'mc-wp-code', text: t.code }), el('b', { class: 'mc-wp-pct', text: `${value}%` }));
+  return card('predictor',
+    el('h3', { class: 'mc-card-title', text: 'Win predictor' }),
+    el('div', { class: 'mc-wp' },
+      el('div', { class: 'mc-wp-head' },
+        side(a, p.now.a, false),
+        draw === null ? null : el('span', { class: 'mc-wp-draw' }, el('span', { text: 'Draw' }), ' ', el('b', { text: `${draw}%` })),
+        side(b, p.now.b, true)),
+      el('div', { class: 'mc-wp-bar', 'aria-hidden': 'true' },
+        share(el('i', { class: colour(a.code, 0) }), p.now.a),
+        draw === null ? null : share(el('i', { class: 'is-draw' }), draw),
+        share(el('i', { class: colour(b.code, 1) }), p.now.b))),
+    parts?.chart,
+    p.projections.length ? el('div', { class: 'mc-wp-proj' }, el('h4', { class: 'mc-wp-sub', text: 'Projections' }), factList(p.projections)) : null,
+    el('p', { class: 'mc-wp-note' }, el('span', { text: ESTIMATE }), p.method ? el('small', { text: p.method }) : null),
+    parts?.data);
+}
+
+// The tracked side's chance after each play on a 0–100% scale. With two outcomes the area between the line and 50%
+// takes the colour of the side it favours; with a draw possible the area under the line is the tracked side's.
+function winPlot(p: Prediction, a: TeamRef, b: TeamRef, side: 0 | 1): Plot {
+  const pts = p.points;
+  const [me, them] = side === 0 ? [a, b] : [b, a];
+  const chance = (q: Split) => (side === 0 ? q.a : q.b);
+  const draws = pts.some((q) => q.draw != null);
+  const f: Frame = { w: 320, h: 178, l: 34, r: 34, t: 22, b: 32 };
+  const last = pts.length - 1;
+  const x = scale(0, last, f.l, f.w - f.r);
+  const y = scale(0, 100, f.h - f.b, f.t);
+  const mid = y(50);
+  const base = f.h - f.b;
+  const C = colour(me.code, side);
+  const O = colour(them.code, 1 - side);
+  const line = pts.map((q, i) => `L${r2(x(i))},${r2(y(chance(q)))}`).join('');
+  const area = (to: number) => `M${r2(x(0))},${r2(to)}${line}L${r2(x(last))},${r2(to)}Z`;
+  const short = (s: string) => (s.length > 16 ? `${s.slice(0, 15)}…` : s);
+  const id = `mc-clip-${++ids}`;
+  const clip = (suffix: string, top: number, bottom: number) => svg('clipPath', { id: `${id}-${suffix}` },
+    svg('rect', { x: f.l, y: r2(top), width: f.w - f.l - f.r, height: r2(Math.max(0, bottom - top)) }));
+  const end = pts[last];
+  const pct = (q: Split) => `${a.code} ${q.a}%${q.draw != null ? `, draw ${q.draw}%` : ''}, ${b.code} ${q.b}%`;
+  return {
+    key: 'win',
+    title: `${me.name}: chance of winning`,
+    summary: `${me.name}${me.name.endsWith('s') ? "'" : "'s"} chance of winning after each play, from ${pts[0].label} (${chance(pts[0])}%) to ${end.label} (${chance(end)}%).`
+      + (draws ? '' : ` Above the 50% line ${me.name} are favoured, below it ${them.name}.`),
+    frame: f,
+    marks: [
+      ...axes(f, [0, 25, 50, 75, 100], y, (v) => `${v}%`, [{ x: x(0), label: short(pts[0].label) }, { x: x(last), label: short(end.label) }], 'Play', `${me.code} win %`),
+      ...(draws
+        ? [svg('path', { class: `mc-wp-area ${C}`, d: area(base) })]
+        : [
+          svg('defs', {}, clip('up', f.t, mid), clip('down', mid, base)),
+          svg('path', { class: `mc-wp-area ${C}`, d: area(mid), 'clip-path': `url(#${id}-up)` }),
+          svg('path', { class: `mc-wp-area ${O}`, d: area(mid), 'clip-path': `url(#${id}-down)` }),
+        ]),
+      svg('line', { class: 'mc-mid', x1: f.l, x2: f.w - f.r, y1: r2(mid), y2: r2(mid) }),
+      svg('path', { class: `mc-wp-line ${C}`, d: line.replace(/^L/, 'M') }),
+      svg('circle', { class: `mc-wp-dot ${C}`, cx: r2(x(last)), cy: r2(y(chance(end))), r: 4.5 }),
+      svg('text', { class: 'mc-val', x: r2(x(last) + 8), y: r2(y(chance(end))), dy: '0.32em' }, `${chance(end)}%`),
+    ],
+    xs: pts.map((_, i) => x(i)),
+    describe: (i) => `${pts[i].label}: ${pct(pts[i])}`,
+    pick: (i) => [crosshair(f, x(i)), svg('circle', { class: `mc-pick-dot ${C}`, cx: r2(x(i)), cy: r2(y(chance(pts[i]))), r: 4.5 })],
+    legend: [
+      { label: `${me.code} win chance`, kind: 'line', cls: C },
+      ...(draws ? [] : [{ label: `${me.code} favoured`, kind: 'area' as const, cls: C }, { label: `${them.code} favoured`, kind: 'area' as const, cls: O }]),
+    ],
+    table: { head: ['Play', a.code, ...(draws ? ['Draw'] : []), b.code], rows: pts.map((q) => [q.label, q.a, ...(draws ? [q.draw ?? DASH] : []), q.b]) },
+  };
+}
+
+// ---- Chart cards ----
+
 function plotCard(p: Plot, charts: ChartState) {
+  const { chart, data } = plotParts(p, charts);
+  return card(`plot-${p.key}`, el('h3', { class: 'mc-card-title', text: p.title }), chart, data);
+}
+
+// A chart with its readout and legend, which a pointer or the arrow keys read point by point, and its data table.
+function plotParts(p: Plot, charts: ChartState) {
   const f = p.frame;
   const id = `mc-plot-${++ids}`;
   const layer = svg('g', { class: 'mc-picked' });
@@ -777,23 +923,23 @@ function plotCard(p: Plot, charts: ChartState) {
   const saved = charts.picks.get(p.key);
   show(saved ?? p.xs.length - 1, saved !== undefined && saved < p.xs.length);
   const tableKey = `table-${p.key}`;
-  return card(`plot-${p.key}`,
-    el('h3', { class: 'mc-card-title', text: p.title }),
-    el('div', { class: 'mc-chart' }, readout, frame,
+  return {
+    chart: el('div', { class: `mc-chart${p.team ? ` ${teamClass(p.team)}` : ''}` }, readout, frame,
       p.legend.length ? el('ul', { class: 'mc-legend' }, p.legend.map((k) => el('li', {},
-        el('span', { class: `mc-key is-${k.kind} ${k.cls ?? ''}`, style: k.style ?? null, 'aria-hidden': 'true' }), k.label))) : null),
-    p.table ? el('details', {
+        el('span', { class: `mc-key is-${k.kind} ${k.cls ?? ''}`, 'aria-hidden': 'true' }), k.label))) : null),
+    data: p.table ? el('details', {
       class: 'mc-data', open: charts.open.has(tableKey),
       ontoggle: (e) => { if (e.currentTarget.open) charts.open.add(tableKey); else charts.open.delete(tableKey); },
     },
     el('summary', { dataset: { fk: tableKey }, text: 'Data table' }),
     table(p.table.head, p.table.rows.map((r) => el('tr', {}, r.map((c, i) => (i === 0 ? el('th', { scope: 'row', text: c }) : el('td', { text: c })))))))
-      : null);
+      : null,
+  };
 }
 
 // Manhattan: the runs of each over as bars, a red dot on top for each wicket in it. `live`: the legal balls bowled
 // when the last over is still in progress (drawn lighter), else null.
-function manhattan(g: CricketGraph, lastOver: number, live: number | null): Plot {
+function manhattan(g: CricketGraph, lastOver: number, live: number | null, side: string): Plot {
   const overs = g.overs;
   const first = overs[0].over;
   const end = Math.max(overs[overs.length - 1].over, lastOver);
@@ -812,7 +958,8 @@ function manhattan(g: CricketGraph, lastOver: number, live: number | null): Plot
   const fell = overs.filter((o) => o.wickets > 0).map((o) => o.over);
   return {
     key: 'manhattan',
-    title: 'Manhattan: runs per over',
+    team: side,
+    title: `${side} innings · runs per over`,
     summary: `Runs in each over from over ${first} to over ${overs[overs.length - 1].over}${live === null ? '' : ', the last one still in progress'}. `
       + `Most: ${plural(most.runs, 'run')} in over ${most.over}. `
       + (fell.length ? `Wickets fell in over${fell.length > 1 ? 's' : ''} ${fell.join(', ')}.` : 'No wickets fell in these overs.'),
@@ -829,7 +976,7 @@ function manhattan(g: CricketGraph, lastOver: number, live: number | null): Plot
     },
     pick: (i) => [bar(overs[i], i, true)],
     legend: [
-      { label: 'Runs in the over', kind: 'bar' },
+      { label: `${side} runs in the over`, kind: 'bar' },
       ...(live === null ? [] : [{ label: 'This over so far', kind: 'bar' as const, cls: 'is-live' }]),
       { label: 'Wicket', kind: 'dot' },
     ],
@@ -839,7 +986,7 @@ function manhattan(g: CricketGraph, lastOver: number, live: number | null): Plot
 
 // Worm: the innings total after each over, from where the ball-by-ball record begins, with the target line. An over
 // in progress is plotted where the innings stands (17.4 overs), not at its end.
-function worm(g: CricketGraph, lastOver: number, live: number | null): Plot {
+function worm(g: CricketGraph, lastOver: number, live: number | null, side: string): Plot {
   const overs = g.overs;
   const pts = [{ over: overs[0].over - 1, wickets: 0, total: overs[0].total - overs[0].runs }, ...overs].map((p, i, all) => {
     const now = live !== null && i === all.length - 1;
@@ -853,9 +1000,12 @@ function worm(g: CricketGraph, lastOver: number, live: number | null): Plot {
   const x = scale(from, end, f.l, f.w - f.r);
   const last = pts[pts.length - 1];
   const target = g.target;
+  const line = pts.map((p) => `L${r2(x(p.at))},${r2(y(p.total))}`).join('');
+  const base = f.h - f.b;
   return {
     key: 'worm',
-    title: 'Worm: runs after each over',
+    team: side,
+    title: g.target ? `${side}'s chase · runs after each over` : `${side} innings · runs after each over`,
     summary: `The innings total after each over from over ${from}${target ? `, with the target of ${target}` : ''}. ${last.when}: ${last.total}.`,
     frame: f,
     marks: [
@@ -864,7 +1014,8 @@ function worm(g: CricketGraph, lastOver: number, live: number | null): Plot {
         svg('line', { class: 'mc-target', x1: f.l, x2: f.w - f.r, y1: r2(y(target)), y2: r2(y(target)) }),
         svg('text', { class: 'mc-val', x: f.l + 4, y: r2(y(target) - 5) }, `Target ${target}`),
       ] : []),
-      svg('path', { class: 'mc-line', d: pts.map((p, i) => `${i ? 'L' : 'M'}${r2(x(p.at))},${r2(y(p.total))}`).join('') }),
+      svg('path', { class: 'mc-area', d: `M${r2(x(pts[0].at))},${base}${line}L${r2(x(last.at))},${base}Z` }),
+      svg('path', { class: 'mc-line', d: line.replace(/^L/, 'M') }),
       svg('circle', { class: 'mc-end', cx: r2(x(last.at)), cy: r2(y(last.total)), r: 4 }),
       ...pts.filter((p) => p.wickets > 0).map((p) => svg('circle', { class: 'mc-wkt', cx: r2(x(p.at)), cy: r2(y(p.total)), r: 4 })),
       svg('text', { class: 'mc-val', x: r2(x(last.at) + 7), y: r2(y(last.total)), dy: '0.32em' }, String(last.total)),
@@ -876,7 +1027,7 @@ function worm(g: CricketGraph, lastOver: number, live: number | null): Plot {
       return `${p.when}: ${p.total}${p.wickets ? ` (${plural(p.wickets, 'wicket')} in the over)` : ''}${need}`;
     },
     pick: (i) => [crosshair(f, x(pts[i].at)), svg('circle', { class: 'mc-pick-dot', cx: r2(x(pts[i].at)), cy: r2(y(pts[i].total)), r: 4.5 })],
-    legend: [{ label: 'Runs', kind: 'line' }, { label: 'Wicket', kind: 'dot' }, ...(target ? [{ label: 'Target', kind: 'target' as const }] : [])],
+    legend: [{ label: `${side} total`, kind: 'line' }, { label: 'Wicket', kind: 'dot' }, ...(target ? [{ label: `Target ${target}`, kind: 'target' as const }] : [])],
   };
 }
 
@@ -933,7 +1084,8 @@ function scorePlot(g: ScoreGraph, teams: TeamRef[], unit: string): Plot | null {
     svg('text', { class: 'mc-val', x: xEnd, y: r2(ya), dy: '0.32em' }, `${ca} ${last.a}`),
     svg('text', { class: 'mc-val', x: xEnd, y: r2(yb), dy: '0.32em' }, `${cb} ${last.b}`),
   ] : [];
-  const dot = (c: { cls: string; style: string | null }, xx: number, yy: number) => svg('circle', { class: `mc-pick-dot ${c.cls}`, style: c.style, cx: r2(xx), cy: r2(yy), r: 4.5 });
+  const dot = (cls: string, xx: number, yy: number, mark = 'mc-pick-dot') => svg('circle', { class: `${mark} ${cls}`, cx: r2(xx), cy: r2(yy), r: 4.5 });
+  const xLast = x(xv[xv.length - 1]);
   return {
     key: 'score',
     title: 'Score progression',
@@ -942,14 +1094,16 @@ function scorePlot(g: ScoreGraph, teams: TeamRef[], unit: string): Plot | null {
     frame: f,
     marks: [
       ...axes(f, yt, y, String, xTicks, timed ? `Game clock${period ? `, ${period}` : ''}` : minuted ? 'Minute' : 'Play', unit),
-      svg('path', { class: `mc-series ${A.cls}`, style: A.style, d: step(pts.map((p) => p.a)) }),
-      svg('path', { class: `mc-series is-b ${B.cls}`, style: B.style, d: step(pts.map((p) => p.b)) }),
+      svg('path', { class: `mc-series ${A}`, d: step(pts.map((p) => p.a)) }),
+      svg('path', { class: `mc-series is-b ${B}`, d: step(pts.map((p) => p.b)) }),
+      dot(A, xLast, ya, 'mc-series-end'),
+      dot(B, xLast, yb, 'mc-series-end'),
       ...ends,
     ],
     xs: xv.map((v) => x(v)),
     describe: (i) => `${pts[i].label}: ${name(ca)} ${pts[i].a}, ${name(cb)} ${pts[i].b}`,
     pick: (i) => [crosshair(f, x(xv[i])), dot(A, x(xv[i]), y(pts[i].a)), dot(B, x(xv[i]), y(pts[i].b))],
-    legend: [{ label: name(ca), kind: 'line', cls: A.cls, style: A.style }, { label: name(cb), kind: 'dashed', cls: B.cls, style: B.style }],
+    legend: [{ label: name(ca), kind: 'line', cls: A }, { label: name(cb), kind: 'dashed', cls: B }],
     table: { head: ['Time', name(ca), name(cb)], rows: pts.map((p) => [p.label, p.a, p.b]) },
   };
 }

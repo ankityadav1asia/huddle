@@ -1,6 +1,7 @@
 /* The room's tabs and match tabs (web/watch/tabs.ts and match.ts), Cricbuzz-style: green underlined tabs, green
-   innings headers, red wickets, white cards on a grey ground, compact tables with tabular numbers, and the tab panels
-   side by side in a horizontal scroll-snap pager. Every class starts with mc-. */
+   innings headers, red wickets, white cards on a grey ground, compact tables with tabular numbers, head-to-head stat
+   bars in the team colours, and the tab panels side by side in a horizontal scroll-snap pager. Every class starts
+   with mc-. */
 .room-panel {
   --mc-green: #0b7a5c;
   --mc-green-deep: #075c45;
@@ -20,12 +21,12 @@
 /* The tab bar: scrolls sideways when the tabs do not fit */
 .mc-tabs {
   flex: none; position: relative; display: flex; overflow-x: auto; scrollbar-width: none;
-  padding: 2px 6px 0; border-bottom: 1px solid var(--line, #e2e5ea);
+  padding: 2px 4px 0; border-bottom: 1px solid var(--line, #e2e5ea);
 }
 .mc-tabs::-webkit-scrollbar { display: none; }
 .mc-tab {
   flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-  padding: 11px 7px 8px; border: 0; border-bottom: 3px solid transparent; background: none;
+  padding: 11px 5px 8px; border: 0; border-bottom: 3px solid transparent; background: none;
   color: var(--muted, #626a77); font-size: 14px; font-weight: 600; white-space: nowrap;
 }
 .mc-tab[aria-selected='true'] { color: var(--mc-green); border-bottom-color: var(--mc-green); font-weight: 700; }
@@ -61,7 +62,6 @@
 .mc-panel > .mc-note { margin: auto 0 0; padding: 18px 8px 0; color: var(--muted, #626a77); font-size: 11px; text-align: center; }
 
 /* Loading, empty and error states */
-.mc-loading { display: grid; gap: 10px; }
 .mc-loading { padding: 10px 8px; display: grid; gap: 10px; }
 .mc-skel {
   height: 120px; border-radius: 10px;
@@ -153,8 +153,8 @@
 .mc-ball.b-x { border-color: #f0d49c; background: #fff4de; color: #7a5000; font-size: 10.5px; }
 
 /* Commentary */
-.mc-com, .mc-overs, .mc-pbp { margin: 0; padding: 0; list-style: none; }
-.mc-com, .mc-overs { border-radius: 10px; background: var(--card, #fff); box-shadow: var(--shadow, 0 1px 2px rgba(0, 0, 0, 0.06)); overflow: hidden; }
+.mc-com, .mc-overs { margin: 0; padding: 0; list-style: none; }
+.mc-com { border-radius: 10px; background: var(--card, #fff); box-shadow: var(--shadow, 0 1px 2px rgba(0, 0, 0, 0.06)); overflow: hidden; }
 .mc-com-item { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line, #e2e5ea); }
 .mc-com-side { display: grid; align-content: start; justify-items: start; gap: 5px; }
 .mc-com-over { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.35; }
@@ -170,8 +170,9 @@
 .mc-eoo b { color: var(--text, #15171c); font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase; }
 .mc-eoo span { color: var(--muted, #626a77); font-weight: 600; }
 
-/* Overs */
+/* Over by over, at the end of the cricket scorecard */
 .mc-over { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line, #e2e5ea); }
+.mc-over:last-child { border-bottom: 0; }
 .mc-over-num { font-size: 13px; font-weight: 700; white-space: nowrap; }
 .mc-over-balls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .mc-over-more { color: var(--muted, #626a77); font-weight: 700; }
@@ -180,12 +181,7 @@
 .mc-over-total b { font-size: 13px; }
 .mc-over-total span { color: var(--muted, #626a77); font-size: 11.5px; }
 
-/* Play by play */
-.mc-pbp-row { display: flex; gap: 10px; padding: 9px 12px; border-top: 1px solid var(--line, #e2e5ea); font-size: 13px; line-height: 1.45; }
-.mc-pbp-row:first-child { border-top: 0; }
-.mc-pbp-time { flex: none; width: 38px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.mc-pbp-time:empty { display: none; }
-.mc-pbp-row p { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+/* A small label: a penalty, do-or-die */
 .mc-tag {
   display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 4px; background: var(--mc-green-soft);
   color: var(--mc-green-deep); font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; vertical-align: 1px;
@@ -193,37 +189,112 @@
 .mc-tag.is-alert { margin: 0 0 0 6px; background: #fdecee; color: var(--mc-red); }
 .mc-kv dd .mc-team { display: inline-flex; }
 
+/* Stats: a head-to-head card (the teams' logos in the header; each row the label in the middle, a value on each
+   side, the leader's in its team colours, and a bar split in the team colours) or a list of facts */
+.mc-vs {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px;
+  padding: 9px 12px; background: var(--mc-head-row);
+}
+.mc-vs-team { display: inline-flex; align-items: center; gap: 7px; min-width: 0; font-size: 13px; font-weight: 800; }
+.mc-vs-team.is-b { justify-self: end; flex-direction: row-reverse; }
+.mc-vs-team .logo { width: 24px; height: 24px; border: 1px solid var(--line, #e2e5ea); border-radius: 6px; background: var(--card, #fff); }
+.mc-vs-title { margin: 0; font-size: 12.5px; font-weight: 700; text-align: center; }
+.mc-cmp { margin: 0; padding: 2px 12px 4px; list-style: none; }
+.mc-cmp-row { padding: 10px 0 11px; border-bottom: 1px solid var(--line, #e2e5ea); }
+.mc-cmp-row:last-child { border-bottom: 0; }
+.mc-cmp-line { display: grid; grid-template-columns: minmax(44px, auto) minmax(0, 1fr) minmax(44px, auto); align-items: center; gap: 7px 8px; }
+.mc-cmp-label { color: var(--muted, #626a77); font-size: 12.5px; font-weight: 600; line-height: 1.3; text-align: center; }
+.mc-cmp-v {
+  justify-self: start; min-width: 32px; padding: 2px 8px; border-radius: 999px;
+  font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: center;
+}
+.mc-cmp-line > :nth-child(3) { justify-self: end; }
+.mc-cmp-v.is-lead { background: var(--team-soft, var(--mc-green-soft)); color: var(--team-ink, var(--mc-green-deep)); }
+/* A bar split between the teams (and the draw); match.ts sets each part's flex-grow */
+.mc-split, .mc-wp-bar { display: flex; gap: 3px; overflow: hidden; }
+.mc-split { grid-column: 1 / -1; height: 6px; border-radius: 3px; }
+.mc-split > i, .mc-wp-bar > i { flex: 1 1 0; min-width: 0; background: var(--team, var(--mc-green)); }
+.mc-split.is-none > i { background: var(--line, #e2e5ea); }
+.mc-list { margin: 0; padding: 0; list-style: none; }
+.mc-list li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 9px 12px; border-bottom: 1px solid var(--line, #e2e5ea); font-size: 13px;
+}
+.mc-list li:last-child { border-bottom: 0; }
+.mc-list-label { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.mc-list-label small { display: block; margin-top: 1px; color: var(--muted, #626a77); font-size: 11.5px; font-weight: 400; }
+.mc-list-value { flex: 0 1 auto; max-width: 58%; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+/* Colours for a team without its own .t-<code> class */
+.mc-spare-0 { --team: #2a78d6; --team-soft: #e6f0fb; --team-ink: #1b5aa6; }
+.mc-spare-1 { --team: #eb6834; --team-soft: #fdeee7; --team-ink: #a8431a; }
+.mc-spare-2 { --team: #1baf7a; --team-soft: #e3f6ee; --team-ink: #0f7a54; }
+
+/* The win predictor: the split now, the chance over the plays, the projections and what the estimate is */
+.mc-wp { padding: 4px 12px 12px; }
+.mc-wp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mc-wp-team { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.mc-wp-team.is-b { flex-direction: row-reverse; }
+.mc-wp-team .logo { width: 30px; height: 30px; border: 1px solid var(--line, #e2e5ea); border-radius: 7px; }
+.mc-wp-code { color: var(--muted, #626a77); font-size: 13px; font-weight: 700; }
+.mc-wp-pct { font: 700 28px/1 var(--display, sans-serif); font-variant-numeric: tabular-nums; }
+.mc-wp-draw { display: grid; justify-items: center; color: var(--muted, #626a77); font-size: 11.5px; font-weight: 600; line-height: 1.2; }
+.mc-wp-draw b { color: var(--text, #15171c); font-size: 15px; font-variant-numeric: tabular-nums; }
+.mc-wp-bar { height: 12px; margin-top: 10px; border-radius: 6px; }
+.mc-wp-bar > .is-draw { background: #c4cad2; }
+.mc-wp-proj { border-top: 1px solid var(--line, #e2e5ea); }
+.mc-wp-sub { margin: 0; padding: 10px 12px 0; color: var(--muted, #626a77); font-size: 11.5px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+.mc-wp-note { margin: 0; padding: 9px 12px 11px; border-top: 1px solid var(--line, #e2e5ea); color: var(--muted, #626a77); font-size: 11.5px; line-height: 1.4; }
+.mc-wp-note small { display: block; margin-top: 2px; font-size: 11px; }
+
 /* Graphs: inline SVG drawn in a 320-wide viewBox, about 1:1 at phone width */
-.mc-chart { padding: 2px 12px 12px; }
-.mc-readout { margin: 0 0 4px; min-height: 18px; color: var(--muted, #626a77); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.mc-chart { padding: 4px 12px 12px; }
+.mc-readout {
+  margin: 0 0 8px; min-height: 30px; padding: 6px 10px; border-radius: 8px; background: var(--card-2, #f6f7f9);
+  color: var(--text, #15171c); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.4;
+}
+.mc-wp + .mc-chart { padding-top: 12px; border-top: 1px solid var(--line, #e2e5ea); }
 .mc-plot { border-radius: 6px; }
 .mc-plot:focus-visible { outline: 2px solid var(--chrome, #1c3b8c); outline-offset: 2px; }
 .mc-svg { display: block; width: 100%; height: auto; overflow: visible; font-family: var(--body, sans-serif); cursor: crosshair; }
 .mc-svg text { fill: var(--muted, #626a77); font-size: 10px; font-variant-numeric: tabular-nums; }
 .mc-svg .mc-axis-title { font-weight: 600; }
 .mc-svg .mc-val { fill: var(--text, #15171c); font-size: 10.5px; font-weight: 700; }
-.mc-grid { stroke: #e9ecf0; stroke-width: 1; }
+.mc-grid { stroke: #edf0f3; stroke-width: 1; }
 .mc-base { stroke: #c4cad2; stroke-width: 1; }
 .mc-bar { fill: var(--mc-green); }
 .mc-bar.is-live { fill: var(--mc-green-soft); stroke: var(--mc-green); stroke-width: 1.5; stroke-dasharray: 3 2; }
 .mc-bar.is-picked { fill: var(--mc-green-deep); }
 .mc-wkt { fill: var(--mc-red); stroke: #fff; stroke-width: 2; }
-.mc-line { fill: none; stroke: var(--mc-green); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mc-area { fill: var(--mc-green); fill-opacity: 0.1; }
+.mc-line { fill: none; stroke: var(--mc-green); stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
 .mc-end { fill: var(--mc-green); stroke: #fff; stroke-width: 2; }
-.mc-target { stroke: var(--text, #15171c); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.55; }
-.mc-series { fill: none; stroke: var(--team, var(--mc-green)); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* A chart about one side (cricket's batting team) takes that team's colours. */
+.mc-chart.team .mc-bar { fill: var(--team); }
+.mc-chart.team .mc-bar.is-live { fill: var(--team-soft); stroke: var(--team); }
+.mc-chart.team .mc-bar.is-picked { fill: var(--team-ink, var(--team)); }
+.mc-chart.team .mc-area { fill: var(--team); }
+.mc-chart.team .mc-line { stroke: var(--team-ink, var(--team)); }
+.mc-chart.team .mc-end { fill: var(--team-ink, var(--team)); }
+.mc-chart.team .mc-key.is-bar { background: var(--team); }
+.mc-chart.team .mc-key.is-bar.is-live { border-color: var(--team); background: var(--team-soft); }
+.mc-target, .mc-mid { stroke: var(--text, #15171c); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.5; }
+/* Team lines use the team's ink, a darker shade where the team colour is light (CSK's yellow) */
+.mc-series, .mc-wp-line { fill: none; stroke: var(--team-ink, var(--team, var(--mc-green))); stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
 .mc-series.is-b { stroke-dasharray: 6 4; }
+.mc-wp-area { fill: var(--team, var(--mc-green)); fill-opacity: 0.18; }
 .mc-cross { stroke: var(--muted, #626a77); stroke-width: 1; }
-.mc-pick-dot { fill: var(--team, var(--mc-green)); stroke: #fff; stroke-width: 2; }
+.mc-pick-dot, .mc-series-end { fill: var(--team, var(--mc-green)); stroke: #fff; stroke-width: 2; }
+.mc-wp-dot { fill: var(--team, var(--mc-green)); stroke: var(--team-ink, #fff); stroke-width: 1.5; }
 .mc-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; padding: 0; list-style: none; color: var(--muted, #626a77); font-size: 12px; }
 .mc-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .mc-key { flex: none; display: inline-block; }
-.mc-key.is-line, .mc-key.is-dashed { width: 18px; border-top: 2px solid var(--team, var(--mc-green)); }
+.mc-key.is-line, .mc-key.is-dashed { width: 18px; border-top: 2px solid var(--team-ink, var(--team, var(--mc-green))); }
 .mc-key.is-dashed { border-top-style: dashed; }
 .mc-key.is-target { width: 18px; border-top: 1px dashed var(--text, #15171c); opacity: 0.6; }
 .mc-key.is-bar { width: 10px; height: 10px; border-radius: 2px; background: var(--mc-green); }
 .mc-key.is-bar.is-live { border: 1.5px dashed var(--mc-green); background: var(--mc-green-soft); }
 .mc-key.is-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--mc-red); }
+.mc-key.is-area { width: 12px; height: 10px; border-radius: 2px; background: var(--team-soft, var(--mc-green-soft)); box-shadow: inset 0 0 0 1px var(--team, var(--mc-green)); }
 .mc-data { border-top: 1px solid var(--line, #e2e5ea); }
 .mc-data summary { padding: 9px 12px; color: var(--mc-green); font-size: 12.5px; font-weight: 700; cursor: pointer; }
 .mc-data summary:focus-visible { outline-offset: -2px; }

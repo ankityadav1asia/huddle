@@ -78,7 +78,7 @@ test('each sport plays to a consistent final score, with its own moment cards an
     assert.ok(threads.length >= 4, `${sport}: ${threads}`);
   }
   assert.deepEqual(finals, {
-    kabaddi: 'KABADDI_RESULT',
+    kabaddi: 'Jaipur win 44-41',
     football: 'Mohun Bagan win 3-2',
     basketball: 'Warriors win 116-115',
   });

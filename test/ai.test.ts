@@ -8,6 +8,7 @@ import { setAi } from '../lib/ai/index.ts';
 import { pump } from '../lib/jobs/worker.ts';
 import { handleAnswerJob } from '../lib/cohost/index.ts';
 import { allowedNumbersFrom, ungroundedNumbers } from '../lib/ai/tasks.ts';
+import { DEMO_FIXTURE, providerEventId } from '../lib/match/fixture.ts';
 
 // A scripted provider: each call takes the next behaviour (an Error to throw, or content to return).
 type Fake = Provider & { calls: number; requests: GenerateRequest[] };
@@ -312,6 +313,9 @@ test('Catch Me Up summarises only this room, and falls back to verified match da
   assert.equal(down.status, 200);
   assert.equal(down.body.source, 'match_data');
   assert.match(down.body.headline, /CSK/);
+  // The feed has not moved: the score then and now are the same, and nothing is in the timeline.
+  assert.deepEqual([down.body.change.from, down.body.change.to], ['CSK 128/2 (14.0)', 'CSK 128/2 (14.0)']);
+  assert.deepEqual(down.body.timeline, []);
 });
 
 test('AI requests have their own limits, separate from the chat limit', async () => {
@@ -368,7 +372,7 @@ test('the Co-host polls the room on what its members are arguing about, at most 
   assert.equal(await handleDebatePollJob(app.db, { ...job, payload: { since_seq: null } }), 'cooldown');
 });
 
-test('Catch me up covers the match so far with stats, and what the room says on each #thread', async () => {
+test('Catch me up covers the match so far, and what the room says on each #thread', async () => {
   await app.db.exec('DELETE FROM rate_events');
   const threadId = (await app.db.query(`INSERT INTO room_threads (id, room_id, slug, title, source) VALUES ('thr_catchup01', $1, 'drs-call', '#drs-call', 'moment') RETURNING id`, [roomA])).rows[0].id;
   await say(a, roomA, 'ball tracking scam THREAD-CANARY', { thread_id: threadId });
@@ -381,11 +385,63 @@ test('Catch me up covers the match so far with stats, and what the room says on 
   const invented = await a.post(`/api/rooms/${roomA}/catchup`, { scope: 'match' });
   assert.equal(invented.body.source, 'match_data', 'a thread the room does not have is rejected');
   assert.deepEqual(invented.body.thread_points.map((t: { thread: string }) => t.thread), ['drs-call']);
-  assert.ok(invented.body.stats.some((s: { label: string }) => s.label === 'CSK'), JSON.stringify(invented.body.stats));
+  assert.equal(invented.body.scope, 'match');
+  assert.equal(invented.body.away, null);
+  assert.equal(invented.body.stats, undefined, 'no stats grid repeating the scorecard');
+  assert.deepEqual(invented.body.change.teams.map((t: { code: string }) => t.code), ['CSK']);
   await app.db.exec('DELETE FROM rate_events');
   const r = await b.post(`/api/rooms/${roomA}/catchup`, { scope: 'match' });
   assert.equal(r.body.source, 'ai');
   assert.deepEqual(r.body.thread_points, [{ thread: 'drs-call', id: threadId, text: 'One fan calls ball tracking a scam; another backs the umpire.' }]);
   assert.ok(p.requests[1].user.includes('THREAD-CANARY'));
   assert.ok(p.requests[1].user.includes('"thread":"drs-call"'));
+});
+
+test('Catch me up after time away: the score then and now, what changed, and the wicket and six in between', async () => {
+  setAi(createOrchestrator({ providers: [] }));
+  await app.db.exec('DELETE FROM rate_events');
+  const room = await makePrivateRoom(app, a, [b]);
+  const matchId = (await app.db.query('SELECT match_id FROM rooms WHERE id = $1', [room])).rows[0].match_id;
+  const items = DEMO_FIXTURE.items;
+  const left = items.findIndex((x) => x.kind === 'event' && x.type === 'bowling_change') - 1; // the end of the 15th over
+  const wicket = items.findIndex((x) => x.wicket?.out === 'Shivam Dube'); // 15.5, in Tilak's over
+  // The feed to the ball after the wicket: up to the 15th over's end ten minutes ago, Tilak's over in the last two.
+  for (let i = 0; i <= wicket + 1; i++) {
+    await app.db.query(`INSERT INTO match_events (id, match_id, provider_event_id, seq, kind, data, occurred_at)
+      VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, now() - make_interval(secs => $6))`,
+    [`mev_away${i}`, matchId, providerEventId(DEMO_FIXTURE, i), i, items[i].kind, i <= left ? 600 - i : 120 - i]);
+  }
+  const brb = await say(b, room, 'brb, getting chai');
+  await app.db.query(`UPDATE room_events SET created_at = now() - interval '6 minutes' WHERE room_id = $1 AND seq = $2`, [room, brb.seq]);
+
+  const r = await b.post(`/api/rooms/${room}/catchup`, { since_seq: brb.seq });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const c = r.body;
+  assert.equal(c.scope, 'since');
+  assert.equal(c.source, 'match_data');
+  assert.equal(c.away, '6 min');
+  assert.equal(c.stats, undefined, 'no stats grid repeating the scorecard');
+  assert.equal(c.headline, 'CSK 144/2 → 158/3 while you were away');
+  assert.deepEqual([c.change.from, c.change.to], ['CSK 144/2 (15.0)', 'CSK 158/3 (16.0)']);
+  const delta = Object.fromEntries(c.delta.map((d: { label: string; value: string }) => [d.label, d.value]));
+  assert.deepEqual(delta, { Runs: '+14 off 6 balls', Wickets: '+1', Boundaries: '1 four · 1 six', 'Required rate': '8.6 → 7.25' });
+  assert.deepEqual(c.timeline.map((p: { label: string }) => p.label), ['Bowling change', 'Four', 'Six', 'Wicket']);
+  const out = c.timeline.at(-1);
+  assert.equal(out.at, '15.5');
+  assert.equal(out.text, 'Shivam Dube c Suryakumar b Tilak, 65 (32).');
+  assert.equal(out.score, 'CSK 157/3 (15.5)');
+  assert.equal(c.timeline[2].score, 'CSK 154/2 (15.2)'); // the six
+  assert.ok(c.match_points.includes('Tilak Varma took 1 for 14 in 1 over.'), JSON.stringify(c.match_points));
+
+  // With AI, the headline and points are written from the same plays, and every number must be in them.
+  const write = (point: string) => ({ headline: 'CSK 144/2 → 158/3, but Tilak got Dube', match_points: [point], thread_points: [], room_points: [], sourceEventIds: ['mev_away14'] });
+  const p = fake('primary', [write('Dube fell for 99.'), write('The required rate fell from 8.6 to 7.25 despite the wicket.')]);
+  setAi(createOrchestrator({ providers: [p], sleep: noSleep }));
+  const invented = await a.post(`/api/rooms/${room}/catchup`, { since_seq: brb.seq });
+  assert.equal(invented.body.source, 'match_data', 'a number the plays do not have is rejected');
+  const ai = await b.post(`/api/rooms/${room}/catchup`, { since_seq: brb.seq });
+  assert.equal(ai.body.source, 'ai');
+  assert.deepEqual(ai.body.match_points, ['The required rate fell from 8.6 to 7.25 despite the wicket.']);
+  assert.deepEqual(ai.body.timeline, c.timeline, 'the timeline stays deterministic');
+  assert.ok(p.requests[0].user.includes('PLAYS_THAT_MATTERED') && p.requests[0].user.includes('"event_id":"mev_away14"'));
 });
