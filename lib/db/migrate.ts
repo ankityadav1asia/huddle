@@ -1,4 +1,4 @@
-// Applies lib/db/migrations/*.sql in order, once each. Migrations are additive; nothing here drops data.
+// Applies lib/db/migrations/*.sql in order, once each, in one transaction: a failing migration applies nothing.
 // An advisory lock keeps two server instances from applying the same migration at once.
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
