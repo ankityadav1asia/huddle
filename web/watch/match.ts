@@ -14,7 +14,7 @@ export interface MatchTabs {
   destroy(): void;
 }
 
-export const MATCH_TABS = ['Commentary', 'Scorecard', 'Stats', 'Graphs'];
+export const MATCH_TABS = ['Commentary', 'Scorecard', 'Stats'];
 
 // The one place in the app that says what the match data are.
 const NOTE = 'Match data and crowd chat in this prototype are illustrative.';
@@ -273,8 +273,7 @@ export function mountMatchTabs(roomId: string): MatchTabs {
     const lines = (d.commentary ?? []).filter((c) => c.text);
     if (i === 0) return commentary(lines);
     if (i === 1) return scorecard(v, d.match, lines, innings, (which) => { innings = which; render(1); });
-    if (i === 2) return statsPanel(d.stats?.sections ?? [], d.match);
-    return graphsPanel(v, d.match, d.prediction ?? null, charts);
+    return statsPanel(v, d.match, d.stats?.sections ?? [], d.prediction ?? null, charts);
   }
 }
 
@@ -638,11 +637,20 @@ function share<T extends HTMLElement>(node: T, part: number): T {
   return node;
 }
 
-function statsPanel(sections: StatSection[], m: MatchInfo): Child {
-  if (!sections.length) return empty('No stats yet', 'Stats fill in as the match goes on.');
-  return sections.map((s, i) => (s.kind === 'compare' ? compareCard(s, m, `stats-${i}`) : card(`stats-${i}`,
-    el('h3', { class: 'mc-sub-head', text: s.title }),
-    s.rows.length ? factList(s.rows) : el('p', { class: 'mc-card-note', text: 'Nothing yet.' }))));
+// Stats, in one place: the win predictor, the head-to-head comparisons, the sport's charts, then the lists
+// (partnerships, bowling, goals, leaders).
+function statsPanel(v: View, m: MatchInfo, sections: StatSection[], prediction: Prediction | null, charts: ChartState): Child {
+  const plots = chartsOf(v, m);
+  if (!prediction && !plots.length && !sections.length) return empty('No stats yet', 'Stats and graphs fill in as the match goes on.');
+  const keyed = sections.map((s, i) => ({ s, key: `stats-${i}` }));
+  return [
+    prediction ? predictorCard(prediction, v, m, charts) : null,
+    ...keyed.flatMap(({ s, key }) => (s.kind === 'compare' ? [compareCard(s, m, key)] : [])),
+    ...plots.map((p) => plotCard(p, charts)),
+    ...keyed.flatMap(({ s, key }) => (s.kind === 'list' ? [card(key,
+      el('h3', { class: 'mc-sub-head', text: s.title }),
+      s.rows.length ? factList(s.rows) : el('p', { class: 'mc-card-note', text: 'Nothing yet.' }))] : [])),
+  ];
 }
 
 // Label and value rows, the value on the right and an optional note under the label.
@@ -757,13 +765,6 @@ function barPath(x: number, y: number, w: number, h: number, r = 3) {
 // Team colours come from the .t-<code> classes (--team, --team-soft, --team-ink); a team without one gets a spare
 // colour class.
 const colour = (code: string | null, i: number) => teamClass(code) || `mc-spare-${i % 3}`;
-
-// The win predictor on top, then the sport's charts.
-function graphsPanel(v: View, m: MatchInfo, prediction: Prediction | null, charts: ChartState): Child {
-  const plots = chartsOf(v, m);
-  if (!prediction && !plots.length) return empty('No graphs yet', 'Graphs fill in as the match goes on.');
-  return [prediction ? predictorCard(prediction, v, m, charts) : null, ...plots.map((p) => plotCard(p, charts))];
-}
 
 function chartsOf(v: View, m: MatchInfo): Plot[] {
   if (v.sport === 'cricket') {

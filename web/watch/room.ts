@@ -1352,7 +1352,7 @@ function renderRail(state: RoomState) {
     el('p', { class: 'rail-kicker', text: [competition, room.room_type === 'public' ? 'Public watch party' : 'Private watch party'].filter(Boolean).join(' · ') }),
     el('h1', { class: 'rail-title small', text: roomTitle(room) }),
     el('ul', { class: 'rail-facts' },
-      room.match ? el('li', { text: 'Chat, Commentary, Scorecard, Stats and Graphs are tabs: swipe across, or tap the scorecard' }) : null,
+      room.match ? el('li', { text: 'Chat, Commentary, Scorecard and Stats are tabs: swipe across, or tap the scorecard' }) : null,
       el('li', { text: room.ai_enabled ? 'AI Co-host on: big moments, polls and answers in the chat, labelled as AI' : 'AI Co-host off in this room' }),
       el('li', { text: 'Dream AI, the glowing button above the message box, answers your own questions privately' }),
       el('li', { text: 'Catch me up shows what you missed while you were away' }),
