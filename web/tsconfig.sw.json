@@ -1,0 +1,19 @@
+{
+  // The service worker: a classic script (no imports or exports) compiled to public/sw.js, with worker types.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023", "webworker"],
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "moduleDetection": "legacy",
+    "types": [],
+    "strict": true,
+    "noImplicitAny": false,
+    "useUnknownInCatchVariables": false,
+    "erasableSyntaxOnly": true,
+    "rootDir": ".",
+    "outDir": "../public",
+    "skipLibCheck": true
+  },
+  "files": ["sw.ts"]
+}

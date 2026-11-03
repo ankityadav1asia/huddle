@@ -5,3 +5,7 @@ node_modules/
 *.zip
 
 .data/
+
+# Compiled from web/ by npm run build
+public/watch/*.js
+public/sw.js

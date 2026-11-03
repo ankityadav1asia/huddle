@@ -3,7 +3,8 @@
 Huddle is a sports Watch Party prototype for cricket, Formula 1, basketball and ice hockey: friends (or the public)
 chat in a room while a game plays, the room shows verified match data, and an AI Co-host answers questions (about the
 rules and the players too), flags big moments and catches people up. It is one
-Node.js application with one Postgres database. There is no video, no microservice split, no Redis and no broker.
+Node.js application written in TypeScript, with one Postgres database. There is no video, no microservice split, no
+Redis and no broker.
 
 **Status labels used below:** **Implemented** (built and covered by tests), **Simulated** (demo data, labelled in
 the UI), **Planned** (not built).
@@ -31,12 +32,12 @@ the UI), **Planned** (not built).
 ```mermaid
 flowchart LR
   subgraph Browser
-    UI[Watch Party UI<br/>public/index.html + public/watch/*]
-    SW[Service worker<br/>public/sw.js]
+    UI[Watch Party UI<br/>public/index.html + web/watch/*.ts]
+    SW[Service worker<br/>web/sw.ts]
   end
-  subgraph Server["Node server (server.js locally, api/router.js on Vercel)"]
+  subgraph Server["Node server (server.ts locally, api/router.ts on Vercel)"]
     API[JSON API router<br/>lib/http]
-    RT[Long-poll gateway<br/>lib/rooms/realtime.js]
+    RT[Long-poll gateway<br/>lib/rooms/realtime.ts]
     W[Worker: one job queue<br/>lib/jobs]
     FEED[Match feed ingestion<br/>lib/match]
     CO[AI Co-host orchestration<br/>lib/cohost + lib/ai]
@@ -59,8 +60,8 @@ flowchart LR
   W --> PUSH --> SW
 ```
 
-- **One backend.** `server.js` serves the static UI, the API and runs the worker loop in-process. On Vercel the same
-  router runs as one function (`api/router.js`), and long-poll requests run due jobs while they wait.
+- **One backend.** `server.ts` serves the static UI, the API and runs the worker loop in-process. On Vercel the same
+  router runs as one function (`api/router.ts`), and long-poll requests run due jobs while they wait.
 - **One database.** Postgres SQL everywhere. Locally the server embeds **PGlite** (Postgres compiled to WebAssembly),
   so `npm start` needs no setup. With `DATABASE_URL` set it uses node-postgres against any Postgres (e.g. Neon).
 - **Realtime = long-polling.** Every visible change in a room gets the next per-room sequence number in `room_events`.
@@ -82,7 +83,7 @@ flowchart LR
 | Push subscription | Browser push service + `push_subscriptions` (endpoint and keys) | Until removed or the endpoint returns 404/410 |
 | Match feed | `match_events` / `match_signals`, shared by every room that follows the match | Kept with the match (demo data) |
 | Data sent to AI providers | Per request only: verified match facts, a bounded window of this room's messages with members pseudonymised (`member1`…), the question. Never handles, phone numbers, other rooms or secrets | Subject to each provider's own terms |
-| Logs | stdout JSON lines: ids, categories, timings. Message text, tokens and keys are redacted (`lib/log.js`) | Hosting log retention |
+| Logs | stdout JSON lines: ids, categories, timings. Message text, tokens and keys are redacted (`lib/log.ts`) | Hosting log retention |
 | Hosted database backups | The Postgres provider's backups / point-in-time restore | Follow the provider's window. Huddle's purge does not reach backups, so deletion there is not immediate |
 
 ## 3. Database schema
@@ -130,7 +131,7 @@ erDiagram
 The scoreboard is not stored: each sport's engine (`lib/match/sports/`) recomputes it deterministically from
 `match_events` (cricket: runs, wickets, overs, required rate, batting and bowling cards, fall of wickets, partnership;
 F1: the running order, gaps, tyres and pit stops; basketball and hockey: the score, clock and key stats), and it is
-cached in memory per match. `lib/match/fixture.js` lists the four fixtures; each brings its engine, crowd, discussion
+cached in memory per match. `lib/match/fixture.ts` lists the four fixtures; each brings its engine, crowd, discussion
 topics, rules sheet, roster and example questions.
 
 ### Rooms and membership
@@ -211,7 +212,7 @@ sequenceDiagram
   C->>API: POST /rooms/:id/messages {client_msg_id, text}
   API->>DB: session, membership, room active
   API->>DB: same client_msg_id already stored? return it
-  API->>API: safety gate (lib/moderation/classifier.js)
+  API->>API: safety gate (lib/moderation/classifier.ts)
   alt rejected
     API-->>C: 422 + reason (no row, no cooldown used, audit row only)
   else allowed / flagged / held
@@ -226,11 +227,11 @@ moderators until reviewed. AI work is only queued here: no LLM call ever sits on
 ### 4.4 Match Momentum
 1. The worker advances every live match feed once per tick. Due items are inserted into `match_events` (deduped by
    provider event id) inside a per-match row lock.
-2. The deterministic rules in `lib/match/momentum.js` compare the scorecard before and after each item: wickets
+2. The deterministic rules in `lib/match/momentum.ts` compare the scorecard before and after each item: wickets
    (`partnership_break` when a 30+ stand ends), dropped catches, boundary bursts, dot-ball pressure, a required-rate
    spike, death overs, DRS outcomes and the confirmed result. Thresholds are documented demo heuristics. The F1,
    basketball and hockey scripts mark their moments on the items themselves (pit stops, safety car, lead changes,
-   clutch time, the buzzer-beater, power plays, goals, the empty net, the result), and `lib/match/sports/scripted.js`
+   clutch time, the buzzer-beater, power plays, goals, the empty net, the result), and `lib/match/sports/scripted.ts`
    turns them into the same signal rows.
 3. Only fresh signals alert. A backlog (server asleep), a demo jump (backfill) or several signals in one pass publish
    at most one alert; the rest are stored as `suppressed` for Catch Me Up.
@@ -292,7 +293,7 @@ sequenceDiagram
 ```
 
 ### 4.9 AI provider failover
-`lib/ai/orchestrator.js` runs every task with one overall deadline (16 s; 8–14 s for momentum and catch-up):
+`lib/ai/orchestrator.ts` runs every task with one overall deadline (16 s; 8–14 s for momentum and catch-up):
 - Primary first. Retryable failures are timeout, 5xx, overload and 429. A 5xx, or a 429 with a short `Retry-After`,
   gets one retry; then the fallback is tried within the remaining deadline.
 - Safety refusals, invalid requests, auth errors, malformed output and validation failures never switch providers.
@@ -317,10 +318,10 @@ nobody can pause or move it. A private room created with `own_replay: true` gets
 ### 4.11 Simulated fans
 The original single-viewer demo played a scripted crowd. The watch party keeps it as labelled demo data, in public
 watch parties only (a private room holds only the people invited), derived rather than stored. Each sport has 200
-simulated fans (`lib/match/fans.js`: seeded handles split between the two sides, such as MCL and RBR fans
+simulated fans (`lib/match/fans.ts`: seeded handles split between the two sides, such as MCL and RBR fans
 for F1); the bootstrap lists them as `simulated_fans`, and the room header counts real people online and the
 simulated fans separately. `GET /api/rooms/:id/match` returns `crowd`, the lines for the plays of the last 45 s,
-built by `lib/match/crowd.js` from each play's crowd cue in the sport's script (or background chatter) with a random
+built by `lib/match/crowd.ts` from each play's crowd cue in the sport's script (or background chatter) with a random
 generator seeded by room, run and play. So everyone in a room sees the same fans say the same thing, another room gets a different
 crowd, balls skipped by a jump get none, and 2x halves the gaps. Each line carries `at` (ball time plus its place in
 the burst) and the client shows it then, marked "Simulated fan"; overdue lines (opening the room late) are skipped.
@@ -328,7 +329,7 @@ Lines the room's moderation level would not allow are dropped, and nothing is wr
 never reaches the AI Co-host, the message rate limit, reports or retention. Each viewer can hide it on their device.
 
 ### 4.12 Moment threads
-As in the original demo, a room splits its chat into #threads without anyone managing them (`lib/rooms/threads.js`):
+As in the original demo, a room splits its chat into #threads without anyone managing them (`lib/rooms/threads.ts`):
 - **Big moments** open one in every room following the match, inside feed ingestion: in cricket a wicket
   (`#dube-out`), the bowling change, the DRS call, a dropped catch, the last over; in F1 the pit wall, the safety car,
   Norris v Verstappen and the last lap; in basketball Curry's threes, clutch time and the buzzer-beater; in hockey the
@@ -370,7 +371,7 @@ As in the original demo, a room splits its chat into #threads without anyone man
   `(room_id, signal_id)` for insights, a derived key for AI answers, and `idempotency_key` for polls.
 - Jobs: durable (same transaction as the triggering write), retried with exponential backoff and jitter, dead-lettered
   after `max_attempts`, re-check room and membership when they run, and expire instead of delivering late.
-- Measured with `node scripts/load-check.mjs` on one laptop (single server, embedded PGlite, 3 rooms × 10 members,
+- Measured with `node scripts/load-check.ts` on one laptop (single server, embedded PGlite, 3 rooms × 10 members,
   everyone long-polling): a burst of 30 simultaneous messages reached all 270 recipients with no loss, duplicates or
   reordering, p95 send-to-delivery 0.85 s (the embedded database runs queries one at a time, so bursts queue).
   Messages sent while three 4-second AI calls were in flight arrived in p95 0.27 s, so slow AI work does not hold up
@@ -390,3 +391,6 @@ As in the original demo, a room splits its chat into #threads without anyone man
 - Live AI providers were not exercised end to end in this environment (no API keys); adapters are tested with mocked
   HTTP and the SDK's typed errors.
 - Browser push was exercised with a mocked push service, not on a real device.
+- The code moved from JavaScript to TypeScript with `strict` checks but `noImplicitAny` off: many function parameters
+  and every database row are still `any`. The shared shapes (configuration, database, users, fixtures, AI providers,
+  the HTTP router) are typed; the rest gains types module by module.

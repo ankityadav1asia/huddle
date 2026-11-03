@@ -37,7 +37,8 @@ Nothing here is connected to Dream11 systems or to a live match.
 
 ## Run it
 
-Needs Node.js 22.13 or newer (tested on 24).
+Needs Node.js 22.18 or newer (tested on 24). The code is TypeScript: Node runs the server's `.ts` files directly (type
+stripping, no build step), and `npm start` first compiles the browser code in `web/` into `public/`.
 
 ```bash
 npm install
@@ -85,16 +86,21 @@ two. Keys stay on the server. Moderators (who see the review queue at
 
 ```bash
 npm test
+npm run typecheck
 ```
 
-117 tests (under a minute) cover joining and the teams and players fans back in each sport, room access and isolation, invitations and roles (including
+`npm run typecheck` checks the server, tests and browser code with the TypeScript compiler (`strict`, with untyped
+parameters still allowed while types are added module by module).
+
+118 tests (under a minute) cover joining and the teams and players fans back in each sport, room access and isolation, invitations and roles (including
 the demo friends), the 10-second message rule (including concurrent sends and the exact boundary), moderation levels
 and the baseline, the match feed and how fast it reaches the room, the four sports' games and their final scores,
 private rooms' own replays and their controls, simulated fans (public rooms only), moment threads, momentum alerts,
 rules questions answered at the moment they were asked, alert fan-out and push eligibility, AI failover and circuit
-breaking, the Co-host's race with human replies, room closure and purge, observability, and log privacy.
+breaking, the Co-host's race with human replies, numbers an AI answer may state, room closure and purge,
+observability, and log privacy.
 
-`node scripts/load-check.mjs` runs a small load check: 3 rooms of 10 members, a burst of 30 messages and a slow AI
+`node scripts/load-check.ts` runs a small load check: 3 rooms of 10 members, a burst of 30 messages and a slow AI
 provider, reporting delivery latency, losses, duplicates and ordering.
 
 ## Deploy
@@ -106,7 +112,7 @@ joining fails closed.
 
 The app is one server plus one Postgres database.
 
-- **Vercel**: `vercel.json` serves `public/`, runs the API as one function (`api/router.js`) and redirects the old
+- **Vercel**: `vercel.json` serves `public/`, runs `npm run build` (the browser code), serves `public/`, runs the API as one function (`api/router.ts`, compiled by Vercel) and redirects the old
   `/replay` page to the app. It needs a Postgres `DATABASE_URL` (for example Neon from the Vercel Marketplace) and
   `HUDDLE_SECRET`. Optional: AI keys, `VAPID_*` for push, `CRON_SECRET` for the daily sweep. Serverless functions do not
   run a background worker, so queued work runs while members are connected (their long-polls drive it).
@@ -116,20 +122,22 @@ The app is one server plus one Postgres database.
 
 | Path | What |
 |---|---|
-| `server.js` | Local server: static files, API, background worker |
-| `api/router.js` | Vercel function (Watch Party API) |
+| `server.ts` | Local server: static files, API, background worker |
+| `api/router.ts` | Vercel function (Watch Party API) |
 | `lib/http/` | Router and routes |
 | `lib/auth/` | Sessions (HttpOnly cookie, server-side hashes) |
 | `lib/rooms/` | Rooms, membership, invitations, the per-room event log, long-polling, lifecycle and purge |
 | `lib/chat/` | Message fast path, reactions, polls, rendering |
 | `lib/moderation/` | Safety gate, lexicon, policy, audit, reports and review |
-| `lib/match/` | The four simulated games (`fixture.js`, `sports/`: cricket, F1, basketball, hockey, each with its rules sheet and roster), feed ingestion, cricket scorecard and momentum rules, simulated fans, private rooms' own replays |
+| `lib/match/` | The four simulated games (`fixture.ts`, `sports/`: cricket, F1, basketball, hockey, each with its rules sheet and roster), feed ingestion, cricket scorecard and momentum rules, simulated fans, private rooms' own replays |
 | `lib/ai/`, `lib/cohost/` | Provider adapters, failover orchestrator, task schemas and validation, Co-host behaviours |
 | `lib/notify/` | Notification policy, push delivery |
 | `lib/jobs/` | The job queue, worker, housekeeping |
 | `lib/db/` | Database access and migrations |
-| `public/index.html`, `public/watch/` | Watch Party UI |
-| `test/` | Automated tests (`node --test`) |
+| `web/watch/`, `web/sw.ts` | Watch Party UI and service worker (TypeScript, compiled into `public/watch/` and `public/sw.js` by `npm run build`) |
+| `public/` | Static files: `index.html`, `mod.html`, styles, images, and the compiled browser code (git-ignored) |
+| `test/` | Automated tests (`node --test`, TypeScript) |
+| `tsconfig.json`, `web/tsconfig*.json` | TypeScript settings for the server and tests, the browser app and the service worker |
 
 Team, driver and player names and team logos belong to their owners and are used only to make the prototype feel real;
 the games themselves are made up.

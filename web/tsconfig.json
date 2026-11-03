@@ -1,0 +1,22 @@
+{
+  // The browser app. `npm run build` compiles web/watch/*.ts into public/watch/*.js (ES modules, one file each,
+  // no bundler), which index.html and mod.html load.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "types": [],
+    "strict": true,
+    "noImplicitAny": false,
+    "useUnknownInCatchVariables": false,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "rewriteRelativeImportExtensions": true,
+    "rootDir": "watch",
+    "outDir": "../public/watch",
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["watch/**/*.ts"]
+}

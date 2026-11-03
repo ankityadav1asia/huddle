@@ -2,20 +2,29 @@
   "name": "huddle-watch-along",
   "version": "1.0.0",
   "private": true,
-  "description": "Huddle Watch Party prototype: private rooms, realtime chat, match intelligence and an AI Co-host for cricket fans.",
+  "description": "Huddle Watch Party prototype: private rooms, realtime chat, match intelligence and an AI Co-host for sports fans.",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "test": "node --test \"test/*.test.js\""
+    "build": "tsc -p web && tsc -p web/tsconfig.sw.json",
+    "typecheck": "tsc -p . && tsc -p web --noEmit && tsc -p web/tsconfig.sw.json --noEmit",
+    "prestart": "npm run build",
+    "start": "node server.ts",
+    "dev": "npm run build && node server.ts",
+    "test": "node --test \"test/*.test.ts\""
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.18"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
     "@electric-sql/pglite": "0.5.10",
     "pg": "8.23.1",
     "web-push": "3.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
+    "@types/web-push": "^3.6.4",
+    "typescript": "~5.9.3"
   }
 }

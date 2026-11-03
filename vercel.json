@@ -1,9 +1,10 @@
 {
   "framework": null,
+  "buildCommand": "npm run build",
   "outputDirectory": "public",
   "cleanUrls": true,
   "functions": {
-    "api/router.js": { "maxDuration": 60, "includeFiles": "lib/db/migrations/**" }
+    "api/router.ts": { "maxDuration": 60, "includeFiles": "lib/db/migrations/**" }
   },
   "redirects": [
     { "source": "/replay", "destination": "/", "permanent": false },
