@@ -1,12 +1,11 @@
-// Match Momentum Engine, stage 1: deterministic rules over verified, structured feed data.
-// The LLM never decides that a wicket happened; it may only explain a signal these rules produced.
-// Thresholds below are demo heuristics for a T20 chase, not universal cricket truths.
+// Match Momentum Engine for cricket: deterministic rules over verified, structured feed data. The LLM never decides
+// that a wicket happened; it may only explain a signal these rules produced.
 import type { Priority } from '../db/rows.ts';
 import type { CricketItem } from './demo-script.ts';
 import type { Signal } from './fixture.ts';
 import { oversText, rates, shortName, type BallRecord, type CricketState } from './scorecard.ts';
 
-export const RULES: Record<string, { priority: Priority; label: string }> = {
+const RULES: Record<string, { priority: Priority; label: string }> = {
   wicket_fallen: { priority: 'high', label: 'Big wicket' },
   partnership_break: { priority: 'high', label: 'Partnership broken' },
   match_result_confirmed: { priority: 'high', label: 'Result' },
@@ -18,7 +17,8 @@ export const RULES: Record<string, { priority: Priority; label: string }> = {
   review_outcome: { priority: 'low', label: 'Game on' },
 };
 
-export const THRESHOLDS = {
+// Demo heuristics for a T20 chase, not universal cricket truths.
+const THRESHOLDS = {
   partnershipBreakRuns: 30, // a wicket that ends a stand this big (counted from feed start) is a partnership break
   boundaryBurst: { boundaries: 2, withinLegalBalls: 4 },
   dotPressure: 3, // consecutive dot balls
@@ -42,7 +42,6 @@ function signal(trigger: string, evidence: Record<string, unknown>, factText: st
   return { trigger, ...RULES[trigger], evidence, fact_text: factText, dedupe };
 }
 
-// prev/next: scorecard states around one feed item. Returns zero or more signals for that item.
 export function detectSignals(prev: CricketState, next: CricketState, item: CricketItem, ball: BallRecord | null): Signal[] {
   const out: Signal[] = [];
   const overNo = Math.floor(prev.balls / 6) + 1;

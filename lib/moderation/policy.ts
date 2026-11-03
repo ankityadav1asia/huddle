@@ -5,7 +5,7 @@ import type { ModerationLevel, RoomType } from '../db/rows.ts';
 
 export const LEVELS: ModerationLevel[] = ['relaxed', 'balanced', 'strict'];
 export const POLICY_VERSION = '2026-11-02.1';
-export const MANDATORY_SAFETY_RULES = ['threats', 'self_harm', 'hate', 'sexual_exploitation', 'privacy_doxxing'];
+const MANDATORY_SAFETY_RULES = ['threats', 'self_harm', 'hate', 'sexual_exploitation', 'privacy_doxxing'];
 
 export const LEVEL_INFO: Record<ModerationLevel, string> = {
   relaxed: 'Friendly banter and mild casual language are fine. Personal attacks and abuse are still stopped.',
@@ -17,8 +17,7 @@ export const LEVEL_INFO: Record<ModerationLevel, string> = {
 export interface Policy { level: ModerationLevel; source: 'platform' | 'room'; policy_version: string; mandatory: string[] }
 
 // A level read from configuration or the database counts only if it is one of LEVELS.
-const KNOWN_LEVELS: readonly unknown[] = LEVELS;
-const isLevel = (value: unknown): value is ModerationLevel => KNOWN_LEVELS.includes(value);
+const isLevel = (value: unknown): value is ModerationLevel => LEVELS.some((level) => level === value);
 
 export function publicPolicy() {
   const configured = config().publicModerationLevel;
@@ -31,8 +30,7 @@ export function publicPolicy() {
   };
 }
 
-// Resolves the effective policy from the room record loaded from the database, never from client input.
-// The stored moderation_level is checked, not trusted.
+// Resolved from the room record in the database, never from client input; the stored level is checked, not trusted.
 export function effectivePolicy(room: { room_type: RoomType; moderation_level: string | null }): Policy {
   if (room.room_type === 'public') {
     const p = publicPolicy();

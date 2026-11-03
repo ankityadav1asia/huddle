@@ -18,12 +18,12 @@ import { fixtureForMatch, type Fixture } from '../match/fixture.ts';
 
 const QUESTION_START = /^(?:what|who|why|how|when|which|will|can|could|should|is|are|does|did|kya|kaun|kyun|kyu|kaise|kab|kitne|kitna|kitni|konsa|kaunsa|kahan)\b/i;
 
-export const mentionsCohost = (text: string) => /(^|\s)@huddle\b/i.test(text);
+const mentionsCohost = (text: string) => /(^|\s)@huddle\b/i.test(text);
 
 // A question about this room's game: its rules, players or what is happening (each sport lists its terms).
-export function isSportQuestion(text: string, fixture: Fixture | null) {
+function isSportQuestion(text: string, fixture: Fixture | null) {
   const t = text.trim();
-  return Boolean(fixture) && (t.includes('?') || QUESTION_START.test(t)) && fixture!.terms.test(t);
+  return fixture !== null && (t.includes('?') || QUESTION_START.test(t)) && fixture.terms.test(t);
 }
 
 // The row user_send_cooldowns keeps per user: when they may send their next message.

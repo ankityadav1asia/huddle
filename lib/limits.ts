@@ -1,11 +1,11 @@
-// Sliding-window limits for secondary actions (OTP requests, AI requests, reactions, user search).
+// Sliding-window limits for secondary actions (guest sign-ups, AI requests, reactions, replay controls, user search).
 // An advisory transaction lock per bucket makes count-then-insert atomic across concurrent requests.
-// The chat rule (one message per user every 10 s) has its own atomic limiter in chat/messages.js.
+// The chat cooldown has its own atomic limiter in chat/messages.ts.
 import { HttpError } from './util.ts';
 import type { Db } from './db/index.ts';
 
-export interface TokenWindow { limit: number; windowSeconds: number }
-export type TokenResult = { ok: true } | { ok: false; retryAfter: number };
+interface TokenWindow { limit: number; windowSeconds: number }
+type TokenResult = { ok: true } | { ok: false; retryAfter: number };
 
 export async function takeToken(db: Db, bucket: string, { limit, windowSeconds }: TokenWindow): Promise<TokenResult> {
   return db.tx(async (q): Promise<TokenResult> => {

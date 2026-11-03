@@ -31,7 +31,6 @@ import { sweep } from '../jobs/sweep.ts';
 import { queueStats } from '../jobs/queue.ts';
 import { metricsSnapshot } from '../metrics.ts';
 
-// ---------------------------------------------------------------- public
 route('GET', '/api/health', async ({ db }) => {
   await db.query('SELECT 1');
   return { ok: true, db: db.kind };
@@ -55,8 +54,6 @@ route('GET', '/api/config', async () => {
   };
 }, { auth: 'none' });
 
-// ---------------------------------------------------------------- auth
-// Join: a guest profile (display name, handle, the teams a fan backs) and a session cookie. No phone number or password.
 route('POST', '/api/auth/guest', async ({ db, cfg, body, ip }) => {
   const { user, session } = await createGuest(db, cfg, body, ip);
   return reply(201, { user: publicMe(user), needs_profile: false }, { 'set-cookie': sessionCookie(session.token, session.expiresAt) });
@@ -83,7 +80,6 @@ route('GET', '/api/me/invitations', async ({ db, user }) => myInvitations(db, us
 route('GET', '/api/users/search', async ({ db, cfg, user, query }) => searchUsers(db, user, query, { includeDemo: cfg.demoFriends }));
 route('GET', '/api/users/demo', async ({ db, cfg, user }) => (cfg.demoFriends ? demoFriends(db, user) : { users: [] }));
 
-// ---------------------------------------------------------------- rooms
 route('GET', '/api/rooms', async ({ db, cfg, user }) => {
   await ensureDemoMatches(db); // one shared simulated game, with its public watch party, per sport
   if (cfg.demoFriends) await ensureDemoFriends(db);
@@ -139,18 +135,15 @@ route('POST', '/api/rooms/:id/polls/suggest', async ({ db, user, params, body })
 route('POST', '/api/rooms/:id/polls/:pid/vote', async ({ db, user, params, body }) => votePoll(db, user, params.id, params.pid, body));
 route('POST', '/api/rooms/:id/catchup', async ({ db, user, params, body }) => catchUp(db, user, params.id, body));
 
-// ---------------------------------------------------------------- invitations
 route('POST', '/api/invitations/:id/accept', async ({ db, user, params }) => respondToInvitation(db, user, params.id, 'accept'));
 route('POST', '/api/invitations/:id/decline', async ({ db, user, params }) => respondToInvitation(db, user, params.id, 'decline'));
 route('POST', '/api/invitations/:id/revoke', async ({ db, user, params }) => revokeInvitation(db, user, params.id));
 
-// ---------------------------------------------------------------- moderation
 route('POST', '/api/appeals', async ({ db, user, body }) => appeal(db, user, body));
 route('GET', '/api/mod/queue', async ({ db, user }) => moderationQueue(db, user));
 route('POST', '/api/mod/messages/:mid', async ({ db, user, params, body }) => moderate(db, user, params.mid, body));
 route('POST', '/api/mod/appeals/:rid', async ({ db, user, params, body }) => resolveAppeal(db, user, params.rid, body));
 
-// ---------------------------------------------------------------- demo controls (labelled as such in the UI)
 function requireDemo(cfg: Config) {
   if (!cfg.demoControls) throw forbidden('Demo controls are switched off on this server.');
 }
@@ -169,7 +162,6 @@ route('POST', '/api/demo/matches', async ({ db, cfg }) => {
   return { match_id: await ensureDemoMatch(db) };
 });
 
-// ---------------------------------------------------------------- operations
 // Last-hour aggregates for the ops view.
 interface AiCallStats {
   provider: string | null;

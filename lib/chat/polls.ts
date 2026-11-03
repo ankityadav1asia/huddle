@@ -7,7 +7,7 @@ import { nextSeq, appendEvent } from '../rooms/events.ts';
 import { enqueue } from '../jobs/queue.ts';
 import { notifyRoom } from '../realtime/bus.ts';
 
-export interface NewPoll {
+interface NewPoll {
   question: string;
   options: string[];
   source: string;

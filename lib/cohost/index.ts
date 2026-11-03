@@ -1,6 +1,5 @@
-// The integrated AI Co-host: one orchestration layer behind four behaviours - answering questions (mentions and
-// unanswered questions), conversation continuity (quiet-room polls), match momentum explanations and Catch Me Up.
-// Every behaviour re-checks room state and membership before publishing, and never publishes unchecked output.
+// The AI Co-host: answers to mentions and unanswered questions, quiet-room polls, match momentum explanations and
+// Catch Me Up. Each re-checks room state and membership before publishing, and never publishes unchecked output.
 import { config } from '../config.ts';
 import { one, many, type Db } from '../db/index.ts';
 import type { AnswerState, JobRow, MatchRow, MessageRow, PollRow, RoomEventRow, RoomRow, SignalRow } from '../db/rows.ts';
@@ -41,7 +40,6 @@ async function aiBudget(db: Db, room: Pick<RoomRow, 'id'>, userId: string | null
   return (await takeToken(db, `ai_user:${userId}`, { limit: c.userAiPer5Min, windowSeconds: 300 })).ok;
 }
 
-// ---------------------------------------------------------------- answers (mention or unanswered question)
 export async function handleAnswerJob(db: Db, job: AnswerJob) {
   const { message_id: messageId, mode } = job.payload;
   // Compare-and-set: only one path (a human reply or this job) can win the question.
@@ -64,7 +62,7 @@ export async function handleAnswerJob(db: Db, job: AnswerJob) {
 
   const orchestrator = await ai();
   const mc = await matchContext(db, room);
-  const asked = await askedContext(db, room, q.match_seq); // the game when they asked, plus the rules sheet and roster
+  const asked = await askedContext(db, room, q.match_seq);
   const question = q.body.replace(/(^|\s)@huddle\b/gi, ' ').trim() || q.body;
   const recent = await roomMessages(db, room.id, { limit: 12 });
   const grounding = {
@@ -106,7 +104,7 @@ export async function handleAnswerJob(db: Db, job: AnswerJob) {
       `INSERT INTO messages (id, room_id, seq, sender_type, sender_id, client_msg_id, body, reply_to_id, status, ai_meta, thread_id)
        VALUES ($1, $2, $3, 'ai', NULL, $4, $5, $6, 'visible', $7::jsonb, $8)
        ON CONFLICT (room_id, client_msg_id) WHERE sender_type = 'ai' DO NOTHING RETURNING id`,
-      [newId('msg'), room.id, seq, `ai:answer:${q.id}`, v.text, q.id, JSON.stringify(meta), q.thread_id]); // answers stay in the question's thread
+      [newId('msg'), room.id, seq, `ai:answer:${q.id}`, v.text, q.id, JSON.stringify(meta), q.thread_id]);
     if (!row) return null;
     await appendEvent(t, room.id, 'message', row.id, seq);
     await appendEvent(t, room.id, 'message_update', q.id);
@@ -118,7 +116,6 @@ export async function handleAnswerJob(db: Db, job: AnswerJob) {
   return 'published';
 }
 
-// ---------------------------------------------------------------- conversation continuity
 async function generatePoll(db: Db, room: Pick<RoomRow, 'id' | 'match_id' | 'ai_enabled'>, userId: string | null): Promise<PollIdea | null> {
   const m = room.match_id ? await one<MatchRow>(db, 'SELECT * FROM matches WHERE id = $1', [room.match_id]) : null;
   if (!m) return null;
@@ -178,7 +175,6 @@ export async function suggestPoll(db: Db, user: SessionUser, roomId: string, bod
   return { poll_id: out.id, source: poll.source };
 }
 
-// ---------------------------------------------------------------- match momentum
 export async function handleMomentumJob(db: Db, job: MomentumJob) {
   const signal = await one<SignalRow & { expired: boolean }>(db,
     `SELECT s.*, (s.expires_at <= now()) AS expired FROM match_signals s WHERE s.id = $1`, [job.payload.signal_id]);
@@ -187,7 +183,7 @@ export async function handleMomentumJob(db: Db, job: MomentumJob) {
     await db.query(`UPDATE match_signals SET status = 'expired' WHERE id = $1 AND status = 'pending'`, [signal.id]);
     return 'expired';
   }
-  // Stage 2: the AI explains the verified signal in one sentence. Optional; the fact text stands on its own.
+  // The AI's one-sentence explanation is optional: the verified fact text stands on its own.
   let aiText: string | null = null;
   let provider: string | null = null;
   let model: string | null = null;
@@ -227,7 +223,6 @@ export async function handleMomentumJob(db: Db, job: MomentumJob) {
       });
       if (added) notifyRoom(r.id);
     } catch (err) {
-      // The marker thrown above when this room already has the insight.
       const duplicate = err instanceof Error && 'duplicate' in err && err.duplicate;
       if (!(err instanceof RoomEndedError) && !duplicate) throw err;
     }
@@ -236,7 +231,7 @@ export async function handleMomentumJob(db: Db, job: MomentumJob) {
   return 'published';
 }
 
-// ---------------------------------------------------------------- Catch Me Up (on request, to the requester only)
+// Catch Me Up, on request and for the requester only.
 export async function catchUp(db: Db, user: SessionUser, roomId: string, body: RequestBody) {
   onlyKeys(body, ['since_seq']);
   const { room } = await roomAccess(db, roomId, user);
@@ -294,5 +289,3 @@ export async function catchUp(db: Db, user: SessionUser, roomId: string, body: R
   const v = result.value;
   return { headline: v.headline, match_points: v.match_points, room_points: v.room_points, ...base, source: 'ai', label: AI_LABEL };
 }
-
-export { fixtureFor };

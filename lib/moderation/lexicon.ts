@@ -1,7 +1,6 @@
-// Seed lexicon for the fast, deterministic moderation gate (English + Roman-script Hindi / Hinglish).
-// Patterns run on normalised text (see classifier.js). This is a starting list for a prototype, not a
-// complete safety system: extend it through review, and keep cricket vocabulary in mind ("chakka" is a six,
-// "maara" is a big hit, "killed it" is praise), which is why violence patterns require a target.
+// Seed lexicon for the deterministic moderation gate (English and Roman-script Hindi / Hinglish). Patterns run on
+// classifier.ts's normalised text. A starting list for a prototype, not a complete safety system. Cricket slang
+// is not violence ("chakka" is a six, "maara" a big hit, "killed it" praise), so violence patterns require a target.
 
 // Second-person words (English and Hinglish). Apostrophes are stripped before matching ("you're" -> "youre").
 const TARGET = String.raw`(?:you|u|ur|your|youre|tu|tum|tumhe|tumhara|tumhari|tumko|tera|teri|tere|tujhe|tujhko|tereko|aap|aapko|aapka|aapki)`;

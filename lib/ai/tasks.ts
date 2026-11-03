@@ -16,14 +16,14 @@ Separate verified facts from opinion or prediction, and label predictions as opi
 Return only the requested JSON.`;
 
 // The JSON Schema subset the task schemas use, which shapeOk() checks model output against.
-export type JsonSchema =
+type JsonSchema =
   | { type: 'object'; additionalProperties: false; required: string[]; properties: Record<string, JsonSchema> }
   | { type: 'array'; items: JsonSchema }
   | { type: 'string'; enum?: string[] }
   | { type: 'boolean' };
 
 // What each task returns once validateOutput() accepts it (mirrors SCHEMAS).
-export interface AnswerOutput {
+interface AnswerOutput {
   type: 'answer' | 'insufficient_data' | 'decline';
   text: string;
   language: 'english' | 'hinglish' | 'mixed';
@@ -31,14 +31,14 @@ export interface AnswerOutput {
   grounding: { status: 'grounded' | 'rules_sheet' | 'insufficient_data' | 'not_applicable'; sourceEventIds: string[] };
   needsHumanReview: boolean;
 }
-export interface MomentumOutput { text: string; sourceEventIds: string[] }
-export interface CatchupOutput { headline: string; match_points: string[]; room_points: string[]; sourceEventIds: string[] }
-export interface PollOutput { question: string; options: string[] }
-export interface TaskOutputs { answer: AnswerOutput; momentum: MomentumOutput; catchup: CatchupOutput; poll: PollOutput }
-export type TaskName = keyof TaskOutputs;
+interface MomentumOutput { text: string; sourceEventIds: string[] }
+interface CatchupOutput { headline: string; match_points: string[]; room_points: string[]; sourceEventIds: string[] }
+interface PollOutput { question: string; options: string[] }
+interface TaskOutputs { answer: AnswerOutput; momentum: MomentumOutput; catchup: CatchupOutput; poll: PollOutput }
+type TaskName = keyof TaskOutputs;
 
 // What validated output may cite and state: event ids and numbers from the verified data the task was given.
-export interface Grounding { allowedEventIds?: Set<string>; allowedNumbers?: Set<string> }
+interface Grounding { allowedEventIds?: Set<string>; allowedNumbers?: Set<string> }
 
 const str: JsonSchema = { type: 'string' };
 const obj = (properties: Record<string, JsonSchema>): JsonSchema => ({ type: 'object', additionalProperties: false, required: Object.keys(properties), properties });
@@ -83,8 +83,7 @@ export function buildPrompt(task: TaskName, blocks: Record<string, unknown>): st
   return `TASK: ${task}\n${INSTRUCTIONS[task]}\n\n${sections.join('\n\n')}`;
 }
 
-// Strict shape check for a JSON-schema object (types, enums, required, no unknown fields). value is raw model
-// output, so it is untyped until this check passes.
+// Strict check of raw (so untyped) model output against a schema: types, enums, required fields, no unknown fields.
 function shapeOk(schema: JsonSchema, value: any): boolean {
   if (schema.type === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;

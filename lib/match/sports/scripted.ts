@@ -1,21 +1,18 @@
-// Shared pieces for the scripted sports (F1, basketball, hockey). Their scripts mark big moments themselves: an item
-// may carry `signal` (a moment card: trigger, priority, label and a fact built from the state after it), `thread`
-// (the #thread it opens) and `crowd` (the simulated fans' cue). The cricket fixture detects its moments with rules
-// instead (lib/match/momentum.js).
+// Shared pieces for the scripted sports (F1, basketball, hockey), whose scripts mark their own big moments, threads
+// and crowd cues. Cricket detects its moments with rules instead (momentum.ts).
 import type { Priority } from '../../db/rows.ts';
 import type { CrowdCue, MomentThread, RosterEntry, Signal } from '../fixture.ts';
 
 // A moment card marked in the script. `fact` is fixed text or built from the state after the item; the item's own
 // text stands in when it has none.
-export interface ScriptSignal<State> {
+interface ScriptSignal<State> {
   trigger: string;
   priority: Priority;
   label: string;
   fact?: string | ((state: State) => string);
 }
 
-// What every scripted sport's items carry; each sport adds the fields its engine applies. `type` and `label` are
-// set on events only.
+// What every scripted sport's items carry; `type` and `label` are set on events only.
 export interface ScriptedItem<State> {
   kind: 'play' | 'event';
   clock: string;
@@ -27,7 +24,6 @@ export interface ScriptedItem<State> {
   crowd?: CrowdCue;
   moment?: string;
   pause?: number;
-  urgent?: boolean;
 }
 
 export function scriptedSignals<State>(next: State, item: ScriptedItem<State>, seq: number): Signal[] {

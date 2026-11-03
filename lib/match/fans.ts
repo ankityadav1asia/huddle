@@ -1,5 +1,5 @@
-// The simulated crowd's personas: CROWD_SIZE per sport, labelled "Simulated fan" wherever they appear. Handles are
-// built from common first names and sport-flavoured words by a seeded generator, so every server instance agrees.
+// The simulated crowd's personas: CROWD_SIZE per sport, labelled "Simulated fan" wherever they appear. A seeded
+// generator builds their handles, so every server instance agrees on them.
 export const CROWD_SIZE = 200;
 
 export interface Fan { handle: string; team: string }

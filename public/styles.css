@@ -1,7 +1,6 @@
-/* Layout: a single phone-sized app. On a phone it fills the screen; on a laptop it sits in a
-   phone frame beside a short presenter rail. Light theme: a Dream11 red masthead, white cards on a
-   cool grey ground, green for anything the AI writes and for actions, and the team colours (MI
-   blue, CSK yellow) used only for the two fan bases. Red is kept for wickets and LIVE. */
+/* A single phone-sized app: it fills a phone screen, and on a laptop sits in a phone frame beside a presenter rail.
+   Light theme: a red masthead, white cards on a cool grey ground, green for the AI and for actions, team colours
+   only for fans' teams, and red for wickets and LIVE. */
 :root {
   --brand: #d11f28;
   --brand-deep: #a3141b;
@@ -48,7 +47,7 @@ button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--chrome); outline-offset: 2px; }
 [hidden] { display: none !important; }
 
-/* ---------- Stage, rail, phone frame ---------- */
+/* Stage, rail and phone frame */
 .stage {
   min-height: 100%;
   display: flex;
@@ -60,9 +59,6 @@ button { cursor: pointer; }
 .rail { display: none; width: 340px; flex: none; }
 .rail-kicker { margin: 0 0 6px; color: var(--brand); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .rail-title { margin: 0 0 12px; font: 700 64px/0.9 var(--display); letter-spacing: 0.01em; }
-.rail-fixture { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font: 700 18px/1 var(--display); letter-spacing: 0.02em; }
-.rail-fixture span { color: var(--faint); font-weight: 500; }
-.rail-fixture .logo { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); }
 .rail-lede { margin: 0 0 20px; color: var(--muted); max-width: 34em; }
 .rail-features { list-style: none; margin: 0 0 24px; padding: 0; display: grid; gap: 10px; }
 .rail-features li { display: grid; gap: 2px; padding-left: 14px; border-left: 2px solid #d5d9e0; }
@@ -91,7 +87,6 @@ button { cursor: pointer; }
 
 @media (min-width: 900px) {
   .rail { display: block; }
-  .menu-btn { display: none; }
 }
 @media (max-width: 520px) {
   .stage { padding: 0; display: block; height: 100%; }
@@ -100,7 +95,7 @@ button { cursor: pointer; }
   .masthead { padding-top: env(safe-area-inset-top, 0px); }
 }
 
-/* ---------- Masthead: Dream11 red, header + score ---------- */
+/* Masthead: header and score card */
 .masthead {
   flex: none;
   background: linear-gradient(180deg, var(--brand) 0%, var(--brand-deep) 100%);
@@ -115,11 +110,7 @@ button { cursor: pointer; }
 }
 .top-title { flex: 1; min-width: 0; display: grid; gap: 4px; line-height: 1.15; }
 .top-title b { display: flex; align-items: center; gap: 6px; font: 700 20px/1 var(--display); letter-spacing: 0.03em; }
-.top-title b span { opacity: 0.7; font-weight: 500; }
-.top-title .logo { width: 22px; height: 22px; }
 .top-sub { display: flex; align-items: center; gap: 5px; color: rgba(255, 255, 255, 0.85); font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; }
-.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: blink 1.4s infinite; }
-@keyframes blink { 50% { opacity: 0.3; } }
 .fans-btn {
   display: inline-flex; align-items: center; gap: 5px;
   height: 32px; padding: 0 11px; border: 0; border-radius: 999px;
@@ -145,8 +136,6 @@ button { cursor: pointer; }
 }
 .score-line { display: flex; align-items: baseline; gap: 8px; }
 .logo { flex: none; width: 24px; height: 24px; border-radius: 6px; background: #fff; object-fit: contain; }
-.logo.sm { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--line); }
-.logo.lg { width: 48px; height: 48px; border-radius: 10px; }
 .team-chip { display: inline-flex; align-items: center; gap: 6px; align-self: center; font: 700 16px/1 var(--display); letter-spacing: 0.04em; }
 .team-chip .logo { width: 30px; height: 30px; border-radius: 7px; border: 1px solid var(--line); }
 .score-runs { font: 700 30px/1 var(--display); }
@@ -168,7 +157,7 @@ button { cursor: pointer; }
 .ball-dot.rW { background: var(--wicket); border-color: transparent; color: #fff; }
 .ball-dot.rwd { color: var(--faint); }
 
-/* ---------- Pulse card ---------- */
+/* AI Co-host strip */
 .pulse {
   flex: none;
   margin: 10px 12px 0;
@@ -186,29 +175,14 @@ button { cursor: pointer; }
   color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
 }
 .ai-label svg { width: 11px; height: 11px; fill: var(--accent); }
-.pulse.thinking .ai-label svg { animation: spin 1.2s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 .pulse-text { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.3; text-wrap: balance; transition: opacity 0.25s; }
-.pulse-text.swap { opacity: 0; }
-.moods { display: flex; gap: 6px; }
-.mood {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 2px 8px 2px 2px; border-radius: 999px; background: var(--card-2);
-  font-size: 12px; transition: background 0.4s, color 0.4s;
-}
-.mood .logo.sm { border: 0; border-radius: 50%; width: 18px; height: 18px; }
-.mood-word { font-weight: 700; }
-.mood[data-tone="good"] { background: var(--accent-soft); color: var(--accent-deep); }
-.mood[data-tone="bad"] { background: #fdecee; color: #b4232f; }
 .pulse-foot { display: flex; align-items: center; gap: 8px; }
-.for-you { flex: 1; min-width: 0; margin: 0; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.for-you-label { color: var(--accent-deep); font-weight: 800; margin-right: 6px; }
 .catchup-btn {
   flex: none; margin-left: auto; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--accent-line);
   background: var(--accent-soft); color: var(--accent-deep); font-size: 12px; font-weight: 700;
 }
 
-/* ---------- Thread chips ---------- */
+/* Chips */
 .chips {
   flex: none;
   display: flex;
@@ -231,7 +205,7 @@ button { cursor: pointer; }
 .chip.fresh { animation: pop 0.5s ease; }
 @keyframes pop { 0% { transform: scale(0.85); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 
-/* ---------- Chat ---------- */
+/* Chat */
 .chat { position: relative; flex: 1; min-height: 0; background: var(--card); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; }
 .chat-scroll { height: 100%; overflow-y: auto; overscroll-behavior: contain; }
 .feed { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px 12px; }
@@ -245,13 +219,12 @@ button { cursor: pointer; }
   background: var(--card-2); border: 2px solid var(--line); color: var(--text);
 }
 .avatar.team { border-color: var(--team); background: var(--team-soft); color: var(--team-ink); }
-.avatar.host { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .msg-body { min-width: 0; }
 .msg-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .msg-meta .handle { color: var(--text); font-weight: 700; font-size: 12.5px; }
 .badge { padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 800; letter-spacing: 0.05em; }
 .badge.team { background: var(--team-soft); color: var(--team-ink); }
-/* Team colours (ui.js teamClass): MI and CSK from the palette above, then F1, NBA and NHL teams. */
+/* Team colours (ui.ts teamClass): MI and CSK from the tokens above, then the F1, NBA and NHL teams. */
 .t-mi { --team: var(--mi); --team-soft: var(--mi-soft); --team-ink: var(--mi); }
 .t-csk { --team: var(--csk); --team-soft: var(--csk-soft); --team-ink: var(--csk-ink); }
 .t-mcl { --team: #ff8000; --team-soft: #fff0e0; --team-ink: #8f4600; }
@@ -262,25 +235,9 @@ button { cursor: pointer; }
 .t-lal { --team: #552583; --team-soft: #f3ecfa; --team-ink: #552583; }
 .t-edm { --team: #fc4c02; --team-soft: #fff0e8; --team-ink: #9c2f00; }
 .t-tor { --team: #00205b; --team-soft: #e6eaf2; --team-ink: #00205b; }
-.badge.host { background: var(--accent-soft); color: var(--accent); }
 .thread-tag { color: var(--accent); font-size: 11.5px; font-weight: 700; animation: rise 0.3s ease; }
 .msg-text { margin: 1px 0 0; font-size: 14px; overflow-wrap: anywhere; }
 .msg.you .handle { color: var(--chrome); }
-.msg.creator .msg-text { font-weight: 600; }
-
-.ball-row {
-  display: flex; align-items: flex-start; gap: 8px;
-  margin: 6px 0; padding: 7px 10px; border-radius: var(--r-sm);
-  background: var(--card-2); font-size: 12.5px; color: var(--muted);
-}
-.ball-row .ball-dot { margin-top: 1px; }
-.ball-over { flex: none; color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
-.ball-row.big { color: var(--text); }
-.event-row {
-  margin: 8px 0; padding: 9px 11px; border-radius: var(--r-sm);
-  border: 1px dashed #cfd4dc; font-size: 13px; color: var(--text);
-}
-.event-row b { display: block; margin-bottom: 2px; color: var(--chrome); font: 700 13px/1.2 var(--display); letter-spacing: 0.06em; text-transform: uppercase; }
 
 .ai-note {
   margin: 8px 0; padding: 10px 12px; border-radius: var(--r-md);
@@ -297,7 +254,6 @@ button { cursor: pointer; }
   display: grid; gap: 8px; animation: rise 0.3s ease;
 }
 .poll-head { display: flex; align-items: center; gap: 8px; }
-.poll-thread { color: var(--muted); font-size: 12px; }
 .poll-q { margin: 0; font-size: 15px; font-weight: 800; }
 .poll-opt {
   position: relative; overflow: hidden; display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -348,7 +304,7 @@ button { cursor: pointer; }
   box-shadow: var(--shadow);
 }
 
-/* ---------- Composer ---------- */
+/* Composer */
 .composer {
   flex: none; display: flex; gap: 8px; padding: 10px 12px 14px;
   border-top: 1px solid var(--line); background: var(--card);
@@ -362,7 +318,7 @@ button { cursor: pointer; }
 .send { flex: none; display: grid; place-items: center; width: 42px; border: 0; border-radius: 50%; background: var(--accent); }
 .send svg { width: 18px; height: 18px; fill: #fff; }
 
-/* ---------- Sheets ---------- */
+/* Sheets */
 .sheet-layer { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; justify-content: flex-end; }
 .sheet-backdrop { position: absolute; inset: 0; background: rgba(21, 23, 28, 0.45); animation: fade 0.2s ease; }
 @keyframes fade { from { opacity: 0; } }
@@ -385,14 +341,6 @@ button { cursor: pointer; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 
-.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.seg button {
-  display: grid; justify-items: center; gap: 6px;
-  padding: 12px 8px; border-radius: var(--r-md); border: 1.5px solid var(--line); background: var(--card);
-  font: 700 17px/1.1 var(--display); letter-spacing: 0.02em;
-}
-.seg button[aria-pressed="true"][data-team="MI"] { border-color: var(--mi); background: var(--mi-soft); color: var(--mi); }
-.seg button[aria-pressed="true"][data-team="CSK"] { border-color: var(--csk); background: var(--csk-soft); color: var(--csk-ink); }
 .pick-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .pick {
   padding: 7px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card);
@@ -410,16 +358,7 @@ button { cursor: pointer; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 .source { margin-top: 14px; color: var(--faint); font-size: 11.5px; }
 
-.fan-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
-.fan-row:last-child { border-bottom: 0; }
-.fan-main { flex: 1; min-width: 0; }
-.fan-main b { font-size: 14px; }
-.reasons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.reasons span { padding: 1px 7px; border-radius: 999px; background: var(--card-2); border: 1px solid var(--line); color: var(--muted); font-size: 11.5px; }
-.wave { flex: none; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font-size: 12.5px; font-weight: 700; }
-
-/* ---------- Demo controls (rail + mobile sheet) ---------- */
-.controls { display: grid; gap: 10px; }
+/* Replay and demo controls */
 .controls-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .ctl {
   padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card);
@@ -428,10 +367,6 @@ button { cursor: pointer; }
 .ctl[aria-pressed="true"] { background: var(--text); color: #fff; border-color: var(--text); }
 .ctl.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .ctl-label { margin: 6px 0 0; color: var(--faint); font-size: 11.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-.ai-status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
-.ai-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
-.ai-status.live i { background: var(--accent); }
-.ai-status.offline i { background: var(--csk); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

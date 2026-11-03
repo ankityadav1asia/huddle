@@ -1,14 +1,12 @@
-// The watch party room: realtime feed (long-poll), composer with the message rate limit, match intelligence,
-// AI Co-host actions and the member/settings sheets. Everything shown comes from the server, which
-// re-authorises every request; this view only renders and never decides who may see what.
+// The watch party room: the long-poll feed, the composer and its rate limit, match intelligence, AI Co-host actions
+// and the member and settings sheets. The server re-authorises every request; this view never decides who sees what.
 import { api, ApiError, errorMessage, serverNow, newKey, type CreatedRoom, type InviteResult, type ModerationLevel, type Role } from './api.ts';
 import { el, icon, aiLabel, initials, teamClass, teamLogo, clock, clockSeconds, ago, plural, toast, setRail, railIntro, type Attrs } from './ui.ts';
 import { openSheet, closeSheet, sheetActions, confirmSheet } from './sheets.ts';
 import { openNotificationSettings, pushPrompt } from './push.ts';
-import { friendPicker, levelChooser } from './home.ts';
+import { friendPicker, levelChooser, LEVEL_NAMES } from './home.ts';
 import type { ReadyCtx } from './app.ts';
 
-const LEVEL_NAMES = { relaxed: 'Relaxed', balanced: 'Balanced', strict: 'Strict' };
 const ROLE_LABEL: Partial<Record<Role, string>> = { owner: 'OWNER', admin: 'ADMIN' };
 const REPORT_REASONS = [
   ['harassment', 'Harassment or bullying'], ['hate', 'Hate speech'], ['threat', 'Threat or violence'],
@@ -19,8 +17,7 @@ const MAX_ITEMS = 300;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-// ---------------------------------------------------------------- what the server sends
-// Light types: only the fields this view reads (lib/rooms/realtime.ts, lib/chat/hydrate.ts, lib/match/feed.ts).
+// Server payloads: only the fields this view reads (lib/rooms/realtime.ts, lib/chat/hydrate.ts, lib/match/feed.ts).
 
 // The room in the bootstrap. A public room's moderation is Huddle's, with no level; a private room always has one.
 type Room = {
@@ -186,7 +183,6 @@ interface RoomInvitation { id: string; user_id: string; handle: string; display_
 // A control for a private room's own replay (POST /api/rooms/:id/replay).
 type ReplayControl = { action: string; speed?: number; moment?: string };
 
-// ---------------------------------------------------------------- this view
 // What each kind of feed entry holds; upsertItem pairs a type with its data.
 interface FeedData {
   message: ChatMessage;
@@ -198,9 +194,8 @@ interface FeedData {
 }
 type FeedType = keyof FeedData;
 
-// One feed entry (message, pending message, poll, insight, crowd line or system line) and its node. Its data is
-// replaced on updates but never read back.
-type FeedEntry = { key: string; type: FeedType; data: FeedData[FeedType]; node: HTMLElement; thread: string | null; seq: number };
+// One feed entry (message, pending message, poll, insight, crowd line or system line) and its node.
+type FeedEntry = { key: string; node: HTMLElement; thread: string | null; seq: number };
 
 // The room's elements, made by buildRoom().
 interface RoomEls {
@@ -332,9 +327,7 @@ export async function renderRoom(ctx: ReadyCtx, roomId: string) {
 }
 
 function backButton(state: Pick<RoomState, 'ctx'>) {
-  const b = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Back to home', onclick: () => state.ctx.navigate('#/') });
-  b.append(icon('back'));
-  return b;
+  return el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Back to home', onclick: () => state.ctx.navigate('#/') }, icon('back'));
 }
 
 async function bootstrap(state: RoomState) {
@@ -382,18 +375,15 @@ async function bootstrap(state: RoomState) {
   loop(state, state.loopToken);
 }
 
-// ---------------------------------------------------------------- layout
 function buildRoom(state: RoomState) {
   const room = state.room;
   const els = state.els;
   els.title = el('b', { class: 'room-title', text: room.name || 'Watch party' });
   els.typeBadge = el('span', { class: 'type-pill' });
   els.online = el('span', { class: 'online-count' });
-  const people = el('button', { type: 'button', class: 'fans-btn', 'aria-label': 'Members', onclick: () => openMembers(state) });
   els.memberCount = el('span', { class: 'fans-count' });
-  people.append(icon('people'), els.memberCount);
-  const more = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Room settings', onclick: () => openSettings(state) });
-  more.append(icon('dots'));
+  const people = el('button', { type: 'button', class: 'fans-btn', 'aria-label': 'Members', onclick: () => openMembers(state) }, icon('people'), els.memberCount);
+  const more = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Room settings', onclick: () => openSettings(state) }, icon('dots'));
   els.score = el('button', { type: 'button', class: 'score score-btn', 'aria-label': 'Open match intelligence', hidden: !room.match, onclick: () => openMatchSheet(state) },
     el('div', { class: 'skeleton' }));
   els.replayBar = el('div', { class: 'replay-bar', role: 'group', 'aria-label': 'Replay controls', hidden: true });
@@ -403,7 +393,6 @@ function buildRoom(state: RoomState) {
   els.reconnect = el('span', { class: 'reconnect-pill', hidden: true, text: 'Reconnecting…' });
   const catchBtn = el('button', { type: 'button', class: 'catchup-btn', text: 'Catch me up', onclick: () => openCatchup(state) });
   els.pollBtn = el('button', { type: 'button', class: 'catchup-btn ghost', text: 'Suggest a poll', hidden: !room.match, onclick: () => suggestPoll(state) });
-  // From the public watch party: a private room on the same match, with only the people you invite.
   const privateBtn = room.room_type === 'public' && room.match
     ? el('button', { type: 'button', class: 'catchup-btn ghost', text: '+ Private room', onclick: () => openQuickPrivate(state) }) : null;
   els.backing = el('div', { class: 'guide backing', hidden: true });
@@ -424,8 +413,7 @@ function buildRoom(state: RoomState) {
   });
 
   els.input = el('input', { id: 'say', maxlength: '500', placeholder: 'Say something, or ask @huddle', 'aria-label': 'Message the room', autocomplete: 'off', enterkeyhint: 'send' });
-  els.send = el('button', { type: 'submit', class: 'send', 'aria-label': 'Send' });
-  els.send.append(icon('send'));
+  els.send = el('button', { type: 'submit', class: 'send', 'aria-label': 'Send' }, icon('send'));
   els.reply = el('div', { class: 'reply-chip', hidden: true });
   els.error = el('div', { class: 'send-error', role: 'alert', hidden: true });
   els.notice2 = el('p', { class: 'send-notice', hidden: true });
@@ -469,13 +457,11 @@ function applyRoomInfo(state: RoomState) {
       ? (room.match ? 'Watching the match with you. Ask @huddle anything about it.' : 'Ask @huddle anything about the room.')
       : 'Big match moments appear here. The AI Co-host is off in this room.';
   }
-  const mod = room.moderation;
   els.notice.replaceChildren(
     el('p', {}, el('b', { text: room.ai_enabled ? 'AI Co-host. ' : 'AI Co-host off. ' }), room.ai_notice),
     ...(state.simFans.length ? [el('p', {}, el('b', { text: 'Simulated fans. ' }), 'A scripted crowd reacts to the simulated game in this public watch party. They are labelled, are not real people, and can be hidden in room settings. Private rooms have none.')] : []),
     el('p', {}, el('b', { text: 'Disappearing chat. ' }), room.retention_notice),
-    // Not public, so a private room, which always has a level.
-    el('p', {}, el('b', { text: room.room_type === 'public' ? 'Public room. ' : `${LEVEL_NAMES[mod.level!] || ''} moderation. ` }), mod.notice),
+    el('p', {}, el('b', { text: room.room_type === 'public' ? 'Public room. ' : `${LEVEL_NAMES[room.moderation.level] || ''} moderation. ` }), room.moderation.notice),
   );
   updatePresence(state, state.presence);
 }
@@ -488,7 +474,7 @@ function updatePresence(state: RoomState, presence?: Presence) {
   const fans = simulatedFans(state).length;
   if (state.els.online) state.els.online.textContent = ` · ${n} online${fans ? ` · ${fans} simulated fans` : ''}`;
   if (state.els.memberCount) state.els.memberCount.textContent = String(state.members.size + fans);
-  state.membersSheet?.refresh?.();
+  state.membersSheet?.refresh();
 }
 
 function setReconnecting(state: RoomState, on: boolean) {
@@ -505,8 +491,7 @@ function showBanner(state: RoomState, text: string) {
   const b = state.els.banner;
   if (!b) return;
   const go = el('button', { type: 'button', text: 'Catch me up', onclick: () => { b.hidden = true; openCatchup(state); } });
-  const x = el('button', { type: 'button', class: 'x', 'aria-label': 'Dismiss', onclick: () => { b.hidden = true; } });
-  x.append(icon('close'));
+  const x = el('button', { type: 'button', class: 'x', 'aria-label': 'Dismiss', onclick: () => { b.hidden = true; } }, icon('close'));
   b.replaceChildren(el('span', { text }), go, x);
   b.hidden = false;
 }
@@ -527,7 +512,6 @@ function onVisibility(state: RoomState) {
   }
 }
 
-// ---------------------------------------------------------------- realtime
 async function loop(state: RoomState, token: number) {
   let failures = 0;
   while (state.active && state === R && token === state.loopToken) {
@@ -544,7 +528,7 @@ async function loop(state: RoomState, token: number) {
         return;
       }
       if (r.reset) {
-        resetRoom(state);
+        renderRoom(state.ctx, state.id);
         return;
       }
       applyEvents(state, r.events || []);
@@ -567,13 +551,6 @@ async function loop(state: RoomState, token: number) {
       await sleep([1000, 2000, 5000][Math.min(failures - 1, 2)]);
     }
   }
-}
-
-function resetRoom(state: RoomState) {
-  const ctx = state.ctx;
-  const id = state.id;
-  leaveRoom();
-  renderRoom(ctx, id);
 }
 
 async function refreshRoomInfo(state: RoomState) {
@@ -622,10 +599,8 @@ function applyMember(state: RoomState, ev: MemberEvent) {
   updatePresence(state, state.presence);
 }
 
-// ---------------------------------------------------------------- feed items
-// Insight facts come from the feed; older ones may still start with "<label>:", so the label is never shown twice.
-// Also drops a leading tag that only repeats a word of the label ("Big wicket" + "WICKET: ..."); tags that add
-// meaning ("DROPPED:", "DRS:") stay.
+// The label is shown with the fact, so a leading tag that is the label or one of its words ("Big wicket" and
+// "WICKET: ...") is dropped. Tags that add meaning ("DROPPED:", "DRS:") stay.
 function factText(insight: Insight) {
   const fact = String(insight.fact || '');
   const label = String(insight.label || '').toLowerCase();
@@ -655,7 +630,6 @@ function upsertItem<K extends FeedType>(state: RoomState, type: K, data: FeedDat
   const thread = itemThread(state, type, data);
   const existing = state.items.get(key);
   if (existing) {
-    existing.data = data;
     existing.thread = thread;
     if (data.seq != null) existing.seq = data.seq;
     existing.node.replaceWith(node);
@@ -663,7 +637,7 @@ function upsertItem<K extends FeedType>(state: RoomState, type: K, data: FeedDat
     node.hidden = !shown(state, existing);
     return;
   }
-  const entry: FeedEntry = { key, type, data, node, thread, seq: data.seq ?? Number.MAX_SAFE_INTEGER };
+  const entry: FeedEntry = { key, node, thread, seq: data.seq ?? Number.MAX_SAFE_INTEGER };
   state.items.set(key, entry);
   const later = [...state.items.values()].filter((e) => e !== entry && e.seq > entry.seq && e.node.isConnected).sort((a, b) => a.seq - b.seq)[0];
   if (later) state.els.feed.insertBefore(node, later.node);
@@ -715,9 +689,7 @@ function reactionRow(state: RoomState, m: ChatMessage) {
 }
 
 function actionsButton(state: RoomState, m: ChatMessage) {
-  const b = el('button', { type: 'button', class: 'msg-more', 'aria-label': 'Message actions', onclick: () => openMessageActions(state, m) });
-  b.append(icon('dots'));
-  return b;
+  return el('button', { type: 'button', class: 'msg-more', 'aria-label': 'Message actions', onclick: () => openMessageActions(state, m) }, icon('dots'));
 }
 
 function renderMessage(state: RoomState, m: UserMessage) {
@@ -745,7 +717,6 @@ function renderMessage(state: RoomState, m: UserMessage) {
   return row;
 }
 
-// ---------------------------------------------------------------- who are you backing?
 // The first time you watch a sport, its room asks once which team you back (or none). Your name then carries
 // that team in every room of the sport; players and changes are in Edit profile.
 const myTeam = (state: RoomState) => (state.room.match ? state.ctx.me.sports?.[state.room.match.sport]?.team || null : null);
@@ -754,7 +725,7 @@ function renderBacking(state: RoomState) {
   const box = state.els.backing;
   const sport = state.room.match?.sport;
   const s = state.ctx.config.sports?.find((x) => x.sport === sport);
-  if (!s || state.ctx.me.sports?.[sport!]) { // s was found by its sport, so past !s there is one
+  if (!s || state.ctx.me.sports?.[s.sport]) {
     box.hidden = true;
     return;
   }
@@ -766,7 +737,7 @@ function renderBacking(state: RoomState) {
       box.hidden = true;
       const mine = state.members.get(state.ctx.me.id);
       if (mine) mine.team = team;
-      state.membersSheet?.refresh?.();
+      state.membersSheet?.refresh();
       // team is the code of one of s.teams (the buttons below).
       toast(team ? `You're backing ${s.teams.find((t) => t.code === team)!.name}. Pick your ${s.label} players in Edit profile.`
         : `Just watching ${s.label}. You can pick a team any time in Edit profile.`);
@@ -783,7 +754,6 @@ function renderBacking(state: RoomState) {
   box.hidden = false;
 }
 
-// ---------------------------------------------------------------- new to the sport? rules and players
 // Every room following a match tells newcomers they can ask: example questions fill in "@huddle ..." and the
 // checked rules sheet opens even when the AI is off. Answers use the sheet and the moment the question was asked.
 async function loadGuide(state: RoomState) {
@@ -825,9 +795,7 @@ function openGuideSheet(state: RoomState) {
     el('p', { class: 'fine', text: 'Real players in a made-up game: the match is a simulated replay, not a live feed.' }));
 }
 
-// ---------------------------------------------------------------- a private room from the public watch party
-// One tap from the public watch party: a private room on the same match, with only the people you invite by
-// @username. Match moments, #threads and the AI Co-host come with it; the simulated fans stay in the public room.
+// A private room on this match, started from the public watch party: only the people you invite, no simulated fans.
 function openQuickPrivate(state: RoomState) {
   const me = state.ctx.me;
   const s = openSheet({ title: 'Start a private room', lede: 'Watch this match with only the people you invite. Match moments, #threads and the AI Co-host come with it; simulated fans stay here.' });
@@ -867,10 +835,8 @@ function openQuickPrivate(state: RoomState) {
   s.body.append(form);
 }
 
-// ---------------------------------------------------------------- simulated fans
-// The scripted crowd that reacts to the simulated replay. The server derives the lines from the match feed, the
-// same for everyone in this room, and each one is shown when it is due. They are labelled, never stored with the
-// chat, and can be hidden on this device in room settings.
+// The scripted crowd reacting to the simulated replay. The server derives its lines from the match feed, the same
+// for everyone in the room; each is shown when due, never stored with the chat, and can be hidden on this device.
 const CROWD_KEY = 'huddle:crowd';
 const CROWD_LATE_MS = 20000; // a line this overdue (opening the room, coming back) is skipped, not replayed
 
@@ -916,7 +882,7 @@ function scheduleCrowd(state: RoomState, lines: CrowdLine[] = []) {
 function renderCrowd(state: RoomState, c: FeedData['crowd']) {
   const thread = threadBySlug(state, c.thread);
   return el('div', { class: 'msg crowd' },
-    el('span', { class: `avatar ${teamClass(c.team)}`, 'aria-hidden': 'true', text: initials(c.fan) }),
+    avatar({ handle: c.fan, team: c.team }),
     el('div', { class: 'msg-body' },
       el('div', { class: 'msg-meta' },
         el('b', { class: 'handle', text: c.fan }),
@@ -926,7 +892,6 @@ function renderCrowd(state: RoomState, c: FeedData['crowd']) {
       el('p', { class: 'msg-text', text: c.text })));
 }
 
-// ---------------------------------------------------------------- moment threads (#topics)
 // The match opens a #thread for each big moment and the room opens one for a topic people keep arguing about. The
 // chips above the chat filter it to one thread; anything sent from a thread joins it. All chat still shows everything.
 const threadBySlug = (state: RoomState, slug: string | null) => (slug ? [...state.threads.values()].find((t) => t.slug === slug) || null : null);
@@ -1031,13 +996,12 @@ function renderAiMessage(state: RoomState, m: ChatMessage) {
 }
 
 function renderPending(state: RoomState, p: PendingMessage) {
-  const row = el('div', { class: `msg you pending${p.failed ? ' failed' : ''}` },
+  return el('div', { class: `msg you pending${p.failed ? ' failed' : ''}` },
     avatar({ handle: state.ctx.me.handle, team: myTeam(state) }),
     el('div', { class: 'msg-body' },
       el('div', { class: 'msg-meta' }, el('b', { class: 'handle', text: 'You' }), el('span', { class: 'msg-time', text: p.failed ? 'Not sent' : 'Sending…' })),
       el('p', { class: 'msg-text', text: p.text }),
       p.failed ? el('button', { type: 'button', class: 'link-btn', text: 'Retry', onclick: () => deliver(state, p) }) : null));
-  return row;
 }
 
 function renderInsight(i: Insight) {
@@ -1064,14 +1028,12 @@ function renderPoll(state: RoomState, p: Poll) {
       disabled: !p.open, 'aria-pressed': String(p.my_vote === i), onclick: () => vote(state, p, i),
     }, fill, el('span', { text: o.label }), el('span', { class: 'pct', text: `${pct}%` })));
   });
-  const timer = el('span', { class: 'poll-timer', dataset: { closes: p.closes_at, open: String(p.open) } });
-  timer.textContent = p.open ? 'Open' : 'Closed';
+  const timer = el('span', { class: 'poll-timer', dataset: { closes: p.closes_at, open: String(p.open) }, text: p.open ? 'Open' : 'Closed' });
   box.append(el('div', { class: 'poll-foot' }, el('span', { text: plural(total, 'vote') }), timer));
   if (!p.open && winner >= 0) box.append(el('p', { class: 'poll-result' }, el('em', { text: `${Math.round((p.options[winner].votes / total) * 100)}%` }), ` picked ${p.options[winner].label}`));
   return box;
 }
 
-// ---------------------------------------------------------------- per-second updates
 function tick(state: RoomState) {
   if (state !== R) return;
   // Capped at the rule itself: the server-clock estimate is only accurate to about a second.
@@ -1096,7 +1058,6 @@ function tick(state: RoomState) {
   if (state.match && Date.now() % 5000 < 1000) renderFreshness(state);
 }
 
-// ---------------------------------------------------------------- sending
 function setError(state: RoomState, message: string, extra: HTMLElement | null = null) {
   const e = state.els.error;
   e.replaceChildren(el('span', { text: message }), ...(extra ? [extra] : []));
@@ -1116,15 +1077,15 @@ function setReply(state: RoomState, m: ChatMessage | null) {
     chip.replaceChildren();
     return;
   }
-  const x = el('button', { type: 'button', class: 'x', 'aria-label': 'Cancel reply', onclick: () => setReply(state, null) });
-  x.append(icon('close'));
+  const x = el('button', { type: 'button', class: 'x', 'aria-label': 'Cancel reply', onclick: () => setReply(state, null) }, icon('close'));
   chip.replaceChildren(el('span', {}, 'Replying to ', el('b', { text: m.sender.type === 'ai' ? '@huddle' : `@${m.sender.handle}` })), x);
   chip.hidden = false;
   state.els.input.focus();
 }
 
-// A message on its way. It has no seq until the server has it, so it sorts after everything else.
-type PendingMessage = { id: string; key: string | null; text: string; reply_to: string | null; thread_id: string | null; failed: boolean; seq?: undefined };
+// A message on its way. Its id is also its client_msg_id, so a retry is not posted twice. It has no seq until the
+// server has it, so it sorts after everything else.
+type PendingMessage = { id: string; text: string; reply_to: string | null; thread_id: string | null; failed: boolean; seq?: undefined };
 
 function submitMessage(state: RoomState) {
   const text = state.els.input.value.trim();
@@ -1133,8 +1094,7 @@ function submitMessage(state: RoomState) {
     setError(state, `One message every ${state.ctx.config.chat.cooldown_seconds} seconds. Hold that thought.`);
     return;
   }
-  const pending: PendingMessage = { id: newKey(), key: null, text, reply_to: state.replyTo?.id || null, thread_id: state.activeThread === 'all' ? null : state.activeThread, failed: false };
-  pending.key = pending.id;
+  const pending: PendingMessage = { id: newKey(), text, reply_to: state.replyTo?.id || null, thread_id: state.activeThread === 'all' ? null : state.activeThread, failed: false };
   state.els.input.value = '';
   setReply(state, null);
   setError(state, '');
@@ -1149,7 +1109,7 @@ async function deliver(state: RoomState, pending: PendingMessage) {
   upsertItem(state, 'pending', pending);
   try {
     const r = await api.post(`/api/rooms/${state.id}/messages`, {
-      client_msg_id: pending.key, text: pending.text,
+      client_msg_id: pending.id, text: pending.text,
       ...(pending.reply_to ? { reply_to: pending.reply_to } : {}), ...(pending.thread_id ? { thread_id: pending.thread_id } : {}),
     });
     if (state !== R) return;
@@ -1223,7 +1183,6 @@ async function suggestPoll(state: RoomState) {
   }
 }
 
-// ---------------------------------------------------------------- match intelligence
 async function refreshMatch(state: RoomState) {
   if (!state.room?.match) return;
   if (state.matchBusy) { state.matchAgain = true; return; }
@@ -1377,7 +1336,7 @@ function matchPanel(state: RoomState, { withControls = true }: { withControls?: 
   return wrap;
 }
 
-// The match panel's headline lines and tables, per sport.
+// The match panel's headline lines, per sport; sportDetail adds the tables.
 function sportSummary(snap: MatchSnapshot) {
   const s = snap.score;
   const sport = snap.match.sport || 'cricket';
@@ -1437,7 +1396,6 @@ function sportDetail(snap: MatchSnapshot) {
   ];
 }
 
-// ---------------------------------------------------------------- the room's own replay
 // A private room can run its own copy of the simulated replay. Its owner and admins control it from the bar
 // under the score and from the match panel; everyone else sees what the host did (waiting to start, paused).
 async function replayAction(state: RoomState, body: ReplayControl, btn: HTMLButtonElement, status: HTMLElement | null) {
@@ -1529,12 +1487,11 @@ function renderRail(state: RoomState) {
     el('ul', { class: 'rail-facts' },
       el('li', { text: mod }),
       el('li', { text: room.ai_enabled ? 'AI Co-host on: answers @huddle from verified match data' : 'AI Co-host off in this room' }),
-      el('li', { text: `Messages disappear when the watch party ends` })),
+      el('li', { text: 'Messages disappear when the watch party ends' })),
     room.match ? el('section', { class: 'rail-section', 'aria-label': 'Match intelligence' }, el('p', { class: 'rail-h', text: 'Match intelligence' }), matchPanel(state)) : null,
   );
 }
 
-// ---------------------------------------------------------------- Catch Me Up
 async function openCatchup(state: RoomState) {
   const s = openSheet({ title: 'Catch me up' });
   const label = el('div');
@@ -1559,7 +1516,6 @@ async function openCatchup(state: RoomState) {
   }
 }
 
-// ---------------------------------------------------------------- message actions and reports
 function openMessageActions(state: RoomState, m: ChatMessage) {
   const who = m.sender.type === 'ai' ? 'the AI Co-host' : m.mine ? 'you' : `@${m.sender.handle}`;
   const s = openSheet({ title: 'Message' });
@@ -1598,10 +1554,8 @@ function openReport(state: RoomState, m: ChatMessage) {
     sheetActions(el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: closeSheet }), submit));
 }
 
-// ---------------------------------------------------------------- members and invitations
 function openMembers(state: RoomState) {
   const room = state.room;
-  const manage = room.can_manage;
   const s = openSheet({ title: 'Members' });
   const lede = el('p', { class: 'lede' });
   const list = el('ul', { class: 'member-list' });
@@ -1617,7 +1571,7 @@ function openMembers(state: RoomState) {
       el('h3', { text: `Simulated fans (${fans.length})` }),
       el('p', { class: 'fine', text: 'The scripted crowd of this public watch party. They are not real people and only appear here, never in private rooms.' }),
       el('ul', { class: 'member-list' }, fans.slice(0, 40).map((f) => el('li', { class: 'member-row' },
-        el('span', { class: `avatar ${teamClass(f.team)}`, 'aria-hidden': 'true', text: initials(f.handle) }),
+        avatar(f),
         el('span', { class: 'member-main' }, el('b', { text: f.handle }), el('small', { text: f.team })),
         el('span', { class: 'badge sim', text: 'Simulated fan' })))),
       ...(fans.length > 40 ? [el('p', { class: 'fine', text: `And ${fans.length - 40} more.` })] : []),
@@ -1644,7 +1598,7 @@ function openMembers(state: RoomState) {
       }
       return el('li', { class: 'member-row' },
         el('span', { class: `online-dot${online.has(m.id) ? ' on' : ''}`, title: online.has(m.id) ? 'Online' : 'Away' }),
-        el('span', { class: `avatar ${teamClass(m.team)}`, 'aria-hidden': 'true', text: initials(m.handle) }),
+        avatar(m),
         el('span', { class: 'member-main' }, el('b', { text: me ? `@${m.handle} (you)` : `@${m.handle}` }), el('small', { text: `${m.name || ''}${online.has(m.id) ? ' · online' : ''}` })),
         ROLE_LABEL[m.role] ? el('span', { class: `role-badge ${m.role}`, text: ROLE_LABEL[m.role] }) : null,
         actions);
@@ -1652,7 +1606,7 @@ function openMembers(state: RoomState) {
   };
   state.membersSheet = { refresh: render };
   render();
-  if (room.room_type === 'private' && manage) loadInvites(state, s, invites);
+  if (room.room_type === 'private' && room.can_manage) loadInvites(state, s, invites);
   else if (room.room_type === 'public') invites.append(el('p', { class: 'fine', text: 'Anyone signed in can join a public watch party. Moderation is managed by Huddle.' }));
 }
 
@@ -1697,7 +1651,6 @@ async function loadInvites(state: RoomState, s: ReturnType<typeof openSheet>, sl
   refresh();
 }
 
-// ---------------------------------------------------------------- settings, leave and end
 function openSettings(state: RoomState) {
   const room = state.room;
   const s = openSheet({ title: 'Room settings' });
@@ -1777,7 +1730,6 @@ async function leaveParty(state: RoomState) {
   }
 }
 
-// ---------------------------------------------------------------- terminal states
 function renderEnded(state: RoomState, room: { name?: string | null }) {
   const ctx = state.ctx;
   if (R === state) leaveRoom();

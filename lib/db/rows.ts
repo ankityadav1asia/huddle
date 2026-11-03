@@ -1,6 +1,5 @@
 // Row shapes of the tables several modules pass around (lib/db/migrations is the source of truth); a table only one
-// module reads keeps its row type in that module. Queries name the row type they expect (one<RoomRow>(...)).
-// Timestamps arrive as Date objects, jsonb as parsed JSON.
+// module reads keeps its row type in that module. Timestamps arrive as Date objects, jsonb as parsed JSON.
 
 export type Sports = Record<string, { team: string | null; picks: string[] }>;
 

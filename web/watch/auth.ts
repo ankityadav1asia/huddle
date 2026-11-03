@@ -1,6 +1,5 @@
-// Joining Huddle: pick a display name, a handle and (optionally) the team and up to three players you back in each
-// sport. No phone number or password; the server creates a guest profile and keeps this browser signed in with an
-// HttpOnly session cookie.
+// Joining Huddle: a display name, a handle and, optionally, the team and up to three players you back in each sport.
+// The server creates a guest profile and keeps this browser signed in with an HttpOnly session cookie.
 import { api, errorMessage, type Config, type Me, type SportChoice, type SportInfo } from './api.ts';
 import { el, setRail, railIntro, teamClass, type Child } from './ui.ts';
 import type { Ctx } from './app.ts';
@@ -31,7 +30,7 @@ export function renderAuth(ctx: Ctx) {
   });
 }
 
-// Signed-in users who still need a handle (older accounts).
+// Signed-in users: setting up a profile that has no handle yet, and Edit profile.
 export function renderProfile(ctx: Ctx) {
   renderProfileForm(ctx, {
     subtitle: 'Almost there',
@@ -87,14 +86,12 @@ function renderProfileForm(ctx: Ctx, { subtitle, title, lede, button, submit, no
   name.focus();
 }
 
-type Backing = { team: string | null; picks: string[] };
-
 // The team you back (or none) and up to three players in each sport, one sport at a time. A sport you leave alone
 // is not sent, so the first room you watch it in asks once.
 function sportPicker(config: Config | null, current: Record<string, SportChoice> | undefined) {
   const sports = config?.sports || [];
   const maxPicks = config?.max_picks || 3;
-  const chosen = new Map<string, Backing>(Object.entries(current || {}).map(([sport, c]) => [sport, { team: c.team ?? null, picks: [...(c.picks || [])] }]));
+  const chosen = new Map<string, SportChoice>(Object.entries(current || {}).map(([sport, c]) => [sport, { team: c.team ?? null, picks: [...(c.picks || [])] }]));
   const answer = (sport: string) => chosen.get(sport) || chosen.set(sport, { team: null, picks: [] }).get(sport)!;
   const hint = el('p', { class: 'field-hint', id: 'picks-hint' });
   const panel = el('div', { class: 'sport-panel' });

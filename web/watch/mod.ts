@@ -2,7 +2,7 @@
 import { api, ApiError, errorMessage, type MeResponse } from './api.ts';
 import { el, clock } from './ui.ts';
 
-// GET /api/mod/queue: held messages, and open reports and appeals with the message they are about (only these fields).
+// GET /api/mod/queue, the fields read here: held messages, and open reports and appeals with their message.
 interface HeldMessage {
   id: string;
   body: string | null;
@@ -27,6 +27,7 @@ interface QueuedReport {
 }
 
 const body = document.getElementById('mod-body');
+let status: HTMLParagraphElement;
 
 const REASON: Partial<Record<string, string>> = {
   harassment: 'Harassment', hate: 'Hate speech', threat: 'Threat', spam: 'Spam', personal_info: 'Personal details',
@@ -42,15 +43,10 @@ function actionButton(label: string, run: () => Promise<unknown>, cls = 'ctl') {
       await load();
     } catch (err) {
       b.disabled = false;
-      alertLine(errorMessage(err));
+      status.textContent = errorMessage(err);
     }
   });
   return b;
-}
-
-let status: HTMLParagraphElement;
-function alertLine(text: string) {
-  status.textContent = text;
 }
 
 async function load() {

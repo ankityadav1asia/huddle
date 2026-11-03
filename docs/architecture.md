@@ -82,7 +82,7 @@ flowchart LR
 | Session | Browser: random token in an `HttpOnly; SameSite=Lax` cookie. Server: only its SHA-256 hash in `sessions` | 30 days |
 | Push subscription | Browser push service + `push_subscriptions` (endpoint and keys) | Until removed or the endpoint returns 404/410 |
 | Match feed | `match_events` / `match_signals`, shared by every room that follows the match | Kept with the match (demo data) |
-| Data sent to AI providers | Per request only: verified match facts, a bounded window of this room's messages with members pseudonymised (`member1`…), the question. Never handles, phone numbers, other rooms or secrets | Subject to each provider's own terms |
+| Data sent to AI providers | Per request only: verified match facts, a bounded window of this room's messages with members pseudonymised (`member1`…), the question. Never handles, other rooms or secrets | Subject to each provider's own terms |
 | Logs | stdout JSON lines: ids, categories, timings. Message text, tokens and keys are redacted (`lib/log.ts`) | Hosting log retention |
 | Hosted database backups | The Postgres provider's backups / point-in-time restore | Follow the provider's window. Huddle's purge does not reach backups, so deletion there is not immediate |
 
@@ -192,7 +192,7 @@ When a room ends, every user-facing read of this content stops at once. The purg
 
 ### 4.2 Private room and invitations
 `POST /api/rooms` creates the room, makes the caller its owner, records the chosen level (`relaxed`/`balanced`/`strict`)
-and invites up to 10 people found through handle search (never phone search). Invitees see the invitation on their home
+and invites up to 10 people found through handle search. Invitees see the invitation on their home
 screen (and as a generic push if they opted in). Accepting checks that the invitation belongs to the caller, is still
 pending, unexpired, the room is active and not full. Owners promote members to admin; nobody can change their own role.
 
@@ -316,8 +316,8 @@ nobody can pause or move it. A private room created with `own_replay: true` gets
   screen updates at once. The DEMO_CONTROLS jump for the shared replay refuses private runs.
 
 ### 4.11 Simulated fans
-The original single-viewer demo played a scripted crowd. The watch party keeps it as labelled demo data, in public
-watch parties only (a private room holds only the people invited), derived rather than stored. Each sport has 200
+Public watch parties get a scripted crowd: labelled demo data, derived rather than stored (a private room holds only
+the people invited). Each sport has 200
 simulated fans (`lib/match/fans.ts`: seeded handles split between the two sides, such as MCL and RBR fans
 for F1); the bootstrap lists them as `simulated_fans`, and the room header counts real people online and the
 simulated fans separately. `GET /api/rooms/:id/match` returns `crowd`, the lines for the plays of the last 45 s,
@@ -329,7 +329,7 @@ Lines the room's moderation level would not allow are dropped, and nothing is wr
 never reaches the AI Co-host, the message rate limit, reports or retention. Each viewer can hide it on their device.
 
 ### 4.12 Moment threads
-As in the original demo, a room splits its chat into #threads without anyone managing them (`lib/rooms/threads.ts`):
+A room splits its chat into #threads without anyone managing them (`lib/rooms/threads.ts`):
 - **Big moments** open one in every room following the match, inside feed ingestion: in cricket a wicket
   (`#dube-out`), the bowling change, the DRS call, a dropped catch, the last over; in F1 the pit wall, the safety car,
   Norris v Verstappen and the last lap; in basketball Curry's threes, clutch time and the buzzer-beater; in hockey the

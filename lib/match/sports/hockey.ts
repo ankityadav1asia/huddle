@@ -1,5 +1,5 @@
-// Ice hockey: the third period of a made-up Oilers v Maple Leafs game, with real players. Labelled as a simulated
-// game everywhere. Goals, shots and penalties are applied play by play, so the scoreboard always matches them.
+// Ice hockey: the third period of a made-up Oilers v Maple Leafs game, with real players. Goals, shots and penalties
+// are applied play by play, so the scoreboard always matches them.
 import type { FactsInput, Fixture, PollTemplate, Team } from '../fixture.ts';
 import { makeFans } from '../fans.ts';
 import { scriptedSignals, scriptedThread, scriptedBurst, ROLE, type ScriptedItem } from './scripted.ts';
@@ -67,14 +67,14 @@ const SCRIPT: HockeyItem[] = [
     goal: goal('Connor McDavid', ['Leon Draisaitl', 'Evan Bouchard'], 'power play'),
     signal: { trigger: 'goal', priority: 'high', label: 'Goal', fact: (s) => `McDavid scores on the power play: ${line(s)}.` },
     thread: { slug: 'mcdavid-goal', about: 'Connor McDavid scores on the power play.', keywords: ['mcdavid', 'connor', 'mcjesus'] },
-    moment: 'power-play-goal', crowd: { key: 'goal_edm', n: 16, spread: 8000, share: 0.15 }, pause: 5000, urgent: true,
+    moment: 'power-play-goal', crowd: { key: 'goal_edm', n: 16, spread: 8000, share: 0.15 }, pause: 5000,
   }),
   P('14:02', 'Nylander walks in and fires, Skinner says no.', { shot: 'TOR', crowd: { key: 'save', n: 4, share: 0.5 } }),
   P('12:47', 'NYLANDER! Matthews feeds him in the slot and it is tied again.', {
     goal: goal('William Nylander', ['Auston Matthews']),
     signal: { trigger: 'goal', priority: 'high', label: 'Goal', fact: (s) => `Nylander ties it: ${line(s)}.` },
     thread: { slug: 'nylander-goal', about: 'William Nylander ties the game.', keywords: ['nylander', 'willy'] },
-    crowd: { key: 'goal_tor', n: 14, spread: 8000, share: 0.85 }, pause: 4000, urgent: true,
+    crowd: { key: 'goal_tor', n: 14, spread: 8000, share: 0.85 }, pause: 4000,
   }),
   P('11:30', 'Icing on the Leafs: a long clear from their own half. Faceoff back in the Toronto zone.', { crowd: { key: 'chatter', n: 2 } }),
   P('10:15', 'Huge save by Skinner on a Tavares deflection!', { shot: 'TOR', crowd: { key: 'save', n: 6, share: 0.4 } }),
@@ -89,7 +89,7 @@ const SCRIPT: HockeyItem[] = [
     goal: goal('Leon Draisaitl', ['Connor McDavid']),
     signal: { trigger: 'goal', priority: 'high', label: 'Goal', fact: (s) => `Draisaitl puts the Oilers back in front: ${line(s)}.` },
     thread: { slug: 'draisaitl-goal', about: 'Leon Draisaitl gives the Oilers the lead late in the third.', keywords: ['draisaitl', 'leon'] },
-    moment: 'go-ahead-goal', crowd: { key: 'goal_edm', n: 16, spread: 8000, share: 0.15 }, pause: 5000, urgent: true,
+    moment: 'go-ahead-goal', crowd: { key: 'goal_edm', n: 16, spread: 8000, share: 0.15 }, pause: 5000,
   }),
   P('3:05', 'McDavid in alone on a breakaway, Stolarz robs him!', { shot: 'EDM', crowd: { key: 'save', n: 6, share: 0.6 } }),
   E('1:45', 'empty_net', 'Goalie pulled', 'The Leafs pull Stolarz for an extra attacker. Six on five.', {
@@ -237,13 +237,13 @@ export const HOCKEY: Fixture<HockeyState, HockeyItem, HockeyScore> = {
     .map((m) => ({ ...m, index: SCRIPT.findIndex((s) => s.moment === m.id) })),
   engine: {
     initialState, applyItem, snapshot, facts, templatePoll,
-    detectSignals: (prev, next, item, ball, seq) => scriptedSignals(next, item, seq),
+    detectSignals: (_prev, next, item, _ball, seq) => scriptedSignals(next, item, seq),
     threadForItem: scriptedThread,
   },
   crowd: {
     lines: CROWD,
     fans: makeFans(['EDM', 'TOR'], ['slapshot', 'powerplay', 'icebox', 'hattrick', 'faceoff', 'puck', 'oilcountry', 'leafsnation', 'snipe', 'nhl'], { seed: 'hockey' }),
-    burstFor: (item, state, rand) => scriptedBurst(item, rand, 0.4),
+    burstFor: (item, _state, rand) => scriptedBurst(item, rand, 0.4),
     fill: (text) => text,
     otherSide: (code) => (code === 'EDM' ? 'TOR' : 'EDM'),
     momentCues: new Set(['penalty', 'goal_edm', 'goal_tor', 'pk', 'post', 'empty_net', 'tension', 'final']),
@@ -267,7 +267,6 @@ export const HOCKEY: Fixture<HockeyState, HockeyItem, HockeyScore> = {
     { topic: 'Hat trick', text: 'A hat trick is three goals by one player in a game.' },
   ],
   roster: Object.entries(PLAYERS).map(([name, p]) => ROLE(name, TEAMS[p.team], p.role)),
-  // What a fan can back: a team and up to three players.
   backing: {
     teams: SIDES,
     players: Object.entries(PLAYERS).map(([name, p]) => ({ name, short: name.split(' ').slice(-1)[0], team: p.team })),

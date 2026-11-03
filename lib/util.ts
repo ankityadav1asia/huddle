@@ -5,7 +5,7 @@ import { config } from './config.ts';
 export const newId = (prefix: string) => `${prefix}_${randomBytes(10).toString('hex')}`;
 export const newToken = () => randomBytes(32).toString('base64url');
 export const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
-// Fails closed: without a server secret nothing that depends on it (OTP hashing, rate-limit keys) runs.
+// Fails closed: without a server secret nothing that depends on it (rate-limit keys, network hashes) runs.
 export function hmac(value: string) {
   const { secret } = config();
   if (!secret) throw new HttpError(503, 'server_not_configured', 'Sign-in is not set up on this server yet.');
@@ -36,18 +36,15 @@ export const notFound = (message = 'Not found.') => new HttpError(404, 'not_foun
 export const forbidden = (message = 'You do not have permission to do that.') => new HttpError(403, 'forbidden', message);
 export const conflict = (message: string, code = 'conflict') => new HttpError(409, code, message);
 
-// Anything can be thrown. These read a thrown value's `code` (a Postgres SQLSTATE such as '23505', or our own
-// code) and `message` the way `err?.code` does, without assuming it is an Error.
+// Read `code` (a Postgres SQLSTATE such as '23505', or our own) and `message` from any thrown value, Error or not.
 export const errorCode = (err: unknown): unknown => (typeof err === 'object' && err !== null && 'code' in err ? err.code : undefined);
 export const errorMessage = (err: unknown): unknown => (typeof err === 'object' && err !== null && 'message' in err ? err.message : undefined);
 
-// Control, zero-width and bidi-override characters, built from code points so that no invisible
-// character has to appear in this source file.
+// Control, zero-width and bidi-override characters, built from code points so none has to appear in this file.
 const INVISIBLE_RANGES = [[0x00, 0x08], [0x0b, 0x0c], [0x0e, 0x1f], [0x7f, 0x7f], [0x200b, 0x200f], [0x2028, 0x202e], [0x2066, 0x2069]];
 const hex4 = (n: number) => n.toString(16).padStart(4, '0');
 const INVISIBLE = new RegExp(`[${INVISIBLE_RANGES.map(([a, b]) => `\\u${hex4(a)}-\\u${hex4(b)}`).join('')}]`, 'g');
 
-// Text input: trims, normalises Unicode, drops invisible characters, enforces length.
 export function cleanText(value: unknown, { max = 0, min = 1, field = 'text' }: { max?: number; min?: number; field?: string } = {}) {
   if (typeof value !== 'string') throw badRequest(`${field} must be text.`);
   const text = value.normalize('NFC').replace(INVISIBLE, '').replace(/\s+/g, ' ').trim();
@@ -64,8 +61,7 @@ export function requireId(value: unknown, prefix: string, field = 'id'): string 
   return value;
 }
 
-// A request's JSON body as the client sent it. Handlers check it field by field (onlyKeys, cleanText, requireId,
-// typeof) before using a value.
+// A request's JSON body as the client sent it; handlers check each field (onlyKeys, cleanText, requireId, typeof) before use.
 export type RequestBody = any;
 
 // Only the listed keys are accepted; anything else (attachments, user ids, roles, room types) is rejected.

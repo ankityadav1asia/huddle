@@ -1,6 +1,5 @@
 // Huddle service worker: shows push alerts and opens the watch party when one is tapped. No caching.
-// A classic script (no imports or exports), so `self` is typed as a plain worker; `sw` is the same object, typed as
-// this service worker.
+// A classic script (no imports or exports): `self` is typed as a plain worker, so `sw` retypes it as a service worker.
 const sw = self as unknown as ServiceWorkerGlobalScope;
 sw.addEventListener('install', () => sw.skipWaiting());
 sw.addEventListener('activate', (event) => event.waitUntil(sw.clients.claim()));

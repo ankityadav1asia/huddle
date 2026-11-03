@@ -1,4 +1,4 @@
-// Minimal JSON router shared by the local server (server.js) and the Vercel function (api/router.js).
+// Minimal JSON router shared by the local server (server.ts) and the Vercel function (api/router.ts).
 // Every handler gets the verified user from the session cookie; request bodies never carry identity.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, errorCode, type RequestBody } from '../util.ts';
@@ -8,9 +8,8 @@ import { getDb, type Db } from '../db/index.ts';
 import { sessionUser, type Session, type SessionUser } from '../auth/sessions.ts';
 
 // On Vercel the request may arrive with its body already read (parsed JSON, a string or a Buffer).
-export interface ApiRequest extends IncomingMessage { body?: unknown }
+interface ApiRequest extends IncomingMessage { body?: unknown }
 
-// What every handler gets.
 interface BaseContext {
   req: ApiRequest;
   res: ServerResponse;
@@ -22,9 +21,9 @@ interface BaseContext {
   ip: string;
 }
 // A signed-in route (auth: 'user', the default).
-export interface RouteContext extends BaseContext { user: SessionUser; session: Session }
+interface RouteContext extends BaseContext { user: SessionUser; session: Session }
 // A public route (auth: 'none'): no session is looked up.
-export interface PublicRouteContext extends BaseContext { user: null; session: null }
+interface PublicRouteContext extends BaseContext { user: null; session: null }
 // What handleApi builds; route() says which of the two a handler sees.
 type DispatchContext = BaseContext & { user: SessionUser | null; session: Session | null };
 
@@ -42,7 +41,7 @@ const routes: Route[] = [];
 const MAX_BODY = 8 * 1024;
 const REPLY = Symbol('reply');
 
-export interface Reply { [REPLY]: true; status: number; body: unknown; headers: Record<string, string> }
+interface Reply { [REPLY]: true; status: number; body: unknown; headers: Record<string, string> }
 
 // Handlers return a plain body (200), or reply(status, body, headers) for anything else.
 export const reply = (status: number, body: unknown, headers: Record<string, string> = {}): Reply => ({ [REPLY]: true, status, body, headers });
@@ -53,8 +52,7 @@ export function route(method: string, pattern: string, handler: (ctx: PublicRout
 export function route(method: string, pattern: string, handler: ((ctx: RouteContext) => unknown) | ((ctx: PublicRouteContext) => unknown), opts: { auth?: Auth; profile?: boolean } = {}) {
   const keys: string[] = [];
   const regex = new RegExp(`^${pattern.replace(/:([a-zA-Z]+)/g, (_, k: string) => { keys.push(k); return '([^/]+)'; })}/?$`);
-  // handleApi gives a 'user' route the signed-in user (it answers 401 without one) and a 'none' route no session,
-  // a pairing of r.auth with ctx.user that TypeScript cannot follow.
+  // handleApi runs a 'user' route only with a signed-in user and a 'none' route without a session; TypeScript cannot follow that.
   routes.push({ method, regex, keys, handler: handler as (ctx: DispatchContext) => unknown, auth: opts.auth ?? 'user', profile: opts.profile ?? true });
 }
 
@@ -74,7 +72,7 @@ async function readJson(req: ApiRequest): Promise<RequestBody> {
   const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   // Text and emoji only: multipart uploads, images, audio and documents are refused at the boundary.
   if (type !== 'application/json') throw new HttpError(415, 'unsupported_media_type', 'Send JSON. Files and attachments are not accepted.');
-  if (req.body !== undefined && req.body !== null && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) return req.body;
+  if (typeof req.body === 'object' && req.body !== null && !Buffer.isBuffer(req.body)) return req.body;
   let raw = '';
   if (typeof req.body === 'string' || Buffer.isBuffer(req.body)) raw = String(req.body);
   else {
@@ -96,7 +94,7 @@ async function readJson(req: ApiRequest): Promise<RequestBody> {
   }
 }
 
-export function send(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
+function send(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
   if (res.headersSent) return;
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -123,7 +121,6 @@ function checkOrigin(req: ApiRequest) {
   }
 }
 
-// A handler's reply(...) result, as opposed to a plain body.
 const isReply = (out: unknown): out is Reply => typeof out === 'object' && out !== null && REPLY in out;
 
 export async function handleApi(req: ApiRequest, res: ServerResponse) {

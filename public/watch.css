@@ -1,7 +1,7 @@
-/* Watch Party additions. Same tokens as styles.css: Dream11 red masthead, white cards on cool grey,
-   green for the AI Co-host and actions, team colours only for fan bases, red for wickets. */
+/* The watch party screens, loaded after styles.css and built on its tokens and base components: home, the room,
+   sheets and forms, match intelligence, the rail and the moderation page. */
 
-/* ---------- Shell ---------- */
+/* Shell */
 .view { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .scroll-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 12px 20px; display: grid; align-content: start; gap: 12px; }
 .bottom-bar { flex: none; padding: 10px 12px 14px; background: var(--card); border-top: 1px solid var(--line); display: flex; }
@@ -17,14 +17,14 @@
 .type-pill { padding: 1px 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.2); font-weight: 700; }
 .online-count { font-weight: 600; }
 
-/* ---------- Score card as a button ---------- */
+/* Score card as a button */
 .score-btn { display: grid; width: calc(100% - 24px); border: 0; text-align: left; font: inherit; cursor: pointer; }
 .score-btn .score-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .score-btn:hover { box-shadow: 0 8px 22px rgba(80, 8, 12, 0.32); }
 .score-error { margin: 0; color: var(--muted); font-size: 12.5px; }
 .replay-tag { overflow: hidden; text-overflow: ellipsis; }
 
-/* ---------- A private room's own replay: controls under the score ---------- */
+/* A private room's own replay: controls under the score */
 .replay-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 10px 12px 0; }
 .replay-note { color: rgba(255, 255, 255, 0.9); font-size: 12.5px; font-weight: 600; }
 .replay-bar .ctl { padding: 6px 11px; font-size: 12.5px; color: var(--text); }
@@ -32,7 +32,7 @@
 .toggle-row.sub { margin-left: 28px; }
 .toggle-row input:disabled + span { opacity: 0.55; }
 
-/* ---------- Co-host strip ---------- */
+/* Co-host strip */
 .cohost .pulse-text { font-size: 14px; }
 .cohost-actions { justify-content: flex-start; flex-wrap: wrap; }
 .cohost-actions .catchup-btn { margin-left: 0; }
@@ -41,18 +41,18 @@
 .reconnect-pill { padding: 2px 8px; border-radius: 999px; background: #fdecee; color: #b4232f; font-size: 11px; font-weight: 700; }
 .cohost .pulse-text b { font-weight: 800; }
 
-/* ---------- One-time notification prompt (under the Co-host strip) ---------- */
+/* One-time notification prompt, under the Co-host strip */
 .push-prompt { flex: none; margin: 8px 12px 0; padding: 10px 12px; border: 1px solid var(--accent-line); border-radius: var(--r-md); background: var(--card); box-shadow: var(--shadow); display: grid; gap: 8px; animation: rise 0.3s ease; }
 .push-prompt-text { margin: 0; font-size: 13.5px; font-weight: 600; }
 .push-prompt .card-actions { justify-content: flex-end; }
 
-/* ---------- Feed ---------- */
+/* Feed */
 .feed-notice { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--card-2); color: var(--muted); font-size: 12px; display: grid; gap: 4px; }
 .feed-notice p { margin: 0; }
 .feed-notice b { color: var(--text); }
 .sys-line { margin: 4px 0; text-align: center; color: var(--faint); font-size: 12px; }
 .msg { position: relative; }
-.msg-body { flex: 1; }
+.msg-body { flex: 1; cursor: pointer; }
 .msg-time { margin-left: 2px; color: var(--faint); font-size: 11px; }
 .badge.role { background: var(--text); color: #fff; }
 .reply-preview { margin: 2px 0 0; padding: 2px 8px; border-left: 3px solid var(--line); color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -64,7 +64,7 @@
 .msg.pending { opacity: 0.6; }
 .msg.failed { opacity: 1; }
 .msg.failed .msg-time { color: #b4232f; font-weight: 700; }
-/* New to the sport? Example questions for @huddle and the rules sheet, under the AI Co-host. */
+/* New to the sport: example @huddle questions and the rules sheet, under the Co-host. */
 .guide { display: grid; gap: 6px; margin-top: 8px; }
 .guide-line { margin: 0; color: var(--muted); font-size: 12.5px; }
 .ask-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -88,7 +88,6 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .badge.sim { background: var(--card-2); color: var(--muted); }
 .msg-more { flex: none; align-self: flex-start; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--faint); opacity: 0.55; }
 .msg-more:hover, .msg-more:focus-visible { opacity: 1; background: var(--card-2); }
-.msg-body { cursor: pointer; }
 .reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .react-btn { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .react-btn.mine { border-color: var(--accent); background: var(--accent-soft); }
@@ -111,7 +110,7 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .insight-src { margin: 6px 0 0; color: var(--faint); font-size: 11px; }
 .poll-timer { font-variant-numeric: tabular-nums; }
 
-/* ---------- Composer ---------- */
+/* Composer */
 .composer-wrap { flex: none; background: var(--card); border-top: 1px solid var(--line); }
 .composer-wrap .composer { border-top: 0; }
 .composer-status { display: grid; gap: 4px; padding: 0 12px; }
@@ -125,13 +124,13 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .x { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; background: transparent; color: inherit; }
 .x .ico { width: 12px; height: 12px; }
 
-/* ---------- Toast (whole app) ---------- */
+/* Toast */
 .app > .toast { top: auto; bottom: 86px; }
 .toast .x { color: #fff; }
 .toast.high { border-left: 4px solid var(--wicket); }
 .toast.medium { border-left: 4px solid var(--csk); }
 
-/* ---------- Buttons and links ---------- */
+/* Buttons and links */
 .link-btn { padding: 0; border: 0; background: none; color: var(--accent-deep); font-size: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
 .link-btn:disabled { color: var(--faint); text-decoration: none; cursor: default; }
 .btn.small { flex: none; padding: 8px 16px; font-size: 13px; }
@@ -139,7 +138,7 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .ctl.danger { color: #b4232f; }
 .ctl:disabled { opacity: 0.5; cursor: default; }
 
-/* ---------- Home ---------- */
+/* Home */
 .home-section { display: grid; gap: 8px; }
 .section-title { margin: 6px 2px 0; color: var(--muted); font-size: 11.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .card { padding: 14px; border-radius: var(--r-md); background: var(--card); box-shadow: var(--shadow); display: grid; gap: 8px; }
@@ -166,7 +165,7 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .role-badge.owner { background: var(--text); color: #fff; }
 .role-badge.admin { background: var(--chrome); color: #fff; }
 
-/* ---------- Forms ---------- */
+/* Forms */
 .form-card { gap: 12px; }
 .card-title { margin: 0; font: 700 26px/1.05 var(--display); text-wrap: balance; }
 .card-lede { margin: 0; color: var(--muted); font-size: 13.5px; }
@@ -186,9 +185,6 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .field-hint.strong { color: var(--accent-deep); font-weight: 600; }
 .form-error { margin: 0; color: #b4232f; font-size: 13px; font-weight: 600; }
 .form-error:empty { display: none; }
-.demo-box { display: grid; gap: 2px; padding: 10px 12px; border: 1px dashed var(--csk); border-radius: var(--r-sm); background: var(--csk-soft); color: var(--csk-ink); font-size: 13px; }
-.demo-box code { font: 700 20px/1.2 var(--display); letter-spacing: 0.14em; }
-.form-links { display: flex; justify-content: space-between; gap: 8px; }
 .team-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .team-opt { display: grid; justify-items: center; gap: 6px; padding: 10px 6px; border: 1.5px solid var(--line); border-radius: var(--r-md); background: var(--card); font-size: 12.5px; font-weight: 700; }
 .team-opt .logo { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 8px; }
@@ -230,7 +226,7 @@ button.thread-tag { margin-left: 2px; padding: 0; border: 0; background: none; c
 .chip .ico { width: 10px; height: 10px; }
 .empty.small { padding: 6px; font-size: 12.5px; text-align: left; }
 
-/* ---------- Sheets ---------- */
+/* Sheets */
 .sheet-body { display: grid; gap: 10px; }
 .sheet-body > h3 { margin: 8px 0 0; }
 .sheet-form { display: grid; gap: 14px; }
@@ -261,7 +257,7 @@ p.notice-box .ico { width: 14px; height: 14px; margin-right: 6px; vertical-align
 .status-pill.inv-accepted { background: var(--accent-soft); color: var(--accent-deep); }
 .status-pill.inv-pending { background: var(--csk-soft); color: var(--csk-ink); }
 
-/* ---------- Match intelligence (sheet and rail) ---------- */
+/* Match intelligence (sheet and rail) */
 .mi { display: grid; gap: 6px; }
 .mi-head { display: flex; align-items: center; gap: 8px; }
 .mi-title { font: 700 20px/1 var(--display); }
@@ -286,18 +282,18 @@ p.notice-box .ico { width: 14px; height: 14px; margin-right: 6px; vertical-align
 .demo-controls h3 { margin: 0; }
 .demo-controls .fine { margin: 0; }
 
-/* ---------- Rail ---------- */
+/* Rail */
 .rail { max-height: calc(100vh - 48px); overflow-y: auto; padding-right: 6px; }
 .rail-title.small { font-size: 40px; overflow-wrap: anywhere; }
 .rail-facts { margin: 0 0 16px; padding-left: 16px; display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
 .rail-section { margin-bottom: 14px; padding: 14px; border-radius: var(--r-md); background: var(--card); box-shadow: var(--shadow); }
 .rail-h { margin: 0 0 6px; color: var(--brand); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-.rail a, .fine a, .mod-page a { color: var(--accent-deep); font-weight: 700; }
+.fine a, .mod-page a { color: var(--accent-deep); font-weight: 700; }
 
-/* ---------- Ended / problem states ---------- */
+/* Ended room and error cards */
 .ended-card { margin-top: 20px; justify-items: center; text-align: center; }
 
-/* ---------- Moderation queue page ---------- */
+/* Moderation queue page */
 .mod-page { max-width: 760px; margin: 0 auto; padding: 24px 16px 40px; display: grid; gap: 14px; }
 .mod-page h1 { margin: 0; font: 700 40px/1 var(--display); }
 .mod-item { display: grid; gap: 6px; }

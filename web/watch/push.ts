@@ -1,6 +1,5 @@
-// Notification settings and browser push. Permission is only ever requested from a click, and the watch party
-// works fully without it: in-app alerts are the main path, push is for big moments while you are away, capped
-// per match by the server (notifications.max_per_match).
+// Notification settings and browser push. Permission is only requested from a click: in-app alerts are the main
+// path, and push covers big moments while you are away, capped per match by the server.
 import { api, ApiError, errorMessage, type Config } from './api.ts';
 import { el } from './ui.ts';
 import { openSheet } from './sheets.ts';
@@ -14,21 +13,20 @@ type NotificationPrefs = Record<PrefKey, boolean> & { push_subscribed: boolean }
 
 const PROMPT_SNOOZE_DAYS = 7;
 
-export const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
 const maxPerMatch = (config: Config) => config?.notifications?.max_per_match ?? 8;
 
-export const momentsCopy = (config: Config) => `Get a notification for big moments (wickets, momentum swings, the result) when you're not looking. At most ${maxPerMatch(config)} per match.`;
+const momentsCopy = (config: Config) => `Get a notification for big moments (wickets, momentum swings, the result) when you're not looking. At most ${maxPerMatch(config)} per match.`;
 
 function urlBase64ToUint8Array(base64: string) {
   const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(padded);
-  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
 }
 
 // Asks for permission (only ever called from a click), subscribes this browser and registers it with Huddle.
 // Throws Error('denied' | 'dismissed') when the person says no; resolves to the updated preferences.
-export async function enableBrowserAlerts(vapidKey: string): Promise<NotificationPrefs> {
+async function enableBrowserAlerts(vapidKey: string): Promise<NotificationPrefs> {
   const reg = await navigator.serviceWorker.register('/sw.js');
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') throw new Error(permission === 'denied' ? 'denied' : 'dismissed');
@@ -53,7 +51,6 @@ const refusalMessage = (err: unknown) => (err instanceof Error && err.message ==
     : err instanceof ApiError ? err.message
       : 'Notifications could not be turned on in this browser. In-app alerts still work.');
 
-// ---------------------------------------------------------------- one-time prompt in the room
 const snoozeKey = (userId: string) => `huddle:push-prompt:${userId}`;
 
 function snoozed(userId: string) {
@@ -111,7 +108,6 @@ export async function pushPrompt(ctx: ReadyCtx) {
   return card;
 }
 
-// ---------------------------------------------------------------- settings sheet
 export async function openNotificationSettings(config: Config) {
   const s = openSheet({ title: 'Alerts', lede: `${momentsCopy(config)} Never every ball, and never your friends' messages on your lock screen.` });
   const status = el('div', { class: 'notice-box' }, el('div', { class: 'skeleton' }));

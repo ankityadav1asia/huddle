@@ -2,11 +2,11 @@
 import type { BatterLine, BowlerLine, CricketItem } from './demo-script.ts';
 import type { CricketFixture } from './sports/cricket.ts';
 
-export interface Partnership { runs: number; balls: number }
+interface Partnership { runs: number; balls: number }
 // A wicket on the card; score and over are null for the ones that fell before the replay started.
-export interface Out { name: string; r: number; b: number; how: string; score: string | null; over: string | null }
+interface Out { name: string; r: number; b: number; how: string; score: string | null; over: string | null }
 // The wicket a ball took, and the stand it ended.
-export interface Dismissal { name: string; r: number; b: number; how: string; score: string; over: string; partnership: Partnership }
+interface Dismissal { name: string; r: number; b: number; how: string; score: string; over: string; partnership: Partnership }
 // What one delivery was, as the momentum rules read it.
 export interface BallRecord {
   seq: number;
@@ -51,10 +51,8 @@ export interface CricketState {
 
 export type CricketScore = ReturnType<typeof snapshot>;
 
-const legalBall = (item: CricketItem) => item.kind === 'ball' && !item.extra;
-
 export const oversText = (balls: number) => `${Math.floor(balls / 6)}.${balls % 6}`;
-export const shortName = (name: string) => String(name || '').split(' ').slice(-1)[0];
+export const shortName = (name: string) => name.split(' ').slice(-1)[0];
 
 export function rates(s: CricketState) {
   const need = Math.max(0, s.target - s.runs);
@@ -110,7 +108,7 @@ export function applyItem(prev: CricketState, item: CricketItem, seq: number): {
     if (item.type === 'result') s.result = item.text;
     return { state: s, ball: null };
   }
-  const legal = legalBall(item);
+  const legal = !item.extra;
   if (s.over_legal === 6) {
     s.this_over = [];
     s.over_legal = 0;
@@ -159,15 +157,13 @@ export function applyItem(prev: CricketState, item: CricketItem, seq: number): {
   return { state: s, ball };
 }
 
-export function figures({ b, r, w }: BowlerLine) {
+function figures({ b, r, w }: BowlerLine) {
   const overs = b % 6 ? `${Math.floor(b / 6)}.${b % 6}` : `${b / 6}`;
   return `${overs}-0-${r}-${w}`;
 }
 
 // The client-facing scorecard. Only fields we actually have; no invented statistics.
 export function snapshot(s: CricketState) {
-  const r = rates(s);
-  const chaseWon = s.runs >= s.target;
   return {
     batting: s.batting,
     bowling: s.bowling,
@@ -177,9 +173,9 @@ export function snapshot(s: CricketState) {
     balls: s.balls,
     target: s.target,
     first_innings: s.first_innings,
-    ...r,
+    ...rates(s),
     result: s.result,
-    chase_won: chaseWon,
+    chase_won: s.runs >= s.target,
     batters: Object.entries(s.batters).map(([name, v]) => ({
       name, short: shortName(name), runs: v.r, balls: v.b, strike_rate: v.b ? +((v.r / v.b) * 100).toFixed(1) : null, on_strike: name === s.striker,
     })),

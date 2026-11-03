@@ -1,12 +1,11 @@
-// Home: invitations, the platform's public watch party, your private rooms, and creating a room.
+// Home: invitations, the public watch parties, your private rooms, and creating a room.
 import { api, ApiError, errorMessage, type CreatedRoom, type LevelInfo, type ModerationLevel, type Role } from './api.ts';
 import { el, icon, plural, inHours, setRail, railIntro, toast, teamLogo } from './ui.ts';
 import { openSheet, closeSheet, sheetActions } from './sheets.ts';
 import { openNotificationSettings } from './push.ts';
 import type { ReadyCtx } from './app.ts';
 
-// What home reads from the server. Private rooms always have a moderation level.
-// GET /api/me/invitations: pending invitations to private rooms.
+// GET /api/me/invitations: pending invitations to private rooms, which always have a moderation level.
 interface Invitation { id: string; room_name: string | null; inviter_handle: string; match_title: string | null; moderation_level: ModerationLevel; expires_at: string }
 
 // GET /api/rooms: the public watch parties (one per sport), your private rooms and the games a new room can follow.
@@ -35,7 +34,7 @@ export function leaveHome() {
   clearInterval(refreshTimer);
 }
 
-const LEVEL_NAMES = { relaxed: 'Relaxed', balanced: 'Balanced', strict: 'Strict' };
+export const LEVEL_NAMES = { relaxed: 'Relaxed', balanced: 'Balanced', strict: 'Strict' };
 
 export async function renderHome(ctx: ReadyCtx) {
   leaveHome();
@@ -49,10 +48,8 @@ export async function renderHome(ctx: ReadyCtx) {
   let data: RoomLists | null = null; // the /api/rooms response, once loaded
   create.addEventListener('click', () => openCreateRoom(ctx, data));
 
-  const bell = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Alert settings', onclick: () => openNotificationSettings(ctx.config) });
-  bell.append(icon('bell'));
-  const menu = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Menu', onclick: () => openMenu(ctx) });
-  menu.append(icon('dots'));
+  const bell = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Alert settings', onclick: () => openNotificationSettings(ctx.config) }, icon('bell'));
+  const menu = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Menu', onclick: () => openMenu(ctx) }, icon('dots'));
 
   view.replaceChildren(
     el('div', { class: 'masthead' },
@@ -182,8 +179,7 @@ function renderMine(ctx: ReadyCtx, section: HTMLElement, rooms: MyRoom[]) {
   section.append(list);
 }
 
-// ---------------------------------------------------------------- menu
-// "Cricket: CSK (Dhoni, Bumrah) · F1: Ferrari": what you back in each sport you answered for.
+// "Cricket: Chennai Super Kings (Dhoni, Bumrah) · F1: Ferrari": what you back in each sport you answered for.
 function backingLine(ctx: ReadyCtx) {
   return (ctx.config.sports || []).filter((s) => ctx.me.sports?.[s.sport]).map((s) => {
     const { team, picks } = ctx.me.sports[s.sport];
@@ -194,9 +190,10 @@ function backingLine(ctx: ReadyCtx) {
 
 function openMenu(ctx: ReadyCtx) {
   const s = openSheet({ title: ctx.me.display_name || ctx.me.handle });
+  const backing = backingLine(ctx);
   s.body.append(
     el('p', { class: 'lede', text: `@${ctx.me.handle}` }),
-    ...(backingLine(ctx) ? [el('p', { class: 'fine', text: backingLine(ctx) })] : []),
+    ...(backing ? [el('p', { class: 'fine', text: backing })] : []),
     el('p', { class: 'fine', text: `Account ID: ${ctx.me.id}` }),
     el('div', { class: 'menu-list' },
       el('button', { type: 'button', class: 'menu-item', text: 'Alert settings', onclick: () => openNotificationSettings(ctx.config) }),
@@ -224,7 +221,6 @@ function signOutButton(ctx: ReadyCtx) {
   return b;
 }
 
-// ---------------------------------------------------------------- create a private room
 export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?: Set<string>; onChange?: (ids: string[]) => void }) {
   const selected: Map<string, FoundUser> = new Map();
   const input = el('input', { id: 'friend-search', type: 'search', placeholder: 'Search by handle or name', autocomplete: 'off', 'aria-describedby': 'friend-hint' });

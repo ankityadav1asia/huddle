@@ -1,13 +1,11 @@
-// The scripted MI v CSK chase (CSK chasing 187) behind the simulated replay feed: lib/match/fixture.js turns it
-// into timestamped ball-by-ball events. The match is fictional (real players, made-up game) and is labelled as a
-// simulated replay wherever it appears. The crowd lines date from the original single-viewer demo; the
-// moderation tests use them as a corpus of ordinary cricket banter.
+// The scripted MI v CSK chase (CSK chasing 187): a made-up match with real players, labelled as a simulated replay
+// wherever it appears. The moderation tests use its crowd lines as a corpus of ordinary cricket banter.
 import type { CrowdCue } from './fixture.ts';
 
 export interface BatterLine { r: number; b: number } // runs, balls faced
 export interface BowlerLine { b: number; r: number; w: number } // balls, runs conceded, wickets
 
-// The scorecard when the replay starts; lib/match/scorecard.ts builds its state from it.
+// The scorecard when the replay starts; scorecard.ts builds its state from it.
 export interface CricketStart {
   batting: string;
   bowling: string;
@@ -23,10 +21,10 @@ export interface CricketStart {
   outs: { name: string; r: number; b: number; how: string }[];
 }
 
-export interface Wicket { out: string; how: string; next: string }
-// What a ball or event may carry for the crowd, the old demo's host and the replay's pace (see SCRIPT).
-interface Cues { crowd?: CrowdCue; host?: string; pause?: number; moment?: string; urgent?: boolean; hold?: 'poll' }
-export interface BallItem extends Cues {
+interface Wicket { out: string; how: string; next: string }
+// What a ball or event may carry for the crowd and the replay (see SCRIPT).
+interface Cues { crowd?: CrowdCue; pause?: number; moment?: string }
+interface BallItem extends Cues {
   kind: 'ball';
   bowler: string;
   bat: string;
@@ -37,7 +35,7 @@ export interface BallItem extends Cues {
   drop?: { by: string };
 }
 // `bowler`: the bowler an event brings on.
-export interface EventItem extends Cues {
+interface EventItem extends Cues {
   kind: 'event';
   type: string;
   label: string;
@@ -46,7 +44,7 @@ export interface EventItem extends Cues {
   wicket?: undefined;
   drop?: undefined;
 }
-export interface OverEndItem { kind: 'overend'; crowd?: undefined; moment?: undefined; wicket?: undefined; drop?: undefined }
+interface OverEndItem { kind: 'overend'; crowd?: undefined; moment?: undefined; wicket?: undefined; drop?: undefined }
 // Only balls take wickets or see drops; the undefined fields let code test any item for them.
 export type CricketItem = BallItem | EventItem | OverEndItem;
 type BallExtra = Omit<BallItem, 'kind' | 'bowler' | 'bat' | 'runs' | 'text'>;
@@ -56,7 +54,7 @@ export const TEAMS = {
   MI: { code: 'MI', name: 'Mumbai Indians', logo: 'assets/mi.png' },
   CSK: { code: 'CSK', name: 'Chennai Super Kings', logo: 'assets/csk.png' },
 };
-export const TEAM_CODES = Object.keys(TEAMS);
+const TEAM_CODES = Object.keys(TEAMS);
 export const otherTeam = (code: string): string => TEAM_CODES.find((c) => c !== code) ?? code;
 
 // Players fans can pick for their social contest team.
@@ -68,8 +66,6 @@ export const SQUADS: Record<string, string[]> = {
 // What fans actually call them in chat.
 const CALLED: Record<string, string> = { 'Tilak Varma': 'Tilak', 'Hardik Pandya': 'Hardik', 'Rohit Sharma': 'Rohit', 'Suryakumar Yadav': 'Surya', 'Ruturaj Gaikwad': 'Ruturaj', 'Sanju Samson': 'Sanju' };
 export const shortName = (name: string) => CALLED[name] || name.split(' ').slice(-1)[0];
-
-export const CREATOR = { handle: 'BoundaryBhaiya' };
 
 // The replay starts after 14 overs of the chase.
 export const START: CricketStart = {
@@ -103,11 +99,10 @@ export const START: CricketStart = {
 const B = (bowler: string, bat: string, runs: number, text: string, more: BallExtra = {}): BallItem => ({ kind: 'ball', bowler, bat, runs, text, ...more });
 const E = (type: string, label: string, text: string, more: EventExtra = {}): EventItem => ({ kind: 'event', type, label, text, ...more });
 
-// `crowd` = burst of simulated chat (`mi` = share of MI fans). `urgent` = ask the AI for an update right after.
-// `hold: 'poll'` pauses the replay while a poll is still running, so the story lands in order.
+// `crowd` = burst of simulated chat (`mi` = share of MI fans).
 export const SCRIPT: CricketItem[] = [
   E('start', 'Strategic timeout over', 'CSK need 59 off 36. Shivam Dube is set on 41.', {
-    crowd: { key: 'start', n: 8, spread: 6000 }, host: 'start', pause: 4000, moment: 'start',
+    crowd: { key: 'start', n: 8, spread: 6000 }, pause: 4000, moment: 'start',
   }),
 
   // 15th over: Santner
@@ -121,17 +116,17 @@ export const SCRIPT: CricketItem[] = [
 
   // 16th over: the bowling change
   E('bowling_change', 'Bowling change', 'Captain Hardik Pandya hands the ball to part-timer Tilak Varma. Jasprit Bumrah still has 2 overs left.', {
-    bowler: 'Tilak Varma', crowd: { key: 'bowling_change', n: 24, spread: 10000, mi: 0.55 }, host: 'bowling_change',
-    pause: 4500, moment: 'bowling-change', urgent: true,
+    bowler: 'Tilak Varma', crowd: { key: 'bowling_change', n: 24, spread: 10000, mi: 0.55 },
+    pause: 4500, moment: 'bowling-change',
   }),
   B('Tilak Varma', 'Shivam Dube', 4, 'Tilak drops short and Dube pulls it through midwicket for four.', { crowd: { key: 'tilak_hit', n: 9 } }),
   B('Tilak Varma', 'Shivam Dube', 6, 'Down the track and over long-on. Tilak is going the distance.', { crowd: { key: 'tilak_hit', n: 11, mi: 0.6 } }),
   B('Tilak Varma', 'Shivam Dube', 1, 'Wide down the leg side.', { extra: 'wd' }),
   B('Tilak Varma', 'Shivam Dube', 1, 'Tucked off the pads to fine leg for one.'),
-  B('Tilak Varma', 'Ruturaj Gaikwad', 1, 'Gaikwad pushes to long-off, another single.', { hold: 'poll' }),
+  B('Tilak Varma', 'Ruturaj Gaikwad', 1, 'Gaikwad pushes to long-off, another single.'),
   B('Tilak Varma', 'Shivam Dube', 0, 'OUT! Dube goes big again and holes out to Suryakumar at long-on. Tilak has his man.', {
     wicket: { out: 'Shivam Dube', how: 'c Suryakumar b Tilak', next: 'Dewald Brevis' },
-    crowd: { key: 'tilak_wicket', n: 26, spread: 9000, mi: 0.55 }, host: 'tilak_wicket', pause: 5000, moment: 'tilak-wicket', urgent: true,
+    crowd: { key: 'tilak_wicket', n: 26, spread: 9000, mi: 0.55 }, pause: 5000, moment: 'tilak-wicket',
   }),
   B('Tilak Varma', 'Dewald Brevis', 1, 'Brevis is off the mark with a nudge to point.'),
   { kind: 'overend' },
@@ -143,7 +138,7 @@ export const SCRIPT: CricketItem[] = [
     crowd: { key: 'drs_appeal', n: 10, spread: 3500 }, pause: 4000, moment: 'drs',
   }),
   E('review', 'DRS', "Impact: umpire's call. Not out stands and MI lose their review.", {
-    crowd: { key: 'drs_result', n: 18, spread: 8000 }, host: 'review', pause: 3500, urgent: true,
+    crowd: { key: 'drs_result', n: 18, spread: 8000 }, pause: 3500,
   }),
   B('Jasprit Bumrah', 'Dewald Brevis', 1, 'Brevis squeezes a yorker to third man for one.'),
   B('Jasprit Bumrah', 'Ruturaj Gaikwad', 4, 'Gaikwad opens the face and runs it past short third for four.', { crowd: { key: 'boundary', n: 4 } }),
@@ -155,7 +150,7 @@ export const SCRIPT: CricketItem[] = [
   B('Trent Boult', 'Ruturaj Gaikwad', 1, 'Boult to Gaikwad, dropped at his feet for a single.'),
   B('Trent Boult', 'Dewald Brevis', 0, 'Beaten outside off.', { crowd: { key: 'dot', n: 2 } }),
   B('Trent Boult', 'Dewald Brevis', 1, 'Brevis skies it to mid-off... DROPPED! Hardik spills a simple catch. They cross for one.', {
-    drop: { by: 'Hardik Pandya' }, crowd: { key: 'drop', n: 20, spread: 8000, mi: 0.6 }, host: 'drop', pause: 4500, moment: 'drop', urgent: true,
+    drop: { by: 'Hardik Pandya' }, crowd: { key: 'drop', n: 20, spread: 8000, mi: 0.6 }, pause: 4500, moment: 'drop',
   }),
   B('Trent Boult', 'Ruturaj Gaikwad', 4, 'Gaikwad makes them pay, flat-batted past mid-off for four.', { crowd: { key: 'boundary', n: 5 } }),
   B('Trent Boult', 'Ruturaj Gaikwad', 1, 'Worked to deep square for one.'),
@@ -167,7 +162,7 @@ export const SCRIPT: CricketItem[] = [
   B('Jasprit Bumrah', 'Ruturaj Gaikwad', 1, 'Yorker, jammed out to long-on for one.'),
   B('Jasprit Bumrah', 'Dewald Brevis', 0, 'Beats the bat with a slower bouncer.'),
   B('Jasprit Bumrah', 'Dewald Brevis', 0, 'BOWLED HIM! Bumrah sends the middle stump cartwheeling.', {
-    wicket: { out: 'Dewald Brevis', how: 'b Bumrah', next: 'MS Dhoni' }, crowd: { key: 'bumrah_wicket', n: 14, spread: 5000 }, pause: 3500, urgent: true,
+    wicket: { out: 'Dewald Brevis', how: 'b Bumrah', next: 'MS Dhoni' }, crowd: { key: 'bumrah_wicket', n: 14, spread: 5000 }, pause: 3500,
   }),
   E('walk_in', 'New batter', 'MS Dhoni walks out. The whole stadium is on its feet.', { crowd: { key: 'dhoni_walks', n: 16, spread: 6000, mi: 0.3 }, pause: 4000 }),
   B('Jasprit Bumrah', 'MS Dhoni', 1, 'Dhoni gets a thick edge to third man for one.'),
@@ -177,7 +172,7 @@ export const SCRIPT: CricketItem[] = [
 
   // 20th over
   E('last_over', 'Last over', 'Captain Hardik Pandya will bowl it himself. CSK need 11 off 6.', {
-    crowd: { key: 'last_over', n: 16, spread: 7000 }, host: 'last_over', pause: 5000, moment: 'last-over', urgent: true,
+    crowd: { key: 'last_over', n: 16, spread: 7000 }, pause: 5000, moment: 'last-over',
   }),
   B('Hardik Pandya', 'Ruturaj Gaikwad', 2, 'Low full toss, Gaikwad pushes it to deep cover for two.', { crowd: { key: 'tension', n: 5 } }),
   B('Hardik Pandya', 'Ruturaj Gaikwad', 0, 'Wide yorker, Gaikwad swings and misses. 9 off 4.', { crowd: { key: 'tension', n: 6 } }),
@@ -185,7 +180,7 @@ export const SCRIPT: CricketItem[] = [
   B('Hardik Pandya', 'Ruturaj Gaikwad', 1, 'Pushed to long-on, they take one. Dhoni on strike, 4 off 2.', { crowd: { key: 'tension', n: 6 } }),
   B('Hardik Pandya', 'MS Dhoni', 0, 'Dhoni swings and misses! 4 needed off the last ball.', { crowd: { key: 'tension', n: 10 }, pause: 4500 }),
   B('Hardik Pandya', 'MS Dhoni', 6, 'Dhoni launches it over long-on... SIX! CSK win off the last ball!', {
-    crowd: { key: 'csk_win', n: 28, spread: 10000, mi: 0.4 }, host: 'csk_win', urgent: true,
+    crowd: { key: 'csk_win', n: 28, spread: 10000, mi: 0.4 },
   }),
   E('result', 'Result', 'CSK win by 6 wickets off the final ball.', { pause: 3000 }),
 ];
@@ -197,18 +192,7 @@ export const MOMENTS = [
   { id: 'last-over', label: 'Last over' },
 ];
 
-// The watch-along creator's own lines (a human host, not the AI).
-export const HOST_LINES = {
-  start: 'Welcome back doston! 59 off 36, Dube set hai. Ye match last over tak jayega 🔥',
-  bowling_change: 'TILAK?! Bold call by Hardik. Main toh Bumrah ko deta. Aap log kya bolte ho? 👇',
-  tilak_wicket: 'Maine Bumrah bola tha. Main galat tha 😅 Tilak, take a bow! 🙇‍♂️',
-  review: "Umpire's call. MI fans, I feel your pain 😭",
-  drop: 'Oh no! Captain ne khud sitter chhod diya 😱',
-  last_over: 'Hardik khud last over daalenge. 11 defend karne hain. Kas ke pakdo 😬',
-  csk_win: 'KYA MATCH HAI! Dhoni last ball pe SIX! 🦁🔥',
-};
-
-// Simulated chat, the way fans actually type it. {need} {balls} are filled from the live score.
+// Simulated chat, the way fans actually type it. {need} and {balls} are filled from the scorecard.
 export const CROWD = {
   start: {
     CSK: ['59 off 36, ho jayega bhai 💛💛', 'Dube set hai, chill karo 😎', 'ek bada over chahiye bas 🙏', 'Whistle Podu 💛🦁', 'Thala abhi baaki hai 😏🔥'],
@@ -300,7 +284,7 @@ export const CROWD = {
   },
 };
 
-// Simulated fans. Picks = players in their (prize-free) social contest team.
+// Hand-written simulated fans, by side.
 const HANDLES = {
   CSK: ['riya_sixes', 'chepauk_dreams', 'thala_bhakt_7', 'dhruv_da_fan', 'anu_whistles', 'sid_cover_drive', 'yellove_arjun', 'harsh_hooks',
     'kavya_kc', 'rahul_rrr', 'mahi_way', 'manav_memes', 'priya.p', 'farhan_fc', 'lakshmi.l', 'tara_t'],
@@ -308,33 +292,4 @@ const HANDLES = {
     'ishaan.in', 'sana_slower_ball', 'neha_nets', 'ojas_ultras', 'divya_dotball', 'adi_bluearmy', 'jay_yorkers', 'sky_ka_fan'],
 };
 
-const POPULARITY: Record<string, number> = {
-  'Jasprit Bumrah': 5, 'MS Dhoni': 5, 'Shivam Dube': 4, 'Suryakumar Yadav': 4, 'Ruturaj Gaikwad': 3, 'Hardik Pandya': 3,
-  'Rohit Sharma': 3, 'Sanju Samson': 3, 'Tilak Varma': 2, 'Trent Boult': 2, 'Dewald Brevis': 2,
-};
-
-function seeded(seed: number) {
-  return () => {
-    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function weightedPick(rand: () => number, players: string[], taken: string[]) {
-  const pool = players.filter((p) => !taken.includes(p));
-  const total = pool.reduce((s, p) => s + POPULARITY[p], 0);
-  let x = rand() * total;
-  for (const p of pool) { x -= POPULARITY[p]; if (x <= 0) return p; }
-  return pool[pool.length - 1];
-}
-
-const rand = seeded(11);
-export const FANS = Object.entries(HANDLES).flatMap(([team, handles]) => handles.map((handle) => {
-  const picks: string[] = [];
-  picks.push(weightedPick(rand, SQUADS[team], picks));
-  picks.push(weightedPick(rand, SQUADS[team], picks));
-  picks.push(weightedPick(rand, SQUADS[otherTeam(team)], picks));
-  return { handle, team, picks };
-}));
+export const FANS = Object.entries(HANDLES).flatMap(([team, handles]) => handles.map((handle) => ({ handle, team })));

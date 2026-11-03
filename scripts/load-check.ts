@@ -101,7 +101,6 @@ stop = true;
 await Promise.race([Promise.all(loops), sleep(25000)]);
 stopWorker();
 
-// Results.
 const latencies: number[] = [];
 const wave2Latencies: number[] = [];
 let missing = 0;

@@ -1,8 +1,6 @@
-// Moment threads: #topics inside a room, as in the original demo. The match opens one in every room following it for
-// each big moment (each sport's engine decides which: a wicket or the DRS call in cricket, the safety car in F1, a
-// goal in hockey...), and a room opens one when three or more messages from at least two people argue about the same
-// topic (each sport lists its topics). A message joins a thread when it is sent from it, mentions its topic, or
-// follows a big moment within seconds; every message still shows in "All chat". Deterministic: no AI involved.
+// Moment threads: #topics inside a room. The match opens one in every room following it for each big moment (each
+// sport's engine decides which), and a room opens one when enough people argue about one of its sport's topics. Every
+// message still shows in "All chat". Deterministic: no AI involved.
 import { one, many, type Queryable } from '../db/index.ts';
 import type { MessageRow, RoomRow, ThreadRow } from '../db/rows.ts';
 import type { MomentThread, Topic } from '../match/fixture.ts';
@@ -15,7 +13,7 @@ const DISCUSSION = { messages: 3, people: 2, minutes: 10 };
 // A thread as clients list it.
 export type ThreadItem = Pick<ThreadRow, 'id' | 'slug' | 'title' | 'about' | 'source' | 'created_at' | 'last_active_at'> & { messages: number };
 
-export const topicFor = (text: string, topics: Topic[]) => {
+const topicFor = (text: string, topics: Topic[]) => {
   const t = text.toLowerCase();
   return topics.find((topic) => topic.keywords.some((k) => t.includes(k))) || null;
 };
@@ -65,8 +63,7 @@ export async function threadForMessage(q: Queryable, roomId: string, text: strin
   return recent && text.length >= 10 ? recent.id : null;
 }
 
-// A topic the room keeps arguing about becomes a thread once enough people have joined in; those messages move
-// into it.
+// A topic the room keeps arguing about becomes a thread once enough people join in, and those messages move into it.
 export async function maybeOpenDiscussion(q: Queryable, roomId: string, text: string, topics: Topic[] = []) {
   const topic = topicFor(text, topics);
   if (!topic) return null;

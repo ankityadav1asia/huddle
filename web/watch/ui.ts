@@ -4,10 +4,9 @@
 // Children of el(): nodes and text, in arrays nested up to three deep. null, undefined and false are skipped.
 export type Child = Node | string | number | false | null | undefined | readonly Child[];
 
-// Attributes of el(). class, text and dataset are special; on<event> functions listen on the node itself, so
-// currentTarget is the node while the handler runs (it is null again after an await); booleans and numbers set
-// properties (hidden, disabled, checked), so aria-* values must be strings; anything else is set as an attribute.
-// null, undefined and false are skipped.
+// Attributes of el(); null, undefined and false are skipped. class, text and dataset are special. on<event> handlers
+// listen on the node, so currentTarget is the node (until an await). Booleans and numbers set properties (hidden,
+// disabled, checked), so aria-* values must be strings. Anything else is an attribute.
 type Listeners<T> = { [E in keyof HTMLElementEventMap as `on${E}`]?: (event: HTMLElementEventMap[E] & { currentTarget: T }) => unknown };
 export type Attrs<T extends HTMLElement = HTMLElement> = Listeners<T> & {
   class?: string | null;
@@ -70,8 +69,8 @@ const TEAM_COLOURS = new Set(['MI', 'CSK', 'MCL', 'RBR', 'FER', 'MER', 'GSW', 'L
 export const teamClass = (team: string | null) => (team && TEAM_COLOURS.has(team) ? `team t-${team.toLowerCase()}` : '');
 
 // A team code ('MI'), or a team from the match data, which may carry its own logo.
-export function teamLogo(team: string | { code: string; logo?: string }, cls = '') {
-  return el('img', { class: `logo ${cls}`.trim(), src: (typeof team === 'object' && team.logo) || `assets/${String(typeof team === 'object' ? team.code || team : team).toLowerCase()}.png`, alt: '' });
+export function teamLogo(team: string | { code: string; logo?: string }) {
+  return el('img', { class: 'logo', src: (typeof team === 'object' && team.logo) || `assets/${String(typeof team === 'object' ? team.code || team : team).toLowerCase()}.png`, alt: '' });
 }
 
 export function clock(date: string) {
@@ -108,15 +107,12 @@ type ToastOptions = { action?: { label: string; run: () => void }; ms?: number; 
 export function toast(parts: Child, { action, ms = 6000, tone = '' }: ToastOptions = {}) {
   const box = document.getElementById('toast');
   if (!box) return;
-  const text = el('span', {}, parts);
-  box.replaceChildren(text);
+  box.replaceChildren(el('span', {}, parts));
   box.className = `toast${tone ? ` ${tone}` : ''}`;
   if (action) {
     box.append(el('button', { type: 'button', text: action.label, onclick: () => { box.hidden = true; action.run(); } }));
   }
-  const close = el('button', { type: 'button', class: 'x', 'aria-label': 'Dismiss', onclick: () => { box.hidden = true; } });
-  close.append(icon('close'));
-  box.append(close);
+  box.append(el('button', { type: 'button', class: 'x', 'aria-label': 'Dismiss', onclick: () => { box.hidden = true; } }, icon('close')));
   box.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { box.hidden = true; }, ms);

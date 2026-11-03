@@ -1,5 +1,4 @@
-// Short-lived, room-scoped cache for derived AI context (never shared across rooms). Keys always start
-// with the room id, and closing a room clears its entries.
+// Short-lived, room-scoped cache for derived AI context: never shared across rooms, and cleared when the room closes.
 const store = new Map<string, { value: unknown; expires: number }>();
 
 export function cached<T>(roomId: string, key: string, ttlMs: number, compute: () => T): T {

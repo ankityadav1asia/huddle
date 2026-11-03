@@ -1,144 +1,88 @@
-# Huddle: Watch Party with an AI Co-host
+# Huddle
 
-A prototype of a sports Watch Party for cricket, Formula 1, basketball and ice hockey: friends join a private room (or
-the public one for their sport), chat while the game plays, see verified match data without leaving the room, and get
-help from an AI Co-host that answers questions (about the rules and the players too), flags the big moments and
-catches you up when you look away.
+A watch-party prototype for cricket, Formula 1, basketball and ice hockey. Friends chat in a room while a game plays,
+see verified match data next to the chat, and can ask an AI co-host (`@huddle`) about the game, its rules and its
+players.
 
-It grew out of a single-viewer replay demo. That page is gone (`/replay` now opens the app) and its simulated replay
-runs inside the watch party. The product rules this build follows are in [CLAUDE.md](CLAUDE.md); the design is in
-[docs/architecture.md](docs/architecture.md) and the endpoints in [docs/api-contract.md](docs/api-contract.md).
+Every game is a simulated replay: real teams and players, made-up games. Nothing here is connected to Dream11 or to a
+live match. Product rules: [CLAUDE.md](CLAUDE.md). Design: [docs/architecture.md](docs/architecture.md). Endpoints:
+[docs/api-contract.md](docs/api-contract.md).
 
-## What works, and what is simulated
+## Features
 
-| | Status |
+| Feature | Status |
 |---|---|
-| Join with a display name and @handle, and pick the team and up to 3 players you back in each sport (no phone number or password; the browser stays signed in for 30 days). A sport you skipped is asked once, in one tap, in its first room; your team shows next to your name in that sport's rooms | **Implemented** |
-| One public watch party per sport (up to 100 members, moderation run by Huddle) and private rooms (up to 50, owner picks relaxed / balanced / strict) | **Implemented** |
-| **+ Private room** in a public watch party: a private room on the same game in one tap, inviting friends by username | **Implemented** |
-| Invite several friends, accept/decline/revoke, expiry, owner and admin roles, leave, remove | **Implemented** |
-| Realtime chat, reactions, polls, presence, reply threads | **Implemented** (long-polling) |
-| One message per person every 10 s, across every room, tab and device | **Implemented** (atomic, server-side) |
-| Match Intelligence: a scoreboard for each sport (cricket scorecard, F1 running order and gaps, basketball and hockey score and clock), play by play, freshness | **Implemented** on **simulated** games: MI v CSK (T20), the Italian Grand Prix (last 13 laps), Warriors v Lakers (last 6 minutes), Oilers v Maple Leafs (third period). Real names, made-up games |
-| Demo pace: every game plays at 0.5x by default (`DEMO_SPEED`) | **Implemented** |
-| A private room's own replay: start, pause, 0.5x / 1x / 2x, restart, jump to a big moment (only that room moves) | **Implemented** (simulated replay only) |
-| Moment threads: a #thread for each big moment (wickets, DRS, safety car, lead changes, clutch time, power-play goals, the result…) and for each topic three people argue about; chips above the chat filter it, replies stay in the thread | **Implemented** (deterministic, no AI needed) |
-| Simulated fans: 200 per sport, chatting in that sport's public watch party only (private rooms hold only the people invited), labelled, the same for everyone in the room, hidable per device. The header counts real people online and the simulated fans separately | **Simulated** (demo data; never stored or sent to the AI) |
-| Match Momentum: wickets, dropped catches, run-rate pressure, boundary bursts (cricket); pit stops, safety car, lead changes (F1); lead changes, clutch time, buzzer-beater (basketball); power plays, goals, empty net (hockey) → one alert for everyone in the room | **Implemented** (deterministic rules and scripted signals, deduplicated) |
-| AI Co-host: `@huddle` answers, answers to questions nobody answered, quiet-room polls, Catch Me Up | **Implemented**. Needs an AI key for live answers; without one, alerts and Catch Me Up fall back to summaries built from verified match data |
-| Rules and players help: each room shows newcomers what they can ask; a question about a rule or a player is answered from the sport's checked rules sheet and roster and the game as it stood when it was asked. Numbers found in none of those are rejected | **Implemented** (needs an AI key; the rules sheets are hand-written demo data) |
-| Primary + fallback AI provider with circuit breaker | **Implemented** (Gemini, xAI Grok, Anthropic, OpenRouter) |
-| Notifications for big moments when you are not looking at the room (at most 8 per match, the last kept for the result), invitation alerts | **Implemented**, tested with a mocked push service |
-| Mandatory safety baseline, reports, human review queue, appeals | **Implemented** |
-| Messages vanish when the room ends; deleted from the server after 24 h | **Implemented** |
-| Real sports data feeds, account recovery, user blocking, quiet hours | **Planned** |
+| Guest profiles: display name, @handle, and the team and up to 3 players you back in each sport. No phone number or password; the browser stays signed in for 30 days | Implemented |
+| One public watch party per sport (up to 100 members, moderated by Huddle) and private rooms (up to 50; the owner picks relaxed, balanced or strict moderation), with invitations, roles, leaving and removal | Implemented |
+| Realtime chat (long-polling), reactions, polls, presence and replies; one message per person every 10 s across all rooms and devices | Implemented |
+| A scoreboard for each sport, play by play, and big-moment alerts (deduplicated; at most 8 pushes per match) | Implemented on simulated games |
+| A private room's own replay: start, pause, 0.5x/1x/2x, restart, jump to a big moment | Implemented |
+| Moment threads: a #thread for each big moment and for each topic the room argues about | Implemented |
+| 200 simulated fans in each public watch party, labelled and never stored | Simulated |
+| AI co-host: answers, catch-up summaries and polls, stated only from verified match data, the rules sheet and the roster; a primary and a fallback provider behind a circuit breaker (Gemini, xAI Grok, Anthropic, OpenRouter) | Implemented; needs an API key (without one, summaries come straight from match data) |
+| A safety baseline at every moderation level, reports, a human review queue and appeals | Implemented |
+| Messages disappear when a room ends and are deleted from the server after 24 h | Implemented |
+| Real sports data feeds, account recovery, blocking, quiet hours | Planned |
 
-Nothing here is connected to Dream11 systems or to a live match.
+## Run locally
 
-## Run it
-
-Needs Node.js 22.18 or newer (tested on 24). The code is TypeScript: Node runs the server's `.ts` files directly (type
-stripping, no build step), and `npm start` first compiles the browser code in `web/` into `public/`.
+Needs Node.js 22.18 or newer.
 
 ```bash
 npm install
 npm start
 ```
 
-Open http://localhost:3000. Everything runs locally with no accounts: an embedded Postgres (PGlite) stores data in
-`.data/` (git-ignored). To try a watch party with friends on one machine, sign in as different people in two browser
-profiles (or one normal and one private window).
+Open http://localhost:3000. Data lives in an embedded Postgres (PGlite) under `.data/`. To try a room with friends on
+one machine, sign in from two browser profiles, or invite the demo friends the invite picker offers (`@demo_aarav`,
+`@demo_diya` and others; their invitations stay pending, and `DEMO_USERS=false` hides them).
 
-To try invitations on your own, invite the demo friends the invite picker offers while its search box is empty
-(`@demo_aarav`, `@demo_diya`, `@demo_kabir`, `@demo_meera`, `@demo_rohan`, `@demo_sana`). They are labelled profiles
-that nobody signs in as, so their invitations stay pending. `DEMO_USERS=false` hides them.
+Public watch parties follow a shared game that nobody can pause, at half speed (`DEMO_SPEED`). **+ Private room** in a
+public watch party starts a private room on the same game; tick **Control the replay yourself** to run its replay.
 
-The home screen offers one public watch party per sport. Each follows a shared simulated game: it starts when someone
-joins, plays at half speed (a ball, lap or play roughly every 20 seconds; `DEMO_SPEED=1` doubles it), and nobody can
-pause or move it. Its 200 simulated fans chat there, never in private rooms.
-
-**+ Private room** in a public watch party starts a private room on the same game in one tap: it is named after you
-and you invite friends by username. To drive the simulation yourself, tick **Control the replay yourself** there (or
-when you create a room from the home screen, where it is ticked by default). The room gets its own copy, and its owner
-and admins can start it, pause it, play it at 0.5x, 1x or 2x, restart it or jump to its big moments (in cricket: the
-bowling change, the DRS call, the dropped catch or the last over), from the bar under the score or the match panel.
-Only that room moves. With `DEMO_CONTROLS` on (the local default) the shared replay can be jumped too, from its match
-panel.
-
-New to a sport? Every room shows example questions. Ask `@huddle` (or just ask, for example "What is icing?"): the
-Co-host answers from the sport's checked rules sheet and roster and from the game as it stood when you asked, and says
-which moment that was.
-
-To turn on the live AI Co-host, set one or two provider keys: in a `.env` file locally, or under Environment
-Variables on Vercel (as Secrets, then redeploy):
+For the live AI co-host, set provider keys in `.env` locally, or in Vercel's environment variables:
 
 ```bash
-GEMINI_API_KEY=...         # Google Gemini (gemini-3.5-flash-lite by default; GEMINI_MODEL to change)
-XAI_API_KEY=...            # xAI Grok (grok-4.20-0309-non-reasoning by default; XAI_MODEL; GROK_API_KEY also works)
+GEMINI_API_KEY=...   # GEMINI_MODEL to change the model
+XAI_API_KEY=...      # xAI Grok; XAI_MODEL to change the model (GROK_API_KEY also works)
 ```
 
-With both, Gemini answers first and Grok takes over when Gemini fails; `AI_PRIMARY=xai` swaps them. Anthropic
-(`ANTHROPIC_API_KEY`) and OpenRouter (`OPENROUTER_API_KEY`) are supported too; `AI_PRIMARY` / `AI_FALLBACK` pick any
-two. Keys stay on the server. Moderators (who see the review queue at
-`/mod`) are listed by account id in `MODERATOR_USER_IDS` (your id is shown in the app menu).
+With both, Gemini answers first and Grok takes over when Gemini fails. `AI_PRIMARY` and `AI_FALLBACK` choose among
+`gemini`, `xai`, `anthropic` (`ANTHROPIC_API_KEY`) and `openrouter` (`OPENROUTER_API_KEY`). Moderators, who see the
+review queue at `/mod`, are listed by account id in `MODERATOR_USER_IDS`; your id is in the app menu.
 
 ## Test
 
 ```bash
-npm test
-npm run typecheck
+npm test            # 119 tests against the real API and an in-memory database
+npm run typecheck   # strict TypeScript: server, tests, browser app and service worker
 ```
 
-`npm run typecheck` checks the server, tests and browser code with the TypeScript compiler in full `strict` mode
-(no implicit `any`). Table rows have their own types (`lib/db/rows.ts`); `any` remains only at the edges where
-data is not modelled: raw request JSON before validation, vendor JSON and some per-sport script data.
-
-118 tests (under a minute) cover joining and the teams and players fans back in each sport, room access and isolation, invitations and roles (including
-the demo friends), the 10-second message rule (including concurrent sends and the exact boundary), moderation levels
-and the baseline, the match feed and how fast it reaches the room, the four sports' games and their final scores,
-private rooms' own replays and their controls, simulated fans (public rooms only), moment threads, momentum alerts,
-rules questions answered at the moment they were asked, alert fan-out and push eligibility, AI failover and circuit
-breaking, the Co-host's race with human replies, numbers an AI answer may state, room closure and purge,
-observability, and log privacy.
-
-`node scripts/load-check.ts` runs a small load check: 3 rooms of 10 members, a burst of 30 messages and a slow AI
-provider, reporting delivery latency, losses, duplicates and ordering.
+`node scripts/load-check.ts` runs a small load check (3 rooms of 10 members, a message burst and a slow AI provider)
+and reports delivery latency, losses, duplicates and ordering.
 
 ## Deploy
 
-Production on Vercel uses Neon Postgres (`DATABASE_URL`, added by the Vercel Marketplace integration), generated
-`HUDDLE_SECRET` / `CRON_SECRET` / `VAPID_*` values. Visitors join with a name and handle; without `HUDDLE_SECRET`
-joining fails closed.
+On Vercel, `npm run build` compiles the browser code into `public/`, which is served as static files, and the API runs
+as one function (`api/router.ts`). It needs `DATABASE_URL` (Neon Postgres) and `HUDDLE_SECRET`; joining fails closed
+without the secret. Optional: AI keys, `VAPID_*` for push, and `CRON_SECRET` for the daily sweep. Vercel runs no
+background worker, so queued work runs inside members' long-polls.
 
+On any other Node host with Postgres, `npm start` with `DATABASE_URL` set runs the worker in-process.
 
-The app is one server plus one Postgres database.
+## Layout
 
-- **Vercel**: `vercel.json` serves `public/`, runs `npm run build` (the browser code), serves `public/`, runs the API as one function (`api/router.ts`, compiled by Vercel) and redirects the old
-  `/replay` page to the app. It needs a Postgres `DATABASE_URL` (for example Neon from the Vercel Marketplace) and
-  `HUDDLE_SECRET`. Optional: AI keys, `VAPID_*` for push, `CRON_SECRET` for the daily sweep. Serverless functions do not
-  run a background worker, so queued work runs while members are connected (their long-polls drive it).
-- **Any Node host with Postgres**: `npm start` with `DATABASE_URL` set runs the worker in-process.
-
-## Files
-
-| Path | What |
+| Path | Contents |
 |---|---|
-| `server.ts` | Local server: static files, API, background worker |
-| `api/router.ts` | Vercel function (Watch Party API) |
-| `lib/http/` | Router and routes |
-| `lib/auth/` | Sessions (HttpOnly cookie, server-side hashes) |
-| `lib/rooms/` | Rooms, membership, invitations, the per-room event log, long-polling, lifecycle and purge |
-| `lib/chat/` | Message fast path, reactions, polls, rendering |
-| `lib/moderation/` | Safety gate, lexicon, policy, audit, reports and review |
-| `lib/match/` | The four simulated games (`fixture.ts`, `sports/`: cricket, F1, basketball, hockey, each with its rules sheet and roster), feed ingestion, cricket scorecard and momentum rules, simulated fans, private rooms' own replays |
-| `lib/ai/`, `lib/cohost/` | Provider adapters, failover orchestrator, task schemas and validation, Co-host behaviours |
-| `lib/notify/` | Notification policy, push delivery |
-| `lib/jobs/` | The job queue, worker, housekeeping |
-| `lib/db/` | Database access and migrations |
-| `web/watch/`, `web/sw.ts` | Watch Party UI and service worker (TypeScript, compiled into `public/watch/` and `public/sw.js` by `npm run build`) |
-| `public/` | Static files: `index.html`, `mod.html`, styles, images, and the compiled browser code (git-ignored) |
-| `test/` | Automated tests (`node --test`, TypeScript) |
-| `tsconfig.json`, `web/tsconfig*.json` | TypeScript settings for the server and tests, the browser app and the service worker |
+| `server.ts`, `api/router.ts` | Local server; Vercel function |
+| `lib/http/`, `lib/auth/` | Router and routes; sessions |
+| `lib/rooms/`, `lib/chat/` | Rooms, invitations, the per-room event log and long-polling; messages, reactions and polls |
+| `lib/match/` | The four simulated games and their engines, feed ingestion, momentum rules, simulated fans, room replays |
+| `lib/ai/`, `lib/cohost/` | AI providers and failover, task schemas and output validation; co-host behaviours |
+| `lib/moderation/`, `lib/notify/`, `lib/jobs/` | Safety checks and review; push notifications; the job queue |
+| `lib/db/` | Database access, row types and migrations |
+| `web/` | Browser app and service worker, compiled into `public/` by `npm run build` |
+| `public/` | HTML, styles and images |
+| `test/` | Tests (`node --test`) |
 
-Team, driver and player names and team logos belong to their owners and are used only to make the prototype feel real;
-the games themselves are made up.
+Team, driver and player names and logos belong to their owners and are used only to make the prototype feel real.

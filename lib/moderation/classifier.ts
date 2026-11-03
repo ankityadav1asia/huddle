@@ -11,9 +11,9 @@ type Risk = 'low' | 'medium' | 'high';
 interface Verdict<A extends Action, R extends string | null> { action: A; risk: Risk; categories: string[]; level: string; reason: R; policy_version: string }
 // What the gate decided: allow, flag (published and logged), hold (for human review) or reject (never stored).
 // A reject or hold always carries the reason the sender sees; allow and flag carry none.
-export type Decision = Verdict<'reject' | 'hold', string> | Verdict<'allow' | 'flag', null>;
+type Decision = Verdict<'reject' | 'hold', string> | Verdict<'allow' | 'flag', null>;
 
-export function normalise(text: string): string {
+function normalise(text: string): string {
   let t = text.normalize('NFKC').toLowerCase().replace(/[’'`]/g, '');
   // Leetspeak only between letters, so scores ("148/3") and @mentions survive.
   t = t.replace(/(?<=[a-z])[013457@$!8](?=[a-z])/g, (c) => LEET[c] || c);
@@ -28,7 +28,7 @@ const squash = (t: string) => t.replace(/(?<=[a-z])[.*_-]+(?=[a-z])/g, '').repla
 
 const hit = (patterns: RegExp[], text: string) => patterns.some((re) => re.test(text));
 
-// By rule name; the mandatory rules are keyed by their MANDATORY category.
+// The reason the sender sees, by rule; mandatory rules are keyed by their MANDATORY category.
 const REASONS: Record<string, string> = {
   threat: 'Threats are not allowed in Huddle, even as a joke.',
   self_harm: 'Telling someone to hurt themselves is not allowed.',
@@ -54,8 +54,7 @@ function disruptive(original: string) {
   return shouting || /(.)\1{9,}/u.test(original) || /\b(\w+)\b(?:\W+\1\b){4,}/i.test(original);
 }
 
-// level: relaxed | balanced | strict (resolved server-side by policy.effectivePolicy). Any other string gets the
-// relaxed rules.
+// level is relaxed, balanced or strict (resolved by policy.effectivePolicy); any other string gets the relaxed rules.
 export function classify(original: string, { level = 'balanced' }: { level?: string } = {}): Decision {
   const base = normalise(original);
   const squashed = squash(base);
@@ -100,6 +99,5 @@ export function classify(original: string, { level = 'balanced' }: { level?: str
 
 // Names (handles, display names, room names) are public labels: strict, plus no mentions or links.
 export function checkName(value: string): boolean {
-  const d = classify(value, { level: 'strict' });
-  return d.action === 'allow' && !/@/.test(value);
+  return classify(value, { level: 'strict' }).action === 'allow' && !/@/.test(value);
 }

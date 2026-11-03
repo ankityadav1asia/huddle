@@ -1,9 +1,6 @@
-// The simulated fans, inside the public watch party: scripted fan lines (Hinglish and English) for each play of the
-// simulated game, from that sport's crowd of CROWD_SIZE personas. They are derived from the match feed with a
-// seeded random generator (room + run + play), so everyone in the room sees the same simulated fans say the same
-// thing at the same moment, and nothing is stored. The UI labels them as simulated fans; they are not chat
-// messages, so they never reach the AI Co-host, the message rate limit or moderation queues. Private rooms do not
-// get them: only the people invited are there.
+// Simulated fans for public watch parties: scripted lines for each play, seeded by room + run + play so everyone in
+// a room sees the same lines at the same moment. Nothing is stored, and they are not chat messages, so they never
+// reach the AI Co-host, the message rate limit or moderation queues.
 import { one, many, type Queryable } from '../db/index.ts';
 import type { MatchEventRow, MatchRow, ModerationLevel } from '../db/rows.ts';
 import { fixtureFor } from './fixture.ts';
@@ -14,7 +11,7 @@ const WINDOW_SECONDS = 45;
 
 interface CrowdRequest { roomId: string; matchId: string; speed?: number; level?: ModerationLevel }
 // One simulated fan's line, as GET /api/rooms/:id/match sends it.
-export interface CrowdLine { id: string; at: string; fan: string; team: string; text: string; thread: string | null }
+interface CrowdLine { id: string; at: string; fan: string; team: string; text: string; thread: string | null }
 
 // Lines for the plays of the last WINDOW_SECONDS (plays skipped by a jump get none), each with the moment it is
 // due: `at` = when the play happened plus its place in the burst, scaled by the replay speed. Lines the room's
@@ -25,7 +22,7 @@ export async function crowdLines(db: Queryable, { roomId, matchId, speed = 1, le
       WHERE match_id = $1 AND NOT backfilled AND occurred_at > now() - make_interval(secs => $2) ORDER BY seq`,
     [matchId, WINDOW_SECONDS]);
   if (!recent.length) return [];
-  const fixture = fixtureFor(await one<Pick<MatchRow, 'fixture_key'>>(db, 'SELECT fixture_key FROM matches WHERE id = $1', [matchId]) || {});
+  const fixture = fixtureFor(await one<Pick<MatchRow, 'fixture_key'>>(db, 'SELECT fixture_key FROM matches WHERE id = $1', [matchId]));
   const { engine, crowd } = fixture;
   const [sideA, sideB] = fixture.teams.map((t) => t.code);
   const due = new Map(recent.map((r) => [r.seq, new Date(r.occurred_at).getTime()]));
@@ -43,7 +40,7 @@ export async function crowdLines(db: Queryable, { roomId, matchId, speed = 1, le
     const said = new Set<string>();
     for (let k = 0; k < burst.n; k++) {
       const team = rand() < (burst.share ?? burst.mi ?? 0.5) ? sideA : sideB;
-      // Lines that @-mention someone were written for the old demo's creator-host, who is not in a watch party.
+      // Drop lines that @-mention someone: no one in a watch party can be @-mentioned by the crowd.
       const pool = (crowd.lines[burst.key]?.[team] || crowd.lines[burst.key]?.[crowd.otherSide(team)] || []).filter((t) => !said.has(t) && !t.includes('@'));
       const fans = crowd.fans.filter((f) => f.team === team);
       const raw = pool[Math.floor(rand() * pool.length)];

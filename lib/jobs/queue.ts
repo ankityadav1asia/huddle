@@ -8,9 +8,9 @@ import type { JobRow } from '../db/rows.ts';
 // A job as claimJobs hands it out: the row, plus how long it had been due (seconds).
 export interface ClaimedJob extends JobRow { queue_age_s: number }
 
-// The tags a failure may carry (our errors set category, retryable; drivers set code), read the way `err?.tag`
-// reads them: anything can be thrown, and tests fail jobs with plain objects.
-export interface FailureTags { category?: unknown; code?: unknown; retryable?: unknown }
+// The tags a failure may carry: our errors set category and retryable, drivers set code. Anything can be thrown
+// (tests fail jobs with plain objects), so a tag may be missing or of any type.
+interface FailureTags { category?: unknown; code?: unknown; retryable?: unknown }
 export const failureTags = (err: unknown): FailureTags => (typeof err === 'object' && err !== null ? err : {});
 
 export async function enqueue(q: Queryable, {
@@ -97,7 +97,7 @@ export async function cancelRoomJobs(q: Queryable, roomId: string) {
 }
 
 // Per job status: how many, and how long the oldest due job has waited (seconds; 0 if none is due).
-export interface QueueStat { status: JobRow['status']; n: number; oldest_due_s: number }
+interface QueueStat { status: JobRow['status']; n: number; oldest_due_s: number }
 
 export async function queueStats(db: Queryable): Promise<QueueStat[]> {
   const { rows } = await db.query(

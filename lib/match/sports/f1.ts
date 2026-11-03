@@ -1,5 +1,4 @@
-// Formula 1: the final 13 laps of a made-up Italian Grand Prix at Monza, with real drivers. Labelled as a
-// simulated race everywhere. Big moments, threads and crowd cues are marked in the script (see scripted.js).
+// Formula 1: the final 13 laps of a made-up Italian Grand Prix at Monza, with real drivers.
 import type { FactsInput, Fixture, PollTemplate } from '../fixture.ts';
 import { makeFans } from '../fans.ts';
 import { scriptedSignals, scriptedThread, scriptedBurst, ROLE, type ScriptedItem } from './scripted.ts';
@@ -50,7 +49,7 @@ const TOTAL_LAPS = 53;
 const short = (code: string) => DRIVERS[code].short;
 const P = (lap: number, text: string, extra: Extra = {}): F1Item => ({ kind: 'play', clock: `Lap ${lap}`, lap, text, ...extra });
 const E = (lap: number, type: string, label: string, text: string, extra: Extra = {}): F1Item => ({ kind: 'event', type, label, clock: `Lap ${lap}`, lap, text, ...extra });
-const gapsOf = (list: [string, number][]): Record<string, number> => Object.fromEntries(list.map(([code, gap]) => [code, gap]));
+const gapsOf = (list: [string, number][]): Record<string, number> => Object.fromEntries(list);
 
 const START: Pick<F1State, 'lap' | 'order' | 'gaps' | 'tyres' | 'pits' | 'fastest'> = {
   lap: 41,
@@ -79,7 +78,7 @@ const SCRIPT: F1Item[] = [
     sc: true, gaps: gapsOf([['VER', 0], ['NOR', 0.4], ['PIA', 1.0], ['HAM', 1.6], ['RUS', 2.2], ['LEC', 2.9]]),
     signal: { trigger: 'safety_car', priority: 'high', label: 'Safety car', fact: (s) => `Safety car on lap ${s.lap}: ${short(s.order[0])} leads as the field closes up.` },
     thread: { slug: 'safety-car', about: 'A stopped car at Ascari brings out the safety car on lap 45.', keywords: ['safety car', 'vsc', 'neutralised', 'neutralized', 'ascari'] },
-    moment: 'safety-car', crowd: { key: 'sc', n: 14, spread: 8000 }, pause: 5000, urgent: true,
+    moment: 'safety-car', crowd: { key: 'sc', n: 14, spread: 8000 }, pause: 5000,
   }),
   E(45, 'pit', 'Strategy call', 'Norris dives into the pits for softs under the safety car and keeps P2. Verstappen stays out on old mediums.', {
     pit: { driver: 'NOR', tyre: 'S' },
@@ -110,7 +109,7 @@ const SCRIPT: F1Item[] = [
     order: ['NOR', 'VER', 'PIA', 'LEC', 'RUS', 'HAM'], gaps: gapsOf([['NOR', 0], ['VER', 0.5], ['PIA', 1.9], ['LEC', 2.6], ['RUS', 3.8], ['HAM', 4.4]]),
     signal: { trigger: 'lead_change', priority: 'high', label: 'New leader', fact: 'Norris passes Verstappen for the lead on lap 50.' },
     thread: { slug: 'norris-vs-verstappen', about: 'Norris takes the lead from Verstappen at the Rettifilo on lap 50.', keywords: ['norris', 'lando', 'verstappen', 'max ', 'overtake'] },
-    moment: 'lead-change', crowd: { key: 'lead_change', n: 18, spread: 9000 }, pause: 5000, urgent: true,
+    moment: 'lead-change', crowd: { key: 'lead_change', n: 18, spread: 9000 }, pause: 5000,
   }),
   P(50, 'Verstappen fights back on the run to Ascari, but Norris holds on.', { crowd: { key: 'battle', n: 8 } }),
   P(51, 'Verstappen gets a track limits warning at the Ascari chicane.', {
@@ -271,13 +270,13 @@ export const F1: Fixture<F1State, F1Item, F1Score> = {
   ].map((m) => ({ ...m, index: SCRIPT.findIndex((s) => s.moment === m.id) })),
   engine: {
     initialState, applyItem, snapshot, facts, templatePoll,
-    detectSignals: (prev, next, item, ball, seq) => scriptedSignals(next, item, seq),
+    detectSignals: (_prev, next, item, _ball, seq) => scriptedSignals(next, item, seq),
     threadForItem: scriptedThread,
   },
   crowd: {
     lines: CROWD,
     fans: makeFans(['MCL', 'RBR'], ['papaya', 'apex', 'pitwall', 'boxbox', 'drs', 'slipstream', 'monza', 'tifosi', 'overcut', 'p1'], { seed: 'f1' }),
-    burstFor: (item, state, rand) => scriptedBurst(item, rand, 0.4),
+    burstFor: (item, _state, rand) => scriptedBurst(item, rand, 0.4),
     fill: (text) => text,
     otherSide: (code) => (code === 'MCL' ? 'RBR' : 'MCL'),
     momentCues: new Set(['pit', 'sc', 'pit_split', 'restart', 'max_defend', 'lead_change', 'battle', 'stewards', 'last_lap', 'tension', 'win']),

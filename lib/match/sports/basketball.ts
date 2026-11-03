@@ -1,5 +1,5 @@
-// Basketball: the last six minutes of a made-up Warriors v Lakers game, with real players. Labelled as a simulated
-// game everywhere. Points are added up from the plays, so the scoreboard is always consistent with them.
+// Basketball: the last six minutes of a made-up Warriors v Lakers game, with real players. Points are added up from
+// the plays, so the scoreboard always matches them.
 import type { FactsInput, Fixture, PollTemplate, Team } from '../fixture.ts';
 import { makeFans } from '../fans.ts';
 import { scriptedSignals, scriptedThread, scriptedBurst, ROLE, type ScriptedItem } from './scripted.ts';
@@ -82,14 +82,14 @@ const SCRIPT: BasketballItem[] = [
   P('0:09', 'Dončić drives and lays it in. Lakers by two!', {
     score: scored('Luka Dončić', 2),
     signal: { trigger: 'go_ahead', priority: 'high', label: 'Go-ahead basket', fact: (s) => `Dončić scores with 9 seconds left: ${line(s)}.` },
-    crowd: { key: 'luka', n: 12, spread: 6000, share: 0.75 }, pause: 3000, urgent: true,
+    crowd: { key: 'luka', n: 12, spread: 6000, share: 0.75 }, pause: 3000,
   }),
   E('0:04', 'timeout', 'Timeout', 'Warriors timeout with 4 seconds left. One last play.', { moment: 'last-shot', crowd: { key: 'tension', n: 8 }, pause: 3000 }),
   P('0:00', 'CURRY AT THE BUZZER... GOOD! A three from 30 feet wins it for Golden State!', {
     score: scored('Stephen Curry', 3),
     signal: { trigger: 'buzzer_beater', priority: 'high', label: 'Buzzer-beater', fact: (s) => `Curry's buzzer-beating three wins it: ${line(s)}.` },
     thread: { slug: 'buzzer-beater', about: 'Stephen Curry hits a three at the buzzer to win it.', keywords: ['buzzer', 'game winner', 'dagger', 'night night'] },
-    crowd: { key: 'buzzer', n: 22, spread: 9000, share: 0.3 }, pause: 5000, urgent: true,
+    crowd: { key: 'buzzer', n: 22, spread: 9000, share: 0.3 }, pause: 5000,
   }),
   E('0:00', 'result', 'Final', 'FINAL: the Warriors win a classic.', {
     final: true,
@@ -209,13 +209,13 @@ export const BASKETBALL: Fixture<BasketballState, BasketballItem, BasketballScor
     .map((m) => ({ ...m, index: SCRIPT.findIndex((s) => s.moment === m.id) })),
   engine: {
     initialState, applyItem, snapshot, facts, templatePoll,
-    detectSignals: (prev, next, item, ball, seq) => scriptedSignals(next, item, seq),
+    detectSignals: (_prev, next, item, _ball, seq) => scriptedSignals(next, item, seq),
     threadForItem: scriptedThread,
   },
   crowd: {
     lines: CROWD,
     fans: makeFans(['GSW', 'LAL'], ['splash', 'dunks', 'threes', 'courtside', 'hoops', 'buckets', 'dubnation', 'lakeshow', 'kingjames', 'nba'], { seed: 'basketball' }),
-    burstFor: (item, state, rand) => scriptedBurst(item, rand, 0.4),
+    burstFor: (item, _state, rand) => scriptedBurst(item, rand, 0.4),
     fill: (text) => text,
     otherSide: (code) => (code === 'GSW' ? 'LAL' : 'GSW'),
     momentCues: new Set(['curry_three', 'clutch', 'tension', 'timeout', 'buzzer', 'final']),
@@ -239,10 +239,9 @@ export const BASKETBALL: Fixture<BasketballState, BasketballItem, BasketballScor
     { topic: 'Buzzer-beater', text: 'A shot released before the clock reaches zero counts even if it goes in after the buzzer.' },
   ],
   roster: Object.entries(PLAYERS).map(([name, p]) => ROLE(name, TEAMS[p.team], p.role)),
-  // What a fan can back: a team and up to three players.
   backing: {
     teams: SIDES,
-    players: Object.entries(PLAYERS).map(([name, p]) => ({ name, short: name.split(' ').slice(-1)[0], team: p.team })),
+    players: Object.entries(PLAYERS).map(([name, p]) => ({ name, short: last(name), team: p.team })),
   },
   examples: ['What is the shot clock?', 'Why did Curry get two free throws?', 'Who is Luka Dončić?'],
 };

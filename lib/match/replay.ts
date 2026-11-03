@@ -1,7 +1,5 @@
-// A private room's own copy of the simulated replay. It is created with the room when the owner asks for it,
-// and only that room's owner and admins can start, pause, speed up, restart or jump it (lib/rooms/replay.js
-// checks who may). Moving it never moves the shared replay that the public watch party follows. Demo data,
-// labelled as a simulated replay wherever it appears.
+// A private room's own copy of the simulated replay. Only that room's owner and admins may control it (checked in
+// lib/rooms/replay.ts), and moving it never moves the shared replay the public watch party follows.
 import { config } from '../config.ts';
 import { one, type Db, type Queryable } from '../db/index.ts';
 import type { MatchRow, RoomRow } from '../db/rows.ts';

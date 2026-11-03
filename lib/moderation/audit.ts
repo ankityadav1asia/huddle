@@ -3,7 +3,6 @@ import { newId } from '../util.ts';
 import type { Queryable } from '../db/index.ts';
 import { POLICY_VERSION } from './policy.ts';
 
-// moderation_events: what was decided about whom, never the text it was about.
 export interface ModerationEventRow {
   id: string;
   room_id: string | null;
@@ -36,15 +35,14 @@ export async function recordModeration(q: Queryable, {
 }
 
 // Automated rejections and holds of one user in the last 10 minutes. last_at is null only when n is 0.
-export interface Strikes { n: number; last_at: Date }
+interface Strikes { n: number; last_at: Date }
 
 // Repeated rejected or held messages in a short window trigger a temporary posting pause (never a permanent ban).
 export async function recentStrikes(q: Queryable, userId: string): Promise<Strikes> {
-  const row = (await q.query(
+  return (await q.query(
     `SELECT count(*)::int AS n, max(created_at) AS last_at FROM moderation_events
       WHERE target_user_id = $1 AND actor_id IS NULL AND action_taken IN ('rejected', 'held')
         AND created_at > now() - interval '10 minutes'`,
     [userId],
   )).rows[0];
-  return row;
 }

@@ -1,5 +1,4 @@
-// Server configuration. Everything comes from environment variables; secrets never reach the browser.
-// Values here are prototype defaults, documented in .env.example and docs/architecture.md.
+// Server configuration, all from environment variables with prototype defaults. Secrets never reach the browser.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
@@ -28,11 +27,11 @@ const bool = (name: string, fallback: boolean) => {
 };
 const list = (name: string) => env(name).split(',').map((s) => s.trim()).filter(Boolean);
 
-export const HOSTED = Boolean(process.env.VERCEL);
-// Production never allows the demo sign-in, never auto-generates secrets and fails closed when unconfigured.
-export const PRODUCTION = HOSTED || process.env.NODE_ENV === 'production';
+const HOSTED = Boolean(process.env.VERCEL);
+// Production never auto-generates a secret (it fails closed instead), forces Secure cookies and defaults demo controls off.
+const PRODUCTION = HOSTED || process.env.NODE_ENV === 'production';
 
-// A stable server secret signs nothing client-visible; it keys the HMACs that hash OTP codes and phone numbers.
+// The server secret keys the HMACs for rate-limit keys and network hashes; it signs nothing client-visible.
 // Hosted deployments must set HUDDLE_SECRET. Local dev generates one and keeps it in .data/ (git-ignored).
 function serverSecret(dataDir: string) {
   const given = env('HUDDLE_SECRET');
@@ -57,7 +56,6 @@ export function readConfig() {
     secret: serverSecret(dataDir),
     cookieSecure: PRODUCTION || bool('COOKIE_SECURE', false),
 
-    // Joining is a guest profile (name + handle) kept by a session cookie; no phone or password.
     guest: { perIpPerHour: int('GUEST_SIGNUPS_PER_IP_PER_HOUR', 10) },
     sessionDays: 30,
     moderatorUserIds: list('MODERATOR_USER_IDS'),
@@ -107,7 +105,7 @@ export function readConfig() {
         anthropic: { apiKey: env('ANTHROPIC_API_KEY'), model: env('ANTHROPIC_MODEL', 'claude-opus-5-5'), effort: env('ANTHROPIC_EFFORT', 'low') },
         openrouter: { apiKey: env('OPENROUTER_API_KEY'), model: env('OPENROUTER_MODEL', 'google/gemini-3.5-flash-lite'), appUrl: env('APP_URL', 'http://localhost:3000') },
         gemini: { apiKey: env('GEMINI_API_KEY'), model: env('GEMINI_MODEL', 'gemini-3.5-flash-lite') },
-        // Grok. GROK_API_KEY is accepted too. The default model is xAI's non-reasoning one, for quick answers.
+        // Grok. The default is xAI's non-reasoning model, for quick answers.
         xai: { apiKey: env('XAI_API_KEY') || env('GROK_API_KEY'), model: env('XAI_MODEL', 'grok-4.20-0309-non-reasoning') },
       },
     },

@@ -1,8 +1,7 @@
-// Notifications: invitations and important match moments. In-app delivery is the room feed itself (plus the
-// home screen's invitation list); browser push is optional, per user preference and browser permission, and only
-// for away members. Push payloads are generic and minimal, rebuilt from verified data at send time, and expire
-// fast. Huddle keeps no notification inbox and never writes a notification into the chat table: only
-// delivery metadata (ids, status, timestamps) is stored, and it is deleted after DELIVERY_RETENTION_HOURS.
+// Notifications for invitations, answers and big match moments. In-app delivery is the room feed and the home
+// screen's invitation list; browser push is optional, per user preference and browser permission, and room alerts
+// only go to away members. Payloads are generic, rebuilt from verified data at send time, and expire fast. Nothing
+// goes into the chat table and there is no inbox: only delivery metadata is kept, for DELIVERY_RETENTION_HOURS.
 import { config } from '../config.ts';
 import { one, many, type Db, type Queryable } from '../db/index.ts';
 import type { MatchRow, SignalRow } from '../db/rows.ts';
@@ -47,7 +46,7 @@ interface NotificationPrefs { push_momentum: boolean; push_answers: boolean; pus
 interface NewDelivery { dedupeKey: string; recipientId: string; roomId: string; kind: DeliveryKind; refId: string; priority: string; ttlSeconds: number }
 
 // The signal fields a momentum alert reads: a match_signals row, or the few fields a test sets.
-export type MomentumSignal = Pick<SignalRow, 'id' | 'match_id'> & { priority?: string; trigger?: string };
+type MomentumSignal = Pick<SignalRow, 'id' | 'match_id'> & { priority?: string; trigger?: string };
 
 // A SELECT 1 row: only whether it exists matters.
 type Exists = Record<string, unknown>;
@@ -67,11 +66,10 @@ async function queueDelivery(q: Queryable, { dedupeKey, recipientId, roomId, kin
 const ACTIVELY_VIEWING = `EXISTS (SELECT 1 FROM room_presence p WHERE p.room_id = r.id AND p.user_id = m.user_id
                           AND p.state = 'active' AND p.last_seen_at > now() - make_interval(secs => ${AWAY_SECONDS}))`;
 
-// Big match moments (high and medium priority) become notifications for opted-in members who are not looking,
-// at most MATCH_ALERTS_PER_USER per person per match (default 8), spaced at least MATCH_ALERT_MIN_GAP_SECONDS
-// apart. The last slot is kept for the result. Deduped per signal and person, so retries never double up.
-// A private room's own replay counts every run from the last 12 hours as one match, so restarting it cannot
-// reset the cap.
+// Big match moments (high and medium priority) become pushes for opted-in members who are not looking: at most
+// MATCH_ALERTS_PER_USER per person per match, at least MATCH_ALERT_MIN_GAP_SECONDS apart, with the last slot kept
+// for the result. Deduped per signal and person, so retries never double up. A private room's replay counts every
+// run from the last 12 hours as one match, so restarting it cannot reset the cap.
 export async function queueMomentumPushes(db: Db, signal: MomentumSignal): Promise<number> {
   const n = config().notify;
   const { priority } = signal;

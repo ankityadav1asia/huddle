@@ -1,10 +1,6 @@
-// Provider adapters behind one contract. Each adapter translates a common request into its vendor's API
-// and normalises every failure into an application category. Nothing outside lib/ai calls a vendor directly.
-//
-//   generate({ system, user, schema, name, maxTokens, timeoutMs }) ->
-//     { content, provider, model, requestId, latencyMs, usage: { input, output } }
-//   throws AIError(category): timeout | rate_limited | unavailable | server_error | invalid_request |
-//                             authentication_error | safety_refusal | bad_response
+// Provider adapters behind one contract: each translates a common request into its vendor's API and normalises
+// every failure into an AIError category (timeout, rate_limited, unavailable, server_error, invalid_request,
+// authentication_error, safety_refusal, bad_response). Nothing outside lib/ai calls a vendor directly.
 import Anthropic from '@anthropic-ai/sdk';
 
 export interface GenerateRequest {
@@ -16,7 +12,7 @@ export interface GenerateRequest {
   timeoutMs: number;
 }
 
-export interface GenerateResult {
+interface GenerateResult {
   content: any; // the model's JSON, parsed but not yet checked: RunRequest.validate decides what may be used
   provider: string;
   model: string;
@@ -46,7 +42,7 @@ export class AIError extends Error {
 // Transient infrastructure failures: the only ones that may trigger a retry or the fallback provider.
 export const RETRYABLE = new Set(['timeout', 'rate_limited', 'unavailable', 'server_error']);
 
-export function categoryForStatus(status: number) {
+function categoryForStatus(status: number) {
   if (status === 408) return 'timeout';
   if (status === 429) return 'rate_limited';
   if (status === 401 || status === 403) return 'authentication_error';
@@ -63,7 +59,7 @@ function retryAfterMs(value: string | null | undefined): number | null {
   return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
 }
 
-export function parseJsonObject(text: string): unknown {
+function parseJsonObject(text: string): unknown {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
   if (start < 0 || end <= start) throw new AIError('bad_response', 'No JSON object in the response');
@@ -100,11 +96,10 @@ function httpFailure(res: Response, json: any, provider: string): AIError {
 }
 
 // A vendor's settings, as config().ai.providers holds them.
-export interface ProviderSettings { apiKey: string; model: string }
-export interface AnthropicSettings extends ProviderSettings { effort: string }
-export interface OpenRouterSettings extends ProviderSettings { appUrl: string }
+interface ProviderSettings { apiKey: string; model: string }
+interface AnthropicSettings extends ProviderSettings { effort: string }
+interface OpenRouterSettings extends ProviderSettings { appUrl: string }
 
-// ---------------------------------------------------------------- Anthropic (Claude) via the official SDK
 function normaliseAnthropic(err: unknown): AIError {
   if (err instanceof AIError) return err;
   if (err instanceof Anthropic.APIConnectionTimeoutError) return new AIError('timeout', 'Claude did not answer in time');
@@ -123,7 +118,7 @@ function normaliseAnthropic(err: unknown): AIError {
   return new AIError('unavailable', 'Claude call failed');
 }
 
-export function anthropicAdapter({ apiKey, model, effort }: AnthropicSettings, { client }: { client?: Anthropic } = {}): Provider {
+function anthropicAdapter({ apiKey, model, effort }: AnthropicSettings, { client }: { client?: Anthropic } = {}): Provider {
   // SDK retries are off: the orchestrator owns retry, fallback and deadline policy.
   const sdk = client || new Anthropic({ apiKey, maxRetries: 0 });
   return {
@@ -141,8 +136,8 @@ export function anthropicAdapter({ apiKey, model, effort }: AnthropicSettings, {
       };
       let res: Anthropic.Message | Anthropic.Beta.BetaMessage;
       try {
-        // Anthropic's own server-side refusal fallback (as before) re-runs a classifier false positive on another
-        // Claude model. Our orchestrator never switches providers because of a refusal.
+        // Anthropic's server-side fallback re-runs a classifier false positive on another Claude model; the
+        // orchestrator itself never switches providers on a refusal.
         res = /opus|sonnet|fable/.test(model)
           ? await sdk.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }, { timeout: req.timeoutMs, maxRetries: 0 })
           : await sdk.messages.create(params, { timeout: req.timeoutMs, maxRetries: 0 });
@@ -160,7 +155,7 @@ export function anthropicAdapter({ apiKey, model, effort }: AnthropicSettings, {
   };
 }
 
-// ---------------------------------------------------------------- OpenAI chat-completions format (OpenRouter, xAI)
+// The OpenAI chat-completions format, shared by OpenRouter and xAI.
 function chatCompletionsAdapter({ name, label, url, headers = {}, extraBody = {} }: { name: string; label: string; url: string; headers?: Record<string, string>; extraBody?: object },
   { apiKey, model }: ProviderSettings, fetchImpl: typeof fetch): Provider {
   return {
@@ -197,7 +192,6 @@ function chatCompletionsAdapter({ name, label, url, headers = {}, extraBody = {}
   };
 }
 
-// OpenRouter: many models behind one key.
 export function openRouterAdapter({ apiKey, model, appUrl }: OpenRouterSettings, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
   return chatCompletionsAdapter({
     name: 'openrouter', label: 'OpenRouter', url: 'https://openrouter.ai/api/v1/chat/completions',
@@ -205,16 +199,14 @@ export function openRouterAdapter({ apiKey, model, appUrl }: OpenRouterSettings,
   }, { apiKey, model }, fetchImpl);
 }
 
-// xAI (Grok): the same chat-completions format at api.x.ai, with structured outputs.
 export function xaiAdapter({ apiKey, model }: ProviderSettings, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
   return chatCompletionsAdapter({ name: 'xai', label: 'xAI', url: 'https://api.x.ai/v1/chat/completions' }, { apiKey, model }, fetchImpl);
 }
 
-// ---------------------------------------------------------------- Google Gemini
 // A part of Gemini's reply: thought summaries are flagged, answer text is not.
 interface GeminiPart { text?: string; thought?: boolean }
 
-export function geminiAdapter({ apiKey, model }: ProviderSettings, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
+function geminiAdapter({ apiKey, model }: ProviderSettings, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
   return {
     name: 'gemini',
     model,
@@ -257,7 +249,7 @@ const FACTORIES: { [K in ProviderName]: (settings: SettingsByProvider[K]) => Pro
 const DEFAULT_ORDER: ProviderName[] = ['anthropic', 'openrouter', 'gemini', 'xai'];
 
 // config().ai, or the part of it that picks providers. A vendor without an apiKey is skipped, so its settings may be empty.
-export interface ProviderChoice {
+interface ProviderChoice {
   primary: string;
   fallback: string;
   providers: { [K in ProviderName]: Partial<SettingsByProvider[K]> };
@@ -269,8 +261,8 @@ const isProviderName = (name: string): name is ProviderName => name in FACTORIES
 // has() vouched for the API key; a vendor's other settings come from config as they are.
 const build = <K extends ProviderName>(name: K, settings: Partial<SettingsByProvider[K]>): Provider => FACTORIES[name](settings as SettingsByProvider[K]);
 
-// Primary and fallback come from configuration (AI_PRIMARY / AI_FALLBACK). Without explicit choices the order is
-// Anthropic, OpenRouter, Gemini, then xAI (Grok), among providers that have keys.
+// Primary and fallback come from AI_PRIMARY / AI_FALLBACK; an unset choice is filled from DEFAULT_ORDER among the
+// providers that have keys.
 export function configuredProviders(aiCfg: ProviderChoice): Provider[] {
   const has = (name: ProviderName) => Boolean(aiCfg.providers[name]?.apiKey);
   const order: ProviderName[] = [];

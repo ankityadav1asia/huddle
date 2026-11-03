@@ -11,14 +11,15 @@ export interface PushPayload { title: string; body: string; url: string; tag: st
 // A stored browser subscription (a push_subscriptions row): the endpoint and the keys to encrypt for.
 export interface StoredSubscription { endpoint: string; p256dh: string; auth: string }
 // gone: the endpoint no longer exists (404/410), so the subscription can be dropped.
-export type PushOutcome = { ok: true } | { ok: false; gone: boolean };
+type PushOutcome = { ok: true } | { ok: false; gone: boolean };
 // Sends one message: web-push's sendNotification, or a test's stand-in.
-export type PushSender = (subscription: PushSubscription, payload: string, options: RequestOptions) => Promise<unknown>;
+type PushSender = (subscription: PushSubscription, payload: string, options: RequestOptions) => Promise<unknown>;
 
 let ready: boolean | null = null;
 let sender: PushSender | null = null;
 
-function init(): boolean {
+// Sets up VAPID on first use.
+export function pushAvailable(): boolean {
   if (ready !== null) return ready;
   const cfg = config();
   let { publicKey, privateKey } = cfg.push;
@@ -38,8 +39,6 @@ function init(): boolean {
   return ready;
 }
 
-export const pushAvailable = () => init();
-
 // Tests replace the network sender.
 export function setPushSender(fn: PushSender) {
   sender = fn;
@@ -47,7 +46,7 @@ export function setPushSender(fn: PushSender) {
 }
 
 export async function sendPush(sub: StoredSubscription, payload: PushPayload, { ttlSeconds, urgency }: { ttlSeconds: number; urgency: Urgency }): Promise<PushOutcome> {
-  if (!init()) return { ok: false, gone: false };
+  if (!pushAvailable()) return { ok: false, gone: false };
   const subscription = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
   try {
     await (sender || webpush.sendNotification)(subscription, JSON.stringify(payload), { TTL: ttlSeconds, urgency, timeout: 8000 });

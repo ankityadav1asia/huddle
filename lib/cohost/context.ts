@@ -1,7 +1,6 @@
 // Context builders for the AI Co-host. Each builds the minimum, purpose-specific context on the server:
 // verified match facts (with source and freshness) kept apart from untrusted room text, and room text taken
 // only from the one room the request is authorised for. Members appear as pseudonyms, never names or phones.
-import { config } from '../config.ts';
 import { one, many, type Queryable } from '../db/index.ts';
 import type { MatchEventRow, MatchRow, MessageRow, RoomRow, SignalRow } from '../db/rows.ts';
 import { matchSnapshot, stateAt } from '../match/feed.ts';
@@ -11,12 +10,11 @@ import { allowedNumbersFrom } from '../ai/tasks.ts';
 // A member's chat message. User messages always have a sender and text; MessageRow allows null for AI rows.
 type MemberMessage = Pick<MessageRow, 'id' | 'seq' | 'created_at'> & { sender_id: string; body: string };
 // Match events and published moments since a point in time, as Catch Me Up reads them.
-export type EventSince = Pick<MatchEventRow, 'kind' | 'data' | 'occurred_at'> & { event_id: string };
-export type SignalSince = Pick<SignalRow, 'label' | 'priority' | 'fact_text' | 'event_id'>;
+type EventSince = Pick<MatchEventRow, 'kind' | 'data' | 'occurred_at'> & { event_id: string };
+type SignalSince = Pick<SignalRow, 'label' | 'priority' | 'fact_text' | 'event_id'>;
 
 export async function matchContext(db: Queryable, room: Pick<RoomRow, 'match_id'>) {
-  if (!room.match_id) return { facts: null, commentary: [], freshness: null, allowedEventIds: new Set<string>(), allowedNumbers: new Set<string>() };
-  const snap = await matchSnapshot(db, room.match_id);
+  const snap = room.match_id ? await matchSnapshot(db, room.match_id) : null;
   if (!snap) return { facts: null, commentary: [], freshness: null, allowedEventIds: new Set<string>(), allowedNumbers: new Set<string>() };
   const fixture = fixtureFor(snap.match);
   const facts = fixture.engine.facts(snap); // each sport decides which verified fields the AI may state
@@ -29,9 +27,8 @@ export async function matchContext(db: Queryable, room: Pick<RoomRow, 'match_id'
   };
 }
 
-// The game as it stood when a question was asked (the newest feed item at that instant), with the plays just
-// before it, plus the sport's checked rules sheet and roster. Numbers in an answer must come from these or from the
-// current match data.
+// The game when a question was asked (the newest feed item at that instant) and the plays just before it, plus the
+// sport's checked rules sheet and roster. An answer's numbers must come from these or the current match data.
 export async function askedContext(db: Queryable, room: Pick<RoomRow, 'match_id'>, matchSeq: number | null) {
   if (!room.match_id) return null;
   const match = await one<MatchRow>(db, 'SELECT * FROM matches WHERE id = $1', [room.match_id]);
@@ -57,7 +54,7 @@ export async function askedContext(db: Queryable, room: Pick<RoomRow, 'match_id'
   };
 }
 
-// Recent human messages from this room only, pseudonymised. Never another room, never AI output.
+// Recent human messages from this room only, pseudonymised; never AI output.
 export async function roomMessages(db: Queryable, roomId: string, { limit = 15, sinceSeq = null }: { limit?: number; sinceSeq?: number | null } = {}) {
   const rows = await many<MemberMessage>(db,
     `SELECT id, seq, sender_id, body, created_at FROM messages
@@ -89,10 +86,3 @@ export async function publishedSignalsSince(db: Queryable, matchId: string | nul
       ORDER BY e.seq LIMIT 8`,
     [matchId, since]);
 }
-
-export async function roomIsLive(db: Queryable, roomId: string) {
-  const r = await one<Pick<RoomRow, 'status' | 'ai_enabled'>>(db, `SELECT status, ai_enabled FROM rooms WHERE id = $1`, [roomId]);
-  return Boolean(r && r.status === 'active');
-}
-
-export const quietWindowSeconds = () => config().cohost.quietMinutes * 60;

@@ -12,9 +12,7 @@ import { SPORTS } from './match/fixture.ts';
 const RESERVED = new Set(['huddle', 'admin', 'moderator', 'mod', 'system', 'ai', 'cohost', 'support', 'official']);
 export const MAX_PICKS = 3;
 
-// A fan's team (or null for none) and players in one sport.
 type SportChoice = Sports[string];
-// The profile columns every profile query returns.
 type ProfileRow = Pick<UserRow, 'id' | 'handle' | 'display_name' | 'sports'>;
 // Someone else as search and the demo list show them.
 type PersonRow = Pick<UserRow, 'id' | 'handle' | 'sports'> & { name: string | null; demo: boolean };
@@ -29,8 +27,7 @@ export function publicMe(user: SessionUser) {
 const isObject = (v: unknown) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const sportOf = (sport: string) => (Object.hasOwn(SPORTS, sport) ? SPORTS[sport] : null);
 
-// A fan's choice in one sport: one of its teams (or none) and up to three different players from it. Picks left
-// out keep the ones chosen before. choice: what the client sent for that sport.
+// Picks left out keep the ones chosen before. choice: what the client sent for that sport.
 function validateChoice(sport: string, choice: RequestBody, before: SportChoice | undefined): SportChoice {
   const s = sportOf(sport);
   if (!s) throw badRequest('Pick a sport Huddle has a watch party for.', 'invalid_sport');
@@ -48,9 +45,8 @@ function validateChoice(sport: string, choice: RequestBody, before: SportChoice 
   return { team, picks };
 }
 
-// Each sport sent replaces that sport's choice, null forgets it (the room asks again), and sports left out stay.
-// sports: what the client sent (undefined when it sent none).
-export function mergeSports(before: Sports, sports: RequestBody): Sports {
+// Each sport sent replaces that sport's choice, null forgets it (the room asks again) and sports left out stay.
+function mergeSports(before: Sports, sports: RequestBody): Sports {
   if (sports === undefined) return before;
   if (!isObject(sports)) throw badRequest('Send your teams as an object keyed by sport.', 'invalid_sports');
   const next = { ...before };
@@ -76,8 +72,7 @@ function validateProfile(body: RequestBody) {
 
 const handleTaken = (err: unknown) => errorCode(err) === '23505' || /unique/i.test(String(errorMessage(err) || ''));
 
-// Joining without a phone or password: a guest profile plus a session cookie. Limited per network so nobody
-// can mint accounts to get around the one-message-every-10-seconds rule.
+// A guest profile plus a session cookie, limited per network so nobody can mint accounts to dodge the chat cooldown.
 export async function createGuest(db: Db, cfg: Config, body: RequestBody, ip: string) {
   const { name, handle } = validateProfile(body);
   const sports = mergeSports({}, body.sports);
@@ -127,11 +122,10 @@ export async function setSportChoice(db: Db, user: SessionUser, sport: string, b
   });
 }
 
-// The teams someone backs, one code per sport they chose a team in, in home-screen order.
-export const teamsOf = (sports: Sports | null | undefined): string[] => Object.keys(SPORTS).map((s) => sports?.[s]?.team).filter((t): t is string => Boolean(t));
+// The team codes someone backs, in home-screen sport order.
+const teamsOf = (sports: Sports | null | undefined): string[] => Object.keys(SPORTS).map((s) => sports?.[s]?.team).filter((t): t is string => Boolean(t));
 
-// Search users by handle or display name (prefix match). Demo friends are marked so the UI can label them,
-// and left out entirely when they are switched off (DEMO_USERS=false). query: the request's query string.
+// Prefix search on handle and display name. Demo friends are marked so the UI can label them, or left out (DEMO_USERS=false).
 export async function searchUsers(db: Db, user: SessionUser, query: Record<string, string | undefined>, { includeDemo = true } = {}) {
   const q = String(query.q || '').trim().toLowerCase().replace(/^@/, '');
   if (q.length < 2 || q.length > 30) return { users: [] };
@@ -145,7 +139,6 @@ export async function searchUsers(db: Db, user: SessionUser, query: Record<strin
   return { users: rows.map(({ sports, ...u }) => ({ ...u, teams: teamsOf(sports) })) };
 }
 
-// ---------------------------------------------------------------- demo friends
 // Seeded, clearly labelled profiles ("(demo)" in the name, demo_ handles, is_demo) that exist only so a presenter
 // can show the invitation flow alone. They have no sessions, so nobody can sign in as them.
 const backs = (cricket?: string | null, f1?: string, basketball?: string, hockey?: string) => Object.fromEntries(Object.entries({ cricket, f1, basketball, hockey })
@@ -161,8 +154,7 @@ export const DEMO_FRIENDS = [
 
 let demoFriendsReady = false;
 
-// Idempotent: safe on every start and on every instance. A demo friend's teams are refreshed; a handle a real
-// person owns is never touched.
+// Idempotent, so safe on every start and instance. Refreshes demo friends' teams; never touches a real person's handle.
 export async function ensureDemoFriends(db: Queryable) {
   if (demoFriendsReady) return;
   for (const f of DEMO_FRIENDS) {

@@ -1,6 +1,5 @@
-// Replay controls for a private room that runs its own copy of the simulated replay (POST /api/rooms/:id/replay).
-// Only the room's owner and admins may use them, and they only ever move that room's own run: the public watch
-// party and rooms following the shared replay have no controls.
+// Replay controls for a private room that runs its own copy of the simulated replay (POST /api/rooms/:id/replay). Only
+// its owner and admins may use them; the public watch party and rooms following the shared replay have none.
 import { one, type Db } from '../db/index.ts';
 import type { MatchRow } from '../db/rows.ts';
 import type { SessionUser } from '../auth/sessions.ts';
@@ -42,7 +41,7 @@ export async function controlRoomReplay(db: Db, user: SessionUser, roomId: strin
   else if (body.action === 'speed') await setReplaySpeed(db, m.id, body.speed);
   else if (body.action === 'restart') await restartReplay(db, room.id, m);
   else out = { ok: true, ...(await jumpReplay(db, room.id, m, body.moment)) };
-  notifyRoom(room.id); // members' long-polls pick up the new replay state straight away
+  notifyRoom(room.id);
   log.info('replay.control', { room: room.id, action: body.action, restarted: restarts });
   return out;
 }

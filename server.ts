@@ -1,5 +1,4 @@
 // Huddle server: serves public/ and the Watch Party API (/api/*), and runs the background worker in-process.
-// Usage: npm start  (reads .env if present)
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -30,7 +29,6 @@ const SECURITY = {
   'strict-transport-security': 'max-age=31536000',
 };
 const PAGES: Record<string, string> = { '/': 'index.html', '/mod': 'mod.html' };
-// The old single-viewer replay page is gone; its simulated replay now runs inside the watch party itself.
 const REDIRECTS: Record<string, string> = { '/replay': '/', '/replay.html': '/' };
 
 const server = http.createServer(async (req, res) => {
@@ -63,7 +61,7 @@ server.listen(cfg.port, () => {
   const ai = aiStatus();
   console.log(`Huddle running at http://localhost:${cfg.port}`);
   console.log(`  database: ${db.kind === 'pglite' ? `embedded PGlite (${path.relative(ROOT, cfg.dataDir)}/pglite)` : 'Postgres (DATABASE_URL)'}`);
-  console.log('  joining: guest profiles (display name + handle, no phone or password)');
+  console.log('  joining: guest profiles (display name + handle)');
   console.log(`  AI Co-host: ${ai.available ? `primary ${ai.primary}${ai.fallback ? `, fallback ${ai.fallback}` : ', no fallback'}` : 'no AI key set (match alerts and Catch Me Up use verified-data templates)'}`);
   log.info('server.start', { port: cfg.port, db: db.kind });
 });

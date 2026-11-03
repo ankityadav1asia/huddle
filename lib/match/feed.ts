@@ -1,6 +1,4 @@
-// Match data ingestion, shared by every room following the match (one feed per match, never per room).
-// Ingestion validates order, timestamps and dedupes by provider event id, stores events, runs the momentum
-// rules, and queues one explanation job per surviving signal.
+// Match feed ingestion: one feed per match, never per room, shared by every room following the match.
 import { config } from '../config.ts';
 import { one, many, type Db, type Queryable } from '../db/index.ts';
 import type { MatchEventRow, MatchRow, RoomRow, SignalRow } from '../db/rows.ts';
@@ -21,9 +19,9 @@ type TimedMatch = MatchRow & ({ elapsed: null } | { elapsed: number; feed_starte
 interface Found extends Signal { eventId: string; occurredAt: Date; stale: boolean; backfilled: boolean }
 
 // What the feed reads from any sport's engine state: the last script item applied, and cricket's recent deliveries.
-export interface FeedState { last_seq: number; ball_log?: BallRecord[] }
+interface FeedState { last_seq: number; ball_log?: BallRecord[] }
 
-const cache = new Map<string, { seq: number; state: FeedState }>(); // match id -> { seq, state }
+const cache = new Map<string, { seq: number; state: FeedState }>(); // by match id
 
 export async function matchState(q: Queryable, match: Pick<MatchRow, 'id' | 'fixture_key'>): Promise<FeedState> {
   const fixture = fixtureFor(match);
@@ -62,7 +60,7 @@ export async function startMatchIfScheduled(db: Queryable, matchId: string) {
 }
 
 // Keeps one shared demo match per sport available, each with its platform-managed public room. Private rooms' own
-// replay runs (room_id set) never count as a shared match. Returns the match id for `fixtureKey` (cricket by default).
+// replay runs (room_id set) never count as a shared match.
 export async function ensureDemoMatches(db: Db) {
   const live = await many<Pick<MatchRow, 'fixture_key'>>(db, `SELECT fixture_key FROM matches WHERE status IN ('scheduled', 'live') AND room_id IS NULL`);
   const have = new Set(live.map((m) => m.fixture_key));
@@ -127,7 +125,7 @@ export async function ingestDue(db: Db, matchId: string): Promise<number> {
       state = next;
     }
     cache.set(m.id, { seq: state.last_seq, state });
-    await openMomentThreads(q, m.id, opened); // a #thread for each big moment, in every room following the match
+    await openMomentThreads(q, m.id, opened);
 
     // Only fresh signals alert, and a burst of several in one pass publishes just the most important one.
     const fresh = found.filter((s) => !s.stale);
@@ -148,16 +146,15 @@ export async function ingestDue(db: Db, matchId: string): Promise<number> {
         queued.push(row.id);
       }
     }
+    const rooms = await many<Pick<RoomRow, 'id'>>(q, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active'`, [m.id]);
     let completed = false;
     if (state.last_seq === fixture.items.length - 1) {
       await q.query(`UPDATE matches SET status = 'completed', completed_at = now() WHERE id = $1`, [m.id]);
       completed = true;
-      const rooms = await many<Pick<RoomRow, 'id'>>(q, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active'`, [m.id]);
       for (const r of rooms) {
         await enqueue(q, { type: 'room_auto_end', dedupeKey: `autoend:${r.id}:${m.id}`, payload: { room_id: r.id, match_id: m.id }, delaySeconds: cfg.rooms.autoEndMinutesAfterMatch * 60, priority: 6 });
       }
     }
-    const rooms = await many<Pick<RoomRow, 'id'>>(q, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active'`, [m.id]);
     return { added: due.length, signals: queued.length, completed, rooms: rooms.map((r) => r.id) };
   });
   if (result) {
@@ -168,7 +165,7 @@ export async function ingestDue(db: Db, matchId: string): Promise<number> {
 }
 
 function eventData(item: Record<string, unknown>) {
-  const { crowd, host, urgent, hold, pause, moment, signal, thread, ...data } = item;
+  const { crowd, pause, moment, signal, thread, ...data } = item;
   return data;
 }
 
@@ -179,9 +176,8 @@ export async function advanceFeeds(db: Db) {
   return added;
 }
 
-// Move the replay clock forward to a named moment (a paused replay plays on from there). Skipped items are
-// ingested as backfill, which never alerts. Used by a private room's own replay controls, and by the
-// DEMO_CONTROLS jump for the shared replay; both are labelled as replay controls in the UI.
+// Moves the replay clock forward to a named moment (a paused replay plays on from there). Skipped items are
+// ingested as backfill, which never alerts. Private rooms' replay controls and the DEMO_CONTROLS jump use it.
 export async function jumpToMoment(db: Db, matchId: string, momentId: string) {
   const m = await one<MatchRow>(db, 'SELECT * FROM matches WHERE id = $1', [matchId]);
   if (!m) throw notFound('Match not found.');
@@ -239,7 +235,7 @@ export async function matchSnapshot(db: Queryable, matchId: string) {
 }
 
 // 1 at the configured pace (DEMO_BALL_SECONDS per ball), 0.5 at half that, 2 at twice it.
-export function replaySpeed(m: Pick<MatchRow, 'ball_interval_ms'>) {
+function replaySpeed(m: Pick<MatchRow, 'ball_interval_ms'>) {
   return Math.max(0.5, Math.round(((config().match.ballSeconds * 1000) / m.ball_interval_ms) * 2) / 2);
 }
 

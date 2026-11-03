@@ -1,7 +1,5 @@
-// The demo fixtures: one scripted, simulated game per sport (cricket, F1, basketball, hockey). There is no licensed
-// live data provider in this prototype, so the backend replays these as timestamped feeds, labelled as simulated
-// everywhere they appear. A real provider would replace these modules only. Each fixture brings its own engine
-// (state, scoreboard, big moments, threads, AI facts), simulated fans, rules sheet and roster.
+// One scripted, simulated game per sport. With no licensed live data provider, the backend replays these as
+// timestamped feeds, labelled as simulated wherever they appear; a real provider would replace only these modules.
 import { one, type Queryable } from '../db/index.ts';
 import type { MatchRow, Priority } from '../db/rows.ts';
 import type { Fan } from './fans.ts';
@@ -12,19 +10,19 @@ import { HOCKEY } from './sports/hockey.ts';
 
 export interface Team { code: string; name: string; logo?: string }
 // A named point in the script that a replay can jump to; `index` is the script item it starts at.
-export interface Moment { id: string; label: string; index: number }
+interface Moment { id: string; label: string; index: number }
 // The #thread a big moment opens in every room following the match.
 export interface MomentThread { slug: string; about: string; keywords: string[] }
 export interface Topic { slug: string; keywords: string[] }
-export interface Rule { topic: string; text: string }
+interface Rule { topic: string; text: string }
 export interface RosterEntry { name: string; team: string; role: string }
-export interface BackedPlayer { name: string; short: string; team: string }
+interface BackedPlayer { name: string; short: string; team: string }
 export interface PollTemplate { question: string; options: string[] }
 // A burst of simulated fan lines: `n` lines of cue `key` over `spread` ms. `share` (cricket's script says `mi`) is
 // the chance that each line comes from the first side's fans.
 export interface CrowdCue { key: string; n: number; spread?: number; share?: number; mi?: number }
 // Simulated fan lines by cue, then by side (team code).
-export type CrowdLines = Record<string, Record<string, string[]>>;
+type CrowdLines = Record<string, Record<string, string[]>>;
 
 // A moment card for one feed item, raised by cricket's rules (momentum.ts) or marked in a scripted sport's script.
 export interface Signal {
@@ -41,11 +39,11 @@ export interface FactsInput<Score> {
   match: { title: string; format: string; status: string; source: string; source_label: string };
   score: Score;
 }
-// What the AI may state about the game, built from the verified snapshot only. Every sport leads with a headline.
-export interface Facts { headline: string; [field: string]: unknown }
+// What the AI may state about the game, built from the verified snapshot only.
+interface Facts { headline: string; [field: string]: unknown }
 
-// Replays a sport's script. `ball` is what an item was, for engines whose rules read it (cricket's delivery), else null.
-export interface Engine<State, Item, Score> {
+// `ball` is what an item was, for engines whose rules read it (cricket's delivery), else null.
+interface Engine<State, Item, Score> {
   initialState(fixture: Fixture<State, Item, Score>): State;
   applyItem(state: State, item: Item, seq: number): { state: State; ball: unknown };
   snapshot(state: State): Score;
@@ -55,7 +53,7 @@ export interface Engine<State, Item, Score> {
   threadForItem(item: Item): MomentThread | null;
 }
 
-export interface Crowd<State, Item> {
+interface Crowd<State, Item> {
   lines: CrowdLines;
   fans: Fan[];
   burstFor(item: Item, state: State, rand: () => number): CrowdCue | null;
@@ -64,9 +62,8 @@ export interface Crowd<State, Item> {
   momentCues: Set<string>;
 }
 
-// A sport's simulated game: its script, the engine that replays it, its crowd, and the help shown to newcomers.
-// Engine state, script items and scoreboards differ per sport: each sports/*.ts file types its own, and code that
-// serves every sport (feed, crowd, replay, co-host) sees them as `any` through the defaults.
+// A sport's simulated game. Each sports/*.ts file types its own state, items and scoreboard; code that serves every
+// sport (feed, crowd, replay, co-host) sees them as `any` through the defaults.
 export interface Fixture<State = any, Item = any, Score = any> {
   key: string;
   sport: string;
@@ -88,13 +85,13 @@ export interface Fixture<State = any, Item = any, Score = any> {
 }
 
 // What a fan can back in one sport, as GET /api/config lists it.
-export interface SportBacking { sport: string; label: string; title: string; teams: Team[]; players: BackedPlayer[] }
+interface SportBacking { sport: string; label: string; title: string; teams: Team[]; players: BackedPlayer[] }
 
 export const DEMO_FIXTURE = CRICKET;
 export const FIXTURE_ORDER: Fixture[] = [CRICKET, F1, BASKETBALL, HOCKEY];
 export const FIXTURES: Record<string, Fixture> = Object.fromEntries(FIXTURE_ORDER.map((f) => [f.key, f]));
 export const sportRank = (fixtureKey: string) => FIXTURE_ORDER.findIndex((f) => f.key === fixtureKey);
-// What a fan can back in each sport (a team and up to three players), in home-screen order. One fixture per sport.
+// Backing per sport, in home-screen order (one fixture per sport).
 export const SPORTS: Record<string, SportBacking> = Object.fromEntries(FIXTURE_ORDER.map((f) => [f.sport, {
   sport: f.sport, label: `${f.sportName[0].toUpperCase()}${f.sportName.slice(1)}`, title: f.title, ...f.backing,
 }]));

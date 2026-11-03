@@ -1,13 +1,12 @@
-// Rooms, membership, roles and invitations. Authorization lives here, on the server, for every operation:
-// the acting user comes from the session, room type and roles come from the database, and a private room
-// is indistinguishable from a missing one for anyone who is not a member.
+// Rooms, membership, roles and invitations, with authorization for every operation: the acting user comes from the
+// session, room type and roles from the database, and a private room looks missing to anyone who is not a member.
 import { config } from '../config.ts';
 import { one, many, type Db, type Queryable } from '../db/index.ts';
 import type { MatchRow, ModerationLevel, RoomRole, RoomRow, UserRow } from '../db/rows.ts';
 import type { SessionUser } from '../auth/sessions.ts';
 import { HttpError, badRequest, notFound, forbidden, conflict, cleanText, isId, requireId, onlyKeys, newId, type RequestBody } from '../util.ts';
 import { checkName } from '../moderation/classifier.ts';
-import { LEVELS, effectivePolicy, POLICY_VERSION, type Policy } from '../moderation/policy.ts';
+import { LEVELS, effectivePolicy, type Policy } from '../moderation/policy.ts';
 import { appendEvent, RoomEndedError } from './events.ts';
 import { notifyRoom } from '../realtime/bus.ts';
 import { enqueue } from '../jobs/queue.ts';
@@ -36,11 +35,10 @@ type RoomWithMembership = RoomRow & (
   | { role: RoomRole; member_status: 'left' | 'removed' }
   | { role: null; member_status: null });
 
-// The room as an active member sees it, from roomAccess.
-export type MemberRoom = RoomRow & { role: RoomRole; member_status: 'active' };
+type MemberRoom = RoomRow & { role: RoomRole; member_status: 'active' };
 export interface RoomAccess { room: MemberRoom; role: RoomRole; policy: Policy }
 
-export interface InviteResult {
+interface InviteResult {
   user_id: string;
   result: 'invited' | 'not_found' | 'already_member' | 'room_full' | 'already_invited';
   invitation_id?: string;
@@ -48,8 +46,8 @@ export interface InviteResult {
 
 export const isAdminRole = (role: RoomRole) => role === 'owner' || role === 'admin';
 
-// Central access check. Returns { room, role, policy } for an active member of an active room.
-export async function roomAccess(q: Queryable, roomId: string, user: Pick<SessionUser, 'id'>, { allowEnded = false } = {}): Promise<RoomAccess> {
+// Central access check: only an active member of an active room gets through.
+export async function roomAccess(q: Queryable, roomId: string, user: Pick<SessionUser, 'id'>): Promise<RoomAccess> {
   if (!isId(roomId, 'room')) throw notFound('Room not found.');
   const room = await one<RoomWithMembership>(q,
     `SELECT r.*, m.role, m.status AS member_status FROM rooms r
@@ -64,7 +62,7 @@ export async function roomAccess(q: Queryable, roomId: string, user: Pick<Sessio
     if (room.status === 'active') throw new HttpError(403, 'join_required', 'Join this watch party first.');
     throw new RoomEndedError();
   }
-  if (room.status !== 'active' && !allowEnded) throw new RoomEndedError();
+  if (room.status !== 'active') throw new RoomEndedError();
   return { room, role: room.role, policy: effectivePolicy(room) };
 }
 
@@ -109,7 +107,7 @@ async function inviteMany(q: Queryable, room: Pick<RoomRow, 'id'>, inviter: Pick
 }
 
 // own_replay: the room gets its own copy of the match's simulated replay, which its owner and admins control
-// (lib/rooms/replay.js). Without it the room follows the shared replay, like the public watch party.
+// (lib/rooms/replay.ts). Without it the room follows the shared replay, like the public watch party.
 export async function createPrivateRoom(db: Db, user: SessionUser, body: RequestBody) {
   onlyKeys(body, ['name', 'match_id', 'own_replay', 'moderation_level', 'invitee_ids', 'ai_enabled']);
   const name = cleanText(body.name, { max: 40, field: 'Room name' });
@@ -207,7 +205,6 @@ export async function myInvitations(db: Queryable, user: SessionUser) {
   return { invitations: rows };
 }
 
-// action: what the client asked for, checked here ('accept' or 'decline').
 export async function respondToInvitation(db: Db, user: SessionUser, invitationId: string, action: string) {
   if (!['accept', 'decline'].includes(action)) throw badRequest('Choose accept or decline.');
   if (!isId(invitationId, 'inv')) throw notFound('Invitation not found.');
@@ -246,7 +243,7 @@ export async function respondToInvitation(db: Db, user: SessionUser, invitationI
 
 export async function revokeInvitation(db: Db, user: SessionUser, invitationId: string) {
   if (!isId(invitationId, 'inv')) throw notFound('Invitation not found.');
-  const out = await db.tx(async (q) => {
+  return db.tx(async (q) => {
     const inv = await one<InvitationRow>(q, 'SELECT * FROM room_invitations WHERE id = $1 FOR UPDATE', [invitationId]);
     if (!inv) throw notFound('Invitation not found.');
     const { role } = await roomAccess(q, inv.room_id, user);
@@ -255,7 +252,6 @@ export async function revokeInvitation(db: Db, user: SessionUser, invitationId: 
     await q.query(`UPDATE room_invitations SET status = 'revoked', responded_at = now() WHERE id = $1`, [inv.id]);
     return { status: 'revoked' };
   });
-  return out;
 }
 
 export async function joinPublicRoom(db: Db, user: SessionUser, roomId: string) {
@@ -328,7 +324,7 @@ export async function removeMember(db: Db, user: SessionUser, roomId: string, ta
   return { removed: true };
 }
 
-// Private rooms only, owner/admin only. Public moderation is never user-configurable.
+// Public moderation is never user-configurable.
 export async function updateRoomSettings(db: Db, user: SessionUser, roomId: string, body: RequestBody) {
   onlyKeys(body, ['moderation_level', 'ai_enabled']);
   const out = await db.tx(async (q) => {
@@ -358,8 +354,7 @@ type MyRoomRow = Pick<RoomRow, 'id' | 'name' | 'room_type' | 'status' | 'moderat
   & { role: RoomRole; match_title: string | null; members: number; online: number };
 
 export async function listRooms(db: Queryable, user: SessionUser) {
-  // One public watch party per match that is live or upcoming. Rooms of finished matches close on their own
-  // a few minutes after the result and are no longer offered.
+  // One public watch party per live or upcoming match; rooms of finished matches close a few minutes after the result.
   const cap = config().rooms.publicMaxMembers;
   const publicRooms = (await many<PublicRoomRow>(db,
     `SELECT r.id, r.name, r.status, r.match_id, mt.title AS match_title, mt.status AS match_status, mt.fixture_key,
@@ -380,5 +375,3 @@ export async function listRooms(db: Queryable, user: SessionUser) {
       ORDER BY (r.status = 'active') DESC, r.updated_at DESC LIMIT 20`, [user.id]);
   return { public_rooms: publicRooms, my_rooms: mine };
 }
-
-export { RoomEndedError, POLICY_VERSION };

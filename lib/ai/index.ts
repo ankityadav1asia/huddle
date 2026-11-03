@@ -27,8 +27,7 @@ export function setAi(orchestrator: Orchestrator) {
 }
 
 export function aiStatus() {
-  const cfg = config().ai;
-  const providers = configuredProviders(cfg);
+  const providers = configuredProviders(config().ai);
   return {
     available: providers.length > 0,
     primary: providers[0] ? `${providers[0].name}:${providers[0].model}` : null,

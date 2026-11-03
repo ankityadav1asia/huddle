@@ -1,7 +1,5 @@
-// Database access. One Postgres dialect everywhere:
-// - DATABASE_URL set (hosted, e.g. Neon): node-postgres pool.
-// - Otherwise (local dev, tests): embedded PGlite (Postgres compiled to WASM) persisted under .data/.
-// Both expose the same small interface: query(sql, params) -> { rows }, exec(sql), tx(fn), close().
+// Database access, one Postgres dialect everywhere: a node-postgres pool when DATABASE_URL is set (hosted, e.g. Neon),
+// otherwise embedded PGlite (Postgres compiled to WASM) persisted under .data/.
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { config, type Config } from '../config.ts';
@@ -64,7 +62,7 @@ export async function openPglite(dataDir: string | null): Promise<Db> {
   };
 }
 
-export async function openPostgres(url: string): Promise<Db> {
+async function openPostgres(url: string): Promise<Db> {
   const { default: pg } = await import('pg');
   const pool = new pg.Pool({ connectionString: url, max: Number(process.env.DATABASE_POOL_MAX) || 5, idleTimeoutMillis: 10000 });
   return {
@@ -89,7 +87,6 @@ export async function openPostgres(url: string): Promise<Db> {
   };
 }
 
-// Small helpers used across services.
 // Rows come back untyped unless the caller names the row type (lib/db/rows.ts): each query site knows its columns.
 export const one = async <T = any>(q: Queryable, sql: string, params?: unknown[]): Promise<T | null> => (await q.query(sql, params)).rows[0] || null;
 export const many = async <T = any>(q: Queryable, sql: string, params?: unknown[]): Promise<T[]> => (await q.query(sql, params)).rows;

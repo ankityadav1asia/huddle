@@ -19,7 +19,7 @@ export function initSheets() {
 
 type SheetOptions = { title?: string; lede?: string; closable?: boolean; onclose?: (() => void) | null };
 
-// Returns { body, token, isOpen() } — check isOpen() after awaits before writing into the sheet.
+// After an await, check isOpen() before writing into body: the sheet may have been closed or replaced.
 export function openSheet({ title, lede, closable = true, onclose = null }: SheetOptions = {}) {
   token += 1;
   const mine = token;
@@ -42,7 +42,7 @@ export function openSheet({ title, lede, closable = true, onclose = null }: Shee
     if (first) first.focus();
     else s.focus({ preventScroll: true });
   });
-  return { body, token: mine, isOpen: () => token === mine && !layer().hidden };
+  return { body, isOpen: () => token === mine && !layer().hidden };
 }
 
 export function closeSheet() {

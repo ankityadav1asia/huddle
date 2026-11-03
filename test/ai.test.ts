@@ -113,7 +113,7 @@ test('provider errors are normalised and API keys never leak into results or log
   assert.ok(!logs.join('\n').includes(key));
 });
 
-// ---------------------------------------------------------------- xAI (Grok)
+// xAI (Grok)
 const askGrok = (grok: Provider) => grok.generate({ name: 'answer', system: 's', user: 'u', schema: { type: 'object' }, maxTokens: 50, timeoutMs: 5000 });
 
 test('the Grok adapter sends the chat-completions format with a strict schema and reads the answer', async () => {
@@ -139,7 +139,7 @@ test('the Grok adapter sends the chat-completions format with a strict schema an
 test('Grok: a strict schema it rejects is asked again without one; refusals and rate limits are categorised', async () => {
   let n = 0;
   const refusing = xaiAdapter({ apiKey: 'k', model: 'm' }, {
-    fetchImpl: async (url, init) => {
+    fetchImpl: async (_url, init) => {
       n += 1;
       if (JSON.parse(String(init?.body)).response_format) return new Response(JSON.stringify({ error: { message: 'schema not supported' } }), { status: 400 });
       return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: null, refusal: 'Not able to help' } }] }), { status: 200 });
@@ -171,7 +171,7 @@ test('with Gemini and Grok keys, Gemini answers first and Grok backs it up; AI_P
   }
 });
 
-// ---------------------------------------------------------------- Co-host behaviours against the real API
+// Co-host behaviours against the real API
 let app: App; let a: Client; let b: Client; let outsider: Client; let roomA: string; let roomB: string;
 before(async () => {
   app = await startApp((cfg) => { cfg.cohost.unansweredDelaySeconds = 0; });

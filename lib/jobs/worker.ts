@@ -1,7 +1,6 @@
-// One modest background worker. Locally it runs on an interval inside the server process; on serverless
-// hosting, long-poll requests call pump() while they wait. Each pump advances the shared match feeds, runs a
-// little housekeeping, then claims and runs due jobs with bounded concurrency. A slow AI job never blocks chat:
-// chat delivery does not go through this queue at all.
+// The background worker. Locally it runs on an interval in the server process; on serverless hosting, long-poll
+// requests call pump() while they wait. Each pump advances the match feeds, runs housekeeping, then runs due jobs
+// with bounded concurrency. Chat delivery never goes through this queue, so a slow AI job cannot block chat.
 import { config } from '../config.ts';
 import { one, type Db } from '../db/index.ts';
 import type { RoomRow } from '../db/rows.ts';
@@ -18,7 +17,7 @@ import { observe, count } from '../metrics.ts';
 
 // Runs one claimed job and names the outcome (for logs and metrics). Handlers are idempotent: a job can run twice.
 // Each handler declares only the job fields it reads (payloads hold ids), so tests can call one directly.
-export type JobHandler = (db: Db, job: ClaimedJob) => Promise<string>;
+type JobHandler = (db: Db, job: ClaimedJob) => Promise<string>;
 
 export const HANDLERS = {
   ai_answer: handleAnswerJob,
@@ -42,7 +41,7 @@ const BY_TYPE: Record<string, JobHandler | undefined> = HANDLERS;
 let inFlight: Promise<number> | null = null;
 let lastSweep = 0;
 
-export async function runJob(db: Db, job: ClaimedJob): Promise<string> {
+async function runJob(db: Db, job: ClaimedJob): Promise<string> {
   const started = Date.now();
   let outcome: string;
   try {
@@ -66,10 +65,11 @@ export async function runJob(db: Db, job: ClaimedJob): Promise<string> {
     }
   }
   const ms = Date.now() - started;
+  const queueAgeMs = Math.round((job.queue_age_s || 0) * 1000);
   observe('job_ms', ms);
-  observe('job_queue_age_ms', Math.round((job.queue_age_s || 0) * 1000));
+  observe('job_queue_age_ms', queueAgeMs);
   count(`job:${job.type}:${outcome}`);
-  log.info('job', { type: job.type, outcome, attempts: job.attempts, queue_age_ms: Math.round((job.queue_age_s || 0) * 1000), ms });
+  log.info('job', { type: job.type, outcome, attempts: job.attempts, queue_age_ms: queueAgeMs, ms });
   return outcome;
 }
 

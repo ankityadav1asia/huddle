@@ -89,7 +89,7 @@ test('a member who left gets no further room alerts', async () => {
 
 test('invitations notify in-app, and by push only with permission and the preference on', async () => {
   const sent: any[] = [];
-  setPushSender(async (sub, payload) => { sent.push(JSON.parse(payload)); });
+  setPushSender(async (_sub, payload) => { sent.push(JSON.parse(payload)); });
   await third.post('/api/me/push-subscriptions', { endpoint: 'https://push.example.test/invitee', keys: { p256dh: 'p'.repeat(40), auth: 'a'.repeat(16) } });
   const r = await owner.post('/api/rooms', { name: 'Late night crew', invitee_ids: [third.user.id] });
   assert.equal((await third.get('/api/me/invitations')).body.invitations.some((i: ApiInvitation) => i.room_id === r.body.room_id), true);

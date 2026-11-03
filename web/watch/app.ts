@@ -6,8 +6,8 @@ import { renderAuth, renderProfile } from './auth.ts';
 import { renderHome, leaveHome } from './home.ts';
 import { renderRoom, leaveRoom } from './room.ts';
 
-// What every view gets: the server config and the signed-in user (JSON from the API), and navigation. config is
-// null until boot() has loaded it, and me while nobody is signed in.
+// What every view gets: the server config, the signed-in user and navigation. config is null until boot() has
+// loaded it, and me while nobody is signed in.
 export interface Ctx {
   config: Config | null;
   me: Me | null;
@@ -50,7 +50,7 @@ const ctx: Ctx = {
   },
 };
 
-// boot() has the config before any route(), so in effect this is the handle check: no handle, no home or rooms yet.
+// boot() loads the config before any route(), so in effect this checks for a handle: no handle, no home or rooms.
 const isReady = (c: Ctx): c is ReadyCtx => c.config !== null && Boolean(c.me?.handle);
 
 let routing = 0;

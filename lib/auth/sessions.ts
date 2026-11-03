@@ -8,8 +8,7 @@ import type { Sports } from '../db/rows.ts';
 // Over HTTPS the cookie uses the __Host- prefix: Secure, host-only, path "/", so no other subdomain can set it.
 const PLAIN = 'huddle_session';
 const HOST = '__Host-huddle_session';
-export const cookieName = () => (config().cookieSecure ? HOST : PLAIN);
-export const COOKIE = PLAIN;
+const cookieName = () => (config().cookieSecure ? HOST : PLAIN);
 
 function readCookie(req: IncomingMessage, name: string) {
   const header = req.headers.cookie || '';
@@ -22,11 +21,10 @@ function readCookie(req: IncomingMessage, name: string) {
 
 export async function createSession(q: Queryable, userId: string): Promise<{ token: string; expiresAt: Date }> {
   const token = newToken();
-  const days = config().sessionDays;
   const { rows } = await q.query(
     `INSERT INTO sessions (id, token_hash, user_id, expires_at) VALUES ($1, $2, $3, now() + make_interval(days => $4))
      RETURNING expires_at`,
-    [newId('ses'), sha256(token), userId, days],
+    [newId('ses'), sha256(token), userId, config().sessionDays],
   );
   return { token, expiresAt: rows[0].expires_at };
 }
@@ -58,8 +56,7 @@ export interface SessionUser {
 
 export interface Session { id: string }
 
-// What the router learns from a valid session cookie.
-export interface SessionAuth { user: SessionUser; session: Session }
+interface SessionAuth { user: SessionUser; session: Session }
 
 // sessions joined with users, as sessionUser reads them.
 interface SessionLookupRow {

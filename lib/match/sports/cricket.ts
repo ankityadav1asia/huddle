@@ -1,17 +1,17 @@
-// Cricket: the scripted MI v CSK chase (real players, made-up match). Big moments come from deterministic rules
-// (lib/match/momentum.js) rather than the script; everything else follows the shared sport interface.
-import type { CrowdCue, FactsInput, Fixture, MomentThread, PollTemplate } from '../fixture.ts';
+// Cricket: the scripted MI v CSK chase. Its big moments come from the momentum rules (momentum.ts), not the script.
+import type { CrowdCue, FactsInput, Fixture, MomentThread, PollTemplate, Team } from '../fixture.ts';
 import { START, SCRIPT, MOMENTS, TEAMS, SQUADS, CROWD, FANS, otherTeam, shortName, type CricketItem, type CricketStart } from '../demo-script.ts';
 import { initialState, applyItem, snapshot, rates, type CricketScore, type CricketState } from '../scorecard.ts';
 import { detectSignals } from '../momentum.ts';
 import { makeFans } from '../fans.ts';
 
-// The cricket fixture also carries the score at the start of its replay, which the scorecard starts from.
+// `initial` is the scorecard the replay starts from.
 export interface CricketFixture extends Fixture<CricketState, CricketItem, CricketScore> { initial: CricketStart }
 
+const SIDES: Team[] = [TEAMS.MI, TEAMS.CSK];
 const slugify = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
 
-// Topics people argue about, in Hinglish and English (from the original demo). The first match wins.
+// Topics people argue about, in Hinglish and English. The first match wins.
 const TOPICS = [
   { slug: 'dropped-catch', keywords: ['chhod', 'drop', 'sitter', 'catches win', 'lifeline', 'butter', 'bach gaya', 'chhoot'] },
   { slug: 'drs-call', keywords: ['drs', 'review', 'umpire', 'lbw', 'ball tracking', 'plumb', 'leg ke bahar', 'going down', 'hitting'] },
@@ -21,7 +21,6 @@ const TOPICS = [
 ];
 const topicKeywords = (slug: string) => TOPICS.find((t) => t.slug === slug)?.keywords || [];
 
-// The thread a ball or event opens: a wicket, a drop, the DRS call, the bowling change, the last over, the result.
 function threadForItem(item: CricketItem): MomentThread | null {
   if (item.wicket) {
     const who = shortName(item.wicket.out);
@@ -38,7 +37,6 @@ function threadForItem(item: CricketItem): MomentThread | null {
   return null;
 }
 
-// What the AI may state about the match: built from the verified snapshot only.
 function facts(snap: FactsInput<CricketScore>) {
   const s = snap.score;
   return {
@@ -62,7 +60,7 @@ function templatePoll(state: CricketState): PollTemplate {
   return { question: `${state.batting} need ${r.need_runs} off ${r.need_balls}. Who wins?`, options: [`${state.batting} chase it`, `${state.bowling} defend it`] };
 }
 
-// The script's crowd cue for an item, or the background chatter the original demo played between cues.
+// The script's crowd cue for an item, or background chatter between cues.
 function burstFor(item: CricketItem, state: CricketState, rand: () => number): CrowdCue | null {
   if (item.crowd) return item.crowd;
   if (item.kind === 'overend') return { key: 'overend', n: 3, spread: 2400 };
@@ -93,7 +91,7 @@ export const CRICKET: CricketFixture = {
   sport: 'cricket',
   sportName: 'cricket',
   title: 'MI v CSK',
-  teams: [TEAMS.MI, TEAMS.CSK].map((t) => ({ code: t.code, name: t.name, logo: t.logo })),
+  teams: SIDES,
   format: 'T20',
   sourceLabel: 'Simulated replay · demo data, not a live feed',
   initial: START,
@@ -124,9 +122,8 @@ export const CRICKET: CricketFixture = {
     { topic: 'Result', text: 'The chasing side wins if it passes the target before its overs or wickets run out; otherwise the side batting first wins.' },
   ],
   roster: ROSTER,
-  // What a fan can back: a team and up to three players (demo data, like the match).
   backing: {
-    teams: [TEAMS.MI, TEAMS.CSK].map((t) => ({ code: t.code, name: t.name, logo: t.logo })),
+    teams: SIDES,
     players: ROSTER.map((p) => ({ name: p.name, short: shortName(p.name), team: p.team })),
   },
   examples: ['What does RRR mean?', 'What is DRS in cricket?', 'Who is MS Dhoni?'],

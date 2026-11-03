@@ -1,14 +1,13 @@
-// AI Co-host orchestration: one backend boundary for every AI task. Primary provider first; the fallback
-// is tried only for transient infrastructure failures (timeout, 5xx, overload, rate limit) within one overall
-// deadline. Safety refusals, invalid requests, auth errors and bad responses never switch providers, and a
-// response that fails validation is rejected rather than "retried until it passes" elsewhere.
+// AI Co-host orchestration: one backend boundary for every AI task. The fallback provider is tried only for
+// transient failures (timeout, 5xx, overload, rate limit) within one overall deadline; safety refusals, invalid
+// requests, auth errors, bad responses and output that fails validation end the run.
 import { AIError, RETRYABLE, type Provider } from './providers.ts';
 import { newId } from '../util.ts';
 import type { Queryable } from '../db/index.ts';
 import { log } from '../log.ts';
 
 // Per-provider circuit breaker: closed -> open after N consecutive failures -> half-open single probe.
-export class Breaker {
+class Breaker {
   threshold: number;
   openMs: number;
   now: () => number;
@@ -93,8 +92,8 @@ class Semaphore {
 
 const sleepFor = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-// What dbRecorder writes to ai_calls for each provider call: metadata only, never prompts or output.
-export interface CallRecord {
+// What dbRecorder writes to ai_calls for each provider call: metadata only, never prompts, output or keys.
+interface CallRecord {
   correlationId: string;
   task: string;
   roomId: string | null;
@@ -110,7 +109,7 @@ export interface CallRecord {
   output_tokens?: number | null;
 }
 
-export interface OrchestratorOptions {
+interface OrchestratorOptions {
   providers: Provider[];
   timeoutMs?: number;
   deadlineMs?: number;
@@ -122,10 +121,9 @@ export interface OrchestratorOptions {
   random?: () => number;
 }
 
-// What a validator decides about a provider's output: the value to use, or why it was rejected.
 export type Validation<T> = { ok: true; value: T } | { ok: false; reason: string };
 
-export interface RunRequest<T = unknown> {
+interface RunRequest<T = unknown> {
   task: string;
   system: string;
   user: string;
@@ -138,8 +136,8 @@ export interface RunRequest<T = unknown> {
   deadline?: number;
 }
 
-// Each shape names the other's fields as undefined, so a caller can read result.provider (say) before checking ok.
-export interface RunSuccess<T> {
+// Each shape declares the other's fields as undefined, so a caller can read result.provider before checking ok.
+interface RunSuccess<T> {
   ok: true;
   value: T;
   provider: string;
@@ -155,7 +153,7 @@ export interface RunSuccess<T> {
 
 // category: not_configured | busy | deadline_exceeded | cancelled | validation_failed | all_providers_failed, or the
 // provider's own non-retryable AIError category (safety_refusal, invalid_request, ...).
-export interface RunFailure {
+interface RunFailure {
   ok: false;
   category: string;
   correlationId: string;
@@ -169,7 +167,7 @@ export interface RunFailure {
   latencyMs?: undefined;
 }
 
-export type RunResult<T> = RunSuccess<T> | RunFailure;
+type RunResult<T> = RunSuccess<T> | RunFailure;
 
 export interface Orchestrator {
   providers: { name: string; model: string }[];
@@ -190,8 +188,7 @@ export function createOrchestrator({
     available: providers.length > 0,
     breakerState: (name: string) => breakers.get(name)?.state,
 
-    // validate(content) -> { ok: true, value } | { ok: false, reason }. isCancelled() lets a room closure or a
-    // human reply stop pending work before another provider call starts.
+    // isCancelled() lets a room closure or a human reply stop the run before another provider call starts.
     async run<T>({ task, system, user, schema, maxTokens = 16000, roomId = null, userId = null, validate, isCancelled, deadline: ownDeadline }: RunRequest<T>): Promise<RunResult<T>> {
       const correlationId = newId('aic');
       const started = now();
@@ -230,7 +227,7 @@ export function createOrchestrator({
               }
               return { ok: true, value: checked.value, provider: res.provider, model: res.model, fallbackUsed: i > 0, fallbackReason, correlationId, latencyMs: now() - started };
             } catch (err) {
-              // Adapters throw AIError; anything else (a bug, say) counts as the provider being unavailable.
+              // Adapters throw AIError; anything else (a bug) counts as the provider being unavailable.
               const failure = err instanceof AIError ? err : null;
               const category = failure?.category || 'unavailable';
               lastCategory = category;
@@ -260,7 +257,6 @@ export function createOrchestrator({
   };
 }
 
-// Writes provider/latency/outcome metadata. Never prompts, transcripts or keys.
 export function dbRecorder(db: Queryable) {
   return async (r: CallRecord) => {
     try {

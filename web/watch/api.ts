@@ -25,8 +25,8 @@ export const errorMessage = (err: unknown) => (err instanceof Error ? err.messag
 
 type RequestOptions = { signal?: AbortSignal };
 
-// Resolves to the parsed JSON body, typed any: each caller types it as the payload it reads (see below).
-export async function request(method: string, url: string, body: unknown, { signal }: RequestOptions = {}): Promise<any> {
+// Resolves to the parsed JSON body, typed any: each caller types it as the payload it reads.
+async function request(method: string, url: string, body: unknown, { signal }: RequestOptions = {}): Promise<any> {
   let res: Response;
   try {
     res = await fetch(url, {
@@ -49,8 +49,7 @@ export async function request(method: string, url: string, body: unknown, { sign
     try { data = JSON.parse(text); } catch { data = null; }
   }
   if (!res.ok) {
-    const e = data?.error || {};
-    const { code, message, ...extra } = e;
+    const { code, message, ...extra } = data?.error || {};
     throw new ApiError(res.status, code || 'error', message || 'Something went wrong. Please try again.', extra);
   }
   return data;
@@ -67,15 +66,14 @@ export const api = {
 // Client idempotency keys (32 hex characters) for messages, polls and other retryable actions.
 export const newKey = () => (crypto.randomUUID ? crypto.randomUUID().replaceAll('-', '') : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''));
 
-// ---------------------------------------------------------------- payloads read by several views
-// Only the fields the app reads (docs/api-contract.md); the server sends more.
+// Payloads read by several views: only the fields the app reads (docs/api-contract.md); the server sends more.
 export type Role = 'owner' | 'admin' | 'member';
 export type ModerationLevel = 'relaxed' | 'balanced' | 'strict';
 
 // The team a fan backs in a sport (null: nobody) and up to three of its players.
 export interface SportChoice { team: string | null; picks: string[] }
 
-// The signed-in user (GET /api/me and the profile endpoints). Older accounts may have no handle or name yet.
+// The signed-in user (GET /api/me and the profile endpoints). An account without a profile has no handle or name.
 export interface Me {
   id: string;
   handle: string | null;

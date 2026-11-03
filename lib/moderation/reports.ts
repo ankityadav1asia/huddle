@@ -1,6 +1,6 @@
-// Reporting, human review and appeals. Members report messages or AI responses; three distinct reports hide a
-// message until a moderator reviews it. Moderators (MODERATOR_PHONES) see only the queued items, not whole
-// private rooms. Automated decisions never ban anyone; only a human can remove content.
+// Reporting, human review and appeals. Three distinct reports hide a message until a moderator reviews it.
+// Moderators (MODERATOR_USER_IDS, listed by account id) see only queued items, not whole private rooms.
+// Automated decisions never ban anyone; only a human can remove content.
 import { one, many, type Db, type Queryable } from '../db/index.ts';
 import type { MessageRow, RoomRow, RoomType } from '../db/rows.ts';
 import type { SessionUser } from '../auth/sessions.ts';

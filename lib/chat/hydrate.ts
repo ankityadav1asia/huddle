@@ -1,5 +1,5 @@
-// Turns stored rows into what clients render. Only room-scoped rows that already passed authorization reach
-// here. Phone numbers never leave the server; removed messages lose their text.
+// Turns stored rows into what clients render. Only room-scoped rows that already passed authorization reach here.
+// People appear only by handle, display name and team; removed messages lose their text.
 import { one, many, type Queryable } from '../db/index.ts';
 import type { MatchRow, MessageRow, PollRow, RoomEventRow, RoomRole, RoomRow, SignalRow } from '../db/rows.ts';
 import { hydrateThreads, type ThreadItem } from '../rooms/threads.ts';
@@ -9,11 +9,10 @@ import { fixtureFor } from '../match/fixture.ts';
 
 export const REACTIONS = ['🔥', '😂', '😮', '👏', '😢', '🏏'];
 
-// ---------------------------------------------------------------- what clients render
-export interface Sender { type: 'user' | 'ai'; id: string | null; handle: string | null; name: string | null; team: string | null }
-export interface ReactionCount { emoji: string; count: number; mine: boolean }
+interface Sender { type: 'user' | 'ai'; id: string | null; handle: string | null; name: string | null; team: string | null }
+interface ReactionCount { emoji: string; count: number; mine: boolean }
 
-export interface MessageItem {
+interface MessageItem {
   id: string;
   seq: number | null; // null while the message is held
   sender: Sender;
@@ -28,7 +27,7 @@ export interface MessageItem {
   created_at: Date;
 }
 
-export interface PollItem {
+interface PollItem {
   id: string;
   seq: number;
   question: string;
@@ -40,7 +39,7 @@ export interface PollItem {
   created_at: Date;
 }
 
-export interface InsightItem {
+interface InsightItem {
   id: string;
   seq: number;
   trigger: string;
@@ -54,7 +53,7 @@ export interface InsightItem {
   created_at: Date;
 }
 
-export interface MemberItem {
+interface MemberItem {
   id: string;
   handle: string | null;
   name: string | null;
@@ -65,9 +64,8 @@ export interface MemberItem {
 
 // A room_events row as polls read it. appendEvent always records the changed row's id.
 export type RoomEventRef = Pick<RoomEventRow, 'seq'> & { type: RoomEventType; entity_id: string };
-export interface RoomUpdate { seq: number; type: RoomEventType; data: MessageItem | PollItem | InsightItem | MemberItem | ThreadItem | { id: string } }
+interface RoomUpdate { seq: number; type: RoomEventType; data: MessageItem | PollItem | InsightItem | MemberItem | ThreadItem | { id: string } }
 
-// ---------------------------------------------------------------- rows read here
 // A message with its sender's profile, the message it replies to and its thread (LEFT JOINs: null where absent).
 interface MessageViewRow extends MessageRow {
   handle: string | null;
@@ -96,7 +94,7 @@ const sender = (r: MessageViewRow): Sender => (r.sender_type === 'ai'
   : { type: 'user', id: r.sender_id, handle: r.handle, name: r.display_name, team: r.team });
 
 // The sport of a room's game: people show the team they back in it there. Null for a room without a game.
-export async function roomSport(q: Queryable, roomId: string): Promise<string | null> {
+async function roomSport(q: Queryable, roomId: string): Promise<string | null> {
   const r = await one<Pick<MatchRow, 'fixture_key'>>(q, 'SELECT mt.fixture_key FROM rooms r JOIN matches mt ON mt.id = r.match_id WHERE r.id = $1', [roomId]);
   return r ? fixtureFor(r).sport : null;
 }
@@ -181,7 +179,7 @@ export async function hydrateInsights(q: Queryable, roomId: string, ids: string[
   }]));
 }
 
-export async function hydrateMembers(q: Queryable, roomId: string, ids: string[], sport?: string | null): Promise<Map<string, MemberItem>> {
+async function hydrateMembers(q: Queryable, roomId: string, ids: string[], sport?: string | null): Promise<Map<string, MemberItem>> {
   if (!ids.length) return new Map();
   if (sport === undefined) sport = await roomSport(q, roomId);
   const rows = await many<MemberViewRow>(q,
@@ -192,7 +190,6 @@ export async function hydrateMembers(q: Queryable, roomId: string, ids: string[]
   return new Map(rows.map((r) => [r.id, { id: r.id, handle: r.handle, name: r.display_name, team: r.team, role: r.role, status: r.status }]));
 }
 
-// Hydrates a list of room_events rows ({seq, type, entity_id}) into renderable items, in order.
 export async function hydrateEvents(q: Queryable, room: Pick<RoomRow, 'id' | 'ai_enabled'>, viewerId: string, events: RoomEventRef[]) {
   const ids = (types: RoomEventType[]): string[] => [...new Set<string>(events.filter((e) => types.includes(e.type)).map((e) => e.entity_id))];
   const sport = ids(['message', 'message_update', 'member']).length ? await roomSport(q, room.id) : null; // for each person's team
