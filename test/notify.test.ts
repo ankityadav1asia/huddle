@@ -1,12 +1,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, makePrivateRoom } from './helpers.ts';
+import { startApp, signUp, makePrivateRoom, type App, type Client } from './helpers.ts';
 import { setPushSender } from '../lib/notify/push.ts';
 import { queueMomentumPushes } from '../lib/notify/index.ts';
 import { pump } from '../lib/jobs/worker.ts';
 import { newId } from '../lib/util.ts';
 
-let app; let roomId; let matchId; let viewer; let hidden; let away; const sent: any[] = [];
+let app: App; let roomId: string; let matchId: string; let viewer: Client; let hidden: Client; let away: Client; const sent: any[] = [];
 before(async () => {
   app = await startApp();
   setPushSender(async (sub, payload) => { sent.push({ endpoint: sub.endpoint, payload: JSON.parse(payload) }); });
@@ -26,7 +26,7 @@ before(async () => {
 after(async () => { await app.close(); });
 
 let seq = 1000;
-async function signal(priority, trigger = 'wicket_fallen') {
+async function signal(priority: string, trigger = 'wicket_fallen') {
   seq += 1;
   const ev = newId('mev');
   await app.db.query(
@@ -62,7 +62,7 @@ test('routine moments are never sent as notifications, and alerts are spaced out
 test('at most MATCH_ALERTS_PER_USER per person per match, with the last slot kept for the result', async () => {
   app.cfg.notify.minGapSeconds = 0;
   for (let i = 0; i < 12; i++) await queueMomentumPushes(app.db, await signal(i % 2 ? 'medium' : 'high', i % 2 ? 'dropped_catch' : 'wicket_fallen'));
-  const perUser = async (handle) => (await app.db.query(
+  const perUser = async (handle: string) => (await app.db.query(
     `SELECT count(*)::int AS n FROM notification_deliveries d JOIN users u ON u.id = d.recipient_id WHERE u.handle = $1 AND d.kind = 'momentum'`, [handle])).rows[0].n;
   assert.equal(await perUser('n_away'), app.cfg.notify.maxPerMatch - 1);
   await queueMomentumPushes(app.db, await signal('high', 'match_result_confirmed'));

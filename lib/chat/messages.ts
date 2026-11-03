@@ -2,8 +2,10 @@
 // pre-publication safety gate -> one transaction (atomic per-user message limiter, sequence number, insert, event log,
 // durable follow-up jobs) -> wake listeners. No AI call happens on this path.
 import { config } from '../config.ts';
-import { one } from '../db/index.ts';
-import { HttpError, badRequest, cleanText, onlyKeys, requireId, newId, secondsUntil } from '../util.ts';
+import { one, type Db } from '../db/index.ts';
+import type { MessageRow, RoomRow } from '../db/rows.ts';
+import type { SessionUser } from '../auth/sessions.ts';
+import { HttpError, badRequest, cleanText, onlyKeys, requireId, newId, secondsUntil, type RequestBody } from '../util.ts';
 import { roomAccess } from '../rooms/service.ts';
 import { nextSeq, appendEvent, RoomEndedError } from '../rooms/events.ts';
 import { classify } from '../moderation/classifier.ts';
@@ -12,24 +14,27 @@ import { enqueue } from '../jobs/queue.ts';
 import { notifyRoom } from '../realtime/bus.ts';
 import { hydrateMessages } from './hydrate.ts';
 import { threadForMessage, maybeOpenDiscussion, touchThread } from '../rooms/threads.ts';
-import { fixtureForMatch } from '../match/fixture.ts';
+import { fixtureForMatch, type Fixture } from '../match/fixture.ts';
 
 const QUESTION_START = /^(?:what|who|why|how|when|which|will|can|could|should|is|are|does|did|kya|kaun|kyun|kyu|kaise|kab|kitne|kitna|kitni|konsa|kaunsa|kahan)\b/i;
 
-export const mentionsCohost = (text) => /(^|\s)@huddle\b/i.test(text);
+export const mentionsCohost = (text: string) => /(^|\s)@huddle\b/i.test(text);
 
 // A question about this room's game: its rules, players or what is happening (each sport lists its terms).
-export function isSportQuestion(text, fixture) {
+export function isSportQuestion(text: string, fixture: Fixture | null) {
   const t = text.trim();
-  return Boolean(fixture) && (t.includes('?') || QUESTION_START.test(t)) && fixture.terms.test(t);
+  return Boolean(fixture) && (t.includes('?') || QUESTION_START.test(t)) && fixture!.terms.test(t);
 }
 
-const cooldownError = (until) => {
+// The row user_send_cooldowns keeps per user: when they may send their next message.
+interface Cooldown { next_allowed_at: Date }
+
+const cooldownError = (until: Date) => {
   const retry = Math.max(1, secondsUntil(until));
   return new HttpError(429, 'cooldown', `You can send your next message in ${retry}s.`, { retry_after: retry, cooldown_until: until });
 };
 
-export async function sendMessage(db, user, roomId, body) {
+export async function sendMessage(db: Db, user: SessionUser, roomId: string, body: RequestBody) {
   const cfg = config();
   onlyKeys(body, ['client_msg_id', 'text', 'reply_to', 'thread_id']);
   if (typeof body.client_msg_id !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(body.client_msg_id)) throw badRequest('client_msg_id is required.', 'invalid_client_msg_id');
@@ -39,7 +44,7 @@ export async function sendMessage(db, user, roomId, body) {
   const { room, policy } = await roomAccess(db, roomId, user);
 
   // A retried request returns the original message instead of posting twice.
-  const existing = await one(db,
+  const existing = await one<Pick<MessageRow, 'id' | 'status'>>(db,
     `SELECT id, status FROM messages WHERE room_id = $1 AND sender_id = $2 AND client_msg_id = $3 AND sender_type = 'user'`,
     [roomId, user.id, body.client_msg_id]);
   if (existing) {
@@ -54,7 +59,7 @@ export async function sendMessage(db, user, roomId, body) {
       throw new HttpError(429, 'moderation_pause', 'Several of your messages were stopped, so posting is paused for a couple of minutes.', { retry_after: secondsUntil(until) });
     }
   }
-  const pending = await one(db, 'SELECT next_allowed_at FROM user_send_cooldowns WHERE user_id = $1 AND next_allowed_at > now()', [user.id]);
+  const pending = await one<Cooldown>(db, 'SELECT next_allowed_at FROM user_send_cooldowns WHERE user_id = $1 AND next_allowed_at > now()', [user.id]);
   if (pending) throw cooldownError(pending.next_allowed_at);
 
   // Pre-publication safety gate. Rejected messages are never stored and do not use up the cooldown.
@@ -73,31 +78,32 @@ export async function sendMessage(db, user, roomId, body) {
   const held = decision.action === 'hold';
   // The match moment the message was sent at, so a question is answered about the game as it stood then.
   const matchSeq = room.match_id
-    ? (await one(db, 'SELECT max(seq)::int AS seq FROM match_events WHERE match_id = $1', [room.match_id]))?.seq ?? null : null;
+    ? (await one<{ seq: number | null }>(db, 'SELECT max(seq)::int AS seq FROM match_events WHERE match_id = $1', [room.match_id]))?.seq ?? null : null;
 
   const out = await db.tx(async (q) => {
     // The rule: one accepted message per user every chat.cooldownSeconds (10 s), across every room, tab and device.
     // Atomic compare-and-set on one row per user; concurrent sends cannot both pass.
-    const cd = await one(q,
+    const cd = await one<Cooldown>(q,
       `INSERT INTO user_send_cooldowns (user_id, next_allowed_at) VALUES ($1, now() + make_interval(secs => $2))
        ON CONFLICT (user_id) DO UPDATE SET next_allowed_at = EXCLUDED.next_allowed_at
        WHERE user_send_cooldowns.next_allowed_at <= now()
        RETURNING next_allowed_at`,
       [user.id, cfg.chat.cooldownSeconds]);
     if (!cd) {
-      const cur = await one(q, 'SELECT next_allowed_at FROM user_send_cooldowns WHERE user_id = $1', [user.id]);
-      throw cooldownError(cur.next_allowed_at);
+      // The upsert returned nothing because this user's row exists and is still cooling down.
+      const cur = await one<Cooldown>(q, 'SELECT next_allowed_at FROM user_send_cooldowns WHERE user_id = $1', [user.id]);
+      throw cooldownError(cur!.next_allowed_at);
     }
-    let reply: any = null;
+    let reply: Pick<MessageRow, 'id' | 'sender_id' | 'sender_type'> | null = null;
     if (replyTo) {
-      reply = await one(q, `SELECT id, sender_id, sender_type FROM messages WHERE id = $1 AND room_id = $2 AND status = 'visible'`, [replyTo, roomId]);
+      reply = await one<Pick<MessageRow, 'id' | 'sender_id' | 'sender_type'>>(q, `SELECT id, sender_id, sender_type FROM messages WHERE id = $1 AND room_id = $2 AND status = 'visible'`, [replyTo, roomId]);
       if (!reply) throw badRequest('That message is no longer available.', 'reply_unavailable');
     }
     const id = newId('msg');
     const threadId = await threadForMessage(q, roomId, text, body.thread_id);
-    let seq = null;
+    let seq: number | null = null;
     if (held) {
-      const live = await one(q, `SELECT id FROM rooms WHERE id = $1 AND status = 'active' FOR UPDATE`, [roomId]);
+      const live = await one<Pick<RoomRow, 'id'>>(q, `SELECT id FROM rooms WHERE id = $1 AND status = 'active' FOR UPDATE`, [roomId]);
       if (!live) throw new RoomEndedError();
     } else {
       seq = await nextSeq(q, roomId);

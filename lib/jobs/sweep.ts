@@ -1,10 +1,11 @@
 // Housekeeping, idempotent and safe to run often: expires stale invitations, enforces retention windows for
 // operational metadata, and makes sure every ended room past its retention window gets purged.
 import { config } from '../config.ts';
-import { many } from '../db/index.ts';
+import { many, type Queryable } from '../db/index.ts';
+import type { RoomRow } from '../db/rows.ts';
 import { enqueue } from './queue.ts';
 
-export async function sweep(db) {
+export async function sweep(db: Queryable) {
   const r = config().retention;
   await db.query(`UPDATE room_invitations SET status = 'expired' WHERE status = 'pending' AND expires_at <= now()`);
   await db.query(`DELETE FROM rate_events WHERE created_at < now() - interval '2 hours'`);
@@ -15,7 +16,7 @@ export async function sweep(db) {
   await db.query(`DELETE FROM jobs WHERE status IN ('done', 'cancelled') AND updated_at < now() - interval '1 day'`);
   await db.query(`DELETE FROM user_send_cooldowns WHERE next_allowed_at < now() - interval '1 hour'`);
   // Retention backstop: an ended room whose purge time has passed is purged even if its job was lost.
-  const due = await many(db, `SELECT id FROM rooms WHERE status = 'ended' AND purge_after <= now() LIMIT 20`);
+  const due = await many<Pick<RoomRow, 'id'>>(db, `SELECT id FROM rooms WHERE status = 'ended' AND purge_after <= now() LIMIT 20`);
   for (const room of due) {
     await enqueue(db, { type: 'room_purge', dedupeKey: `purge:${room.id}`, payload: { room_id: room.id }, priority: 8, maxAttempts: 5, reschedule: true });
   }

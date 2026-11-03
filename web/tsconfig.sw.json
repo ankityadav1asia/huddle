@@ -8,8 +8,6 @@
     "moduleDetection": "legacy",
     "types": [],
     "strict": true,
-    "noImplicitAny": false,
-    "useUnknownInCatchVariables": false,
     "erasableSyntaxOnly": true,
     "rootDir": ".",
     "outDir": "../public",

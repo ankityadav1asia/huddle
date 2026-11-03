@@ -2,7 +2,7 @@
 // is tried only for transient infrastructure failures (timeout, 5xx, overload, rate limit) within one overall
 // deadline. Safety refusals, invalid requests, auth errors and bad responses never switch providers, and a
 // response that fails validation is rejected rather than "retried until it passes" elsewhere.
-import { RETRYABLE, type Provider } from './providers.ts';
+import { AIError, RETRYABLE, type Provider } from './providers.ts';
 import { newId } from '../util.ts';
 import type { Queryable } from '../db/index.ts';
 import { log } from '../log.ts';
@@ -93,8 +93,22 @@ class Semaphore {
 
 const sleepFor = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-// What dbRecorder writes to ai_calls for each provider call.
-export type CallRecord = Record<string, any>;
+// What dbRecorder writes to ai_calls for each provider call: metadata only, never prompts or output.
+export interface CallRecord {
+  correlationId: string;
+  task: string;
+  roomId: string | null;
+  userId: string | null;
+  provider: string;
+  model: string;
+  attempt: number; // 0 when the breaker skipped the provider
+  outcome: 'ok' | 'rejected' | 'error' | 'skipped';
+  error_category: string | null;
+  fallback_reason: string | null;
+  latency_ms?: number;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+}
 
 export interface OrchestratorOptions {
   providers: Provider[];
@@ -108,25 +122,66 @@ export interface OrchestratorOptions {
   random?: () => number;
 }
 
-export interface RunRequest {
+// What a validator decides about a provider's output: the value to use, or why it was rejected.
+export type Validation<T> = { ok: true; value: T } | { ok: false; reason: string };
+
+export interface RunRequest<T = unknown> {
   task: string;
   system: string;
   user: string;
-  schema: object;
+  schema: Record<string, unknown>; // a JSON Schema object
   maxTokens?: number;
   roomId?: string | null;
   userId?: string | null;
-  validate?: (content: any) => { ok: boolean; value?: any; reason?: string };
+  validate?: (content: unknown) => Validation<T>;
   isCancelled?: () => boolean | Promise<boolean>;
   deadline?: number;
 }
 
-export type Orchestrator = ReturnType<typeof createOrchestrator>;
+// Each shape names the other's fields as undefined, so a caller can read result.provider (say) before checking ok.
+export interface RunSuccess<T> {
+  ok: true;
+  value: T;
+  provider: string;
+  model: string;
+  fallbackUsed: boolean;
+  fallbackReason: string | null;
+  correlationId: string;
+  latencyMs: number;
+  category?: undefined;
+  reason?: undefined;
+  lastCategory?: undefined;
+}
+
+// category: not_configured | busy | deadline_exceeded | cancelled | validation_failed | all_providers_failed, or the
+// provider's own non-retryable AIError category (safety_refusal, invalid_request, ...).
+export interface RunFailure {
+  ok: false;
+  category: string;
+  correlationId: string;
+  reason?: string; // validation_failed: what the validator rejected
+  provider?: string; // the provider whose answer or error ended the run
+  fallbackReason?: string | null;
+  lastCategory?: string | null;
+  value?: undefined;
+  model?: undefined;
+  fallbackUsed?: undefined;
+  latencyMs?: undefined;
+}
+
+export type RunResult<T> = RunSuccess<T> | RunFailure;
+
+export interface Orchestrator {
+  providers: { name: string; model: string }[];
+  available: boolean;
+  breakerState(name: string): Breaker['state'] | undefined;
+  run<T = unknown>(req: RunRequest<T>): Promise<RunResult<T>>;
+}
 
 export function createOrchestrator({
   providers, timeoutMs = 9000, deadlineMs = 16000, maxConcurrency = 3, breaker = {},
   record = async () => {}, sleep = sleepFor, now = Date.now, random = Math.random,
-}: OrchestratorOptions) {
+}: OrchestratorOptions): Orchestrator {
   const breakers = new Map(providers.map((p) => [p.name, new Breaker({ ...breaker, now })]));
   const gate = new Semaphore(maxConcurrency);
 
@@ -137,7 +192,7 @@ export function createOrchestrator({
 
     // validate(content) -> { ok: true, value } | { ok: false, reason }. isCancelled() lets a room closure or a
     // human reply stop pending work before another provider call starts.
-    async run({ task, system, user, schema, maxTokens = 16000, roomId = null, userId = null, validate, isCancelled, deadline: ownDeadline }: RunRequest): Promise<any> {
+    async run<T>({ task, system, user, schema, maxTokens = 16000, roomId = null, userId = null, validate, isCancelled, deadline: ownDeadline }: RunRequest<T>): Promise<RunResult<T>> {
       const correlationId = newId('aic');
       const started = now();
       const deadline = started + (ownDeadline ?? deadlineMs);
@@ -163,7 +218,7 @@ export function createOrchestrator({
             try {
               const res = await p.generate({ system, user, schema, name: task, maxTokens, timeoutMs: Math.min(timeoutMs, remaining - 500) });
               br.success();
-              const checked: { ok: boolean; value?: any; reason?: string } = validate ? validate(res.content) : { ok: true, value: res.content };
+              const checked: Validation<T> = validate ? validate(res.content) : { ok: true, value: res.content };
               await record({
                 correlationId, task, roomId, userId, provider: res.provider, model: res.model, attempt, outcome: checked.ok ? 'ok' : 'rejected',
                 error_category: checked.ok ? null : 'validation_failed', fallback_reason: i > 0 ? fallbackReason : null,
@@ -175,7 +230,9 @@ export function createOrchestrator({
               }
               return { ok: true, value: checked.value, provider: res.provider, model: res.model, fallbackUsed: i > 0, fallbackReason, correlationId, latencyMs: now() - started };
             } catch (err) {
-              const category = err?.category || 'unavailable';
+              // Adapters throw AIError; anything else (a bug, say) counts as the provider being unavailable.
+              const failure = err instanceof AIError ? err : null;
+              const category = failure?.category || 'unavailable';
               lastCategory = category;
               await record({ correlationId, task, roomId, userId, provider: p.name, model: p.model, attempt, outcome: 'error', error_category: category, fallback_reason: fallbackReason, latency_ms: now() - t0 });
               if (!RETRYABLE.has(category)) {
@@ -183,7 +240,7 @@ export function createOrchestrator({
                 return { ok: false, category, correlationId, provider: p.name };
               }
               br.failure();
-              const wait = category === 'rate_limited' ? (err.retryAfterMs ?? 1000) : 250 + random() * 500;
+              const wait = category === 'rate_limited' ? (failure?.retryAfterMs ?? 1000) : 250 + random() * 500;
               const retryHere = attempt === 1 && (category === 'server_error' || (category === 'rate_limited' && wait <= 1500))
                 && deadline - now() - wait > 3000 && br.state === 'closed';
               if (retryHere) {

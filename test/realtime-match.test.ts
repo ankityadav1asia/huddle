@@ -1,10 +1,10 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp } from './helpers.ts';
+import { startApp, signUp, type App, type Client } from './helpers.ts';
 import { DEMO_FIXTURE, schedule } from '../lib/match/fixture.ts';
 
 // Serverless mode, as on Vercel: no background worker, so waiting long-polls run the match feed themselves.
-let app; let fan; let roomId;
+let app: App; let fan: Client; let roomId: string;
 before(async () => {
   app = await startApp((cfg) => { cfg.worker.inline = false; });
   fan = await signUp(app.base, 'rt_fan');

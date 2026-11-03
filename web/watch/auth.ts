@@ -1,11 +1,11 @@
 // Joining Huddle: pick a display name, a handle and (optionally) the team and up to three players you back in each
 // sport. No phone number or password; the server creates a guest profile and keeps this browser signed in with an
 // HttpOnly session cookie.
-import { api } from './api.ts';
-import { el, setRail, railIntro, teamClass } from './ui.ts';
+import { api, errorMessage, type Config, type Me, type SportChoice, type SportInfo } from './api.ts';
+import { el, setRail, railIntro, teamClass, type Child } from './ui.ts';
 import type { Ctx } from './app.ts';
 
-function shell(view, subtitle, ...content) {
+function shell(view: HTMLElement, subtitle: string, ...content: Child[]) {
   view.replaceChildren(
     el('div', { class: 'masthead' },
       el('header', { class: 'top' },
@@ -42,7 +42,7 @@ export function renderProfile(ctx: Ctx) {
   });
 }
 
-type ProfileForm = { subtitle: string; title: string; lede: string; button: string; submit: (body: unknown) => Promise<any>; note?: string };
+type ProfileForm = { subtitle: string; title: string; lede: string; button: string; submit: (body: unknown) => Promise<{ user: Me }>; note?: string };
 
 function renderProfileForm(ctx: Ctx, { subtitle, title, lede, button, submit, note }: ProfileForm) {
   setRail(railIntro());
@@ -79,7 +79,7 @@ function renderProfileForm(ctx: Ctx, { subtitle, title, lede, button, submit, no
       const r = await submit({ display_name: name.value, handle: h, sports: backing.value() });
       ctx.signedIn(r.user, false);
     } catch (err) {
-      error.textContent = err.message;
+      error.textContent = errorMessage(err);
       save.disabled = false;
     }
   });
@@ -91,15 +91,15 @@ type Backing = { team: string | null; picks: string[] };
 
 // The team you back (or none) and up to three players in each sport, one sport at a time. A sport you leave alone
 // is not sent, so the first room you watch it in asks once.
-function sportPicker(config, current: Record<string, { team?: string | null; picks?: string[] }> | undefined) {
+function sportPicker(config: Config | null, current: Record<string, SportChoice> | undefined) {
   const sports = config?.sports || [];
   const maxPicks = config?.max_picks || 3;
   const chosen = new Map<string, Backing>(Object.entries(current || {}).map(([sport, c]) => [sport, { team: c.team ?? null, picks: [...(c.picks || [])] }]));
-  const answer = (sport) => chosen.get(sport) || chosen.set(sport, { team: null, picks: [] }).get(sport)!;
+  const answer = (sport: string) => chosen.get(sport) || chosen.set(sport, { team: null, picks: [] }).get(sport)!;
   const hint = el('p', { class: 'field-hint', id: 'picks-hint' });
   const panel = el('div', { class: 'sport-panel' });
   const marks = new Map<string, HTMLElement>(sports.map((s) => [s.sport, el('small')]));
-  const markTab = (sport) => {
+  const markTab = (sport: string) => {
     const team = chosen.get(sport)?.team;
     marks.get(sport)!.className = team ? `badge ${teamClass(team)}` : '';
     marks.get(sport)!.textContent = team || '';
@@ -107,10 +107,10 @@ function sportPicker(config, current: Record<string, { team?: string | null; pic
   const tabs = sports.map((s) => el('button', { type: 'button', class: 'sport-tab', dataset: { sport: s.sport }, onclick: () => show(s) },
     s.label, marks.get(s.sport)));
 
-  function show(s) {
+  function show(s: SportInfo) {
     tabs.forEach((t) => t.setAttribute('aria-pressed', String(t.dataset.sport === s.sport)));
     hint.textContent = `Up to ${maxPicks} ${s.label} players. You can change them later in Edit profile.`;
-    const isTeam = (code) => chosen.has(s.sport) && (chosen.get(s.sport)!.team ?? '') === code;
+    const isTeam = (code: string | undefined) => chosen.has(s.sport) && (chosen.get(s.sport)!.team ?? '') === code;
     const teamBtns = [...s.teams, { code: '', name: 'No team' }].map((t) => el('button', {
       type: 'button', class: 'team-opt', dataset: { team: t.code }, 'aria-pressed': String(isTeam(t.code)),
       onclick: () => {

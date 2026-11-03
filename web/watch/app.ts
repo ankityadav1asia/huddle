@@ -1,20 +1,27 @@
 // Huddle Watch Party: boot and hash routing (#/ home, #/room/<id>).
-import { api } from './api.ts';
+import { api, ApiError, errorMessage, type Config, type Me, type MeResponse } from './api.ts';
 import { el, fitPhone, setRail, railIntro } from './ui.ts';
 import { initSheets, closeSheet } from './sheets.ts';
 import { renderAuth, renderProfile } from './auth.ts';
 import { renderHome, leaveHome } from './home.ts';
 import { renderRoom, leaveRoom } from './room.ts';
 
-// What every view gets: the server config and the signed-in user (JSON from the API), and navigation.
+// What every view gets: the server config and the signed-in user (JSON from the API), and navigation. config is
+// null until boot() has loaded it, and me while nobody is signed in.
 export interface Ctx {
-  config: any;
-  me: any;
+  config: Config | null;
+  me: Me | null;
   needsProfile?: boolean;
   navigate(hash: string): void;
-  signedIn(user: any, needsProfile: boolean): void;
+  signedIn(user: Me, needsProfile: boolean): void;
   signedOut(): void;
   editProfile(): void;
+}
+
+// What home and rooms get: route() only renders them with the config loaded and a user who has a handle.
+export interface ReadyCtx extends Ctx {
+  config: Config;
+  me: Me & { handle: string };
 }
 
 const ctx: Ctx = {
@@ -43,6 +50,9 @@ const ctx: Ctx = {
   },
 };
 
+// boot() has the config before any route(), so in effect this is the handle check: no handle, no home or rooms yet.
+const isReady = (c: Ctx): c is ReadyCtx => c.config !== null && Boolean(c.me?.handle);
+
 let routing = 0;
 
 async function route() {
@@ -52,23 +62,23 @@ async function route() {
   closeSheet();
   if (!ctx.me) {
     try {
-      const r = await api.get('/api/me');
+      const r: MeResponse = await api.get('/api/me');
       ctx.me = r.user;
       ctx.needsProfile = r.needs_profile;
     } catch (err) {
       if (mine !== routing) return;
-      if (err.status === 401) return renderAuth(ctx);
-      return renderFailure(err.message);
+      if (err instanceof ApiError && err.status === 401) return renderAuth(ctx);
+      return renderFailure(errorMessage(err));
     }
   }
   if (mine !== routing) return;
-  if (ctx.needsProfile || !ctx.me.handle) return renderProfile(ctx);
+  if (ctx.needsProfile || !isReady(ctx)) return renderProfile(ctx);
   const m = location.hash.match(/^#\/room\/(room_[a-f0-9]{20})$/);
   if (m) return renderRoom(ctx, m[1]);
   return renderHome(ctx);
 }
 
-function renderFailure(message) {
+function renderFailure(message: string) {
   setRail(railIntro());
   document.getElementById('view')?.replaceChildren(
     el('div', { class: 'masthead' }, el('header', { class: 'top' }, el('div', { class: 'top-title' }, el('b', { class: 'brand', text: 'Huddle' })))),
@@ -86,7 +96,7 @@ async function boot() {
   try {
     ctx.config = await api.get('/api/config');
   } catch (err) {
-    renderFailure(err.message);
+    renderFailure(errorMessage(err));
     return;
   }
   addEventListener('hashchange', route);

@@ -3,7 +3,9 @@
 // cancelled and pending alerts expire. Message bodies are deleted later by the idempotent purge job, after the
 // configured retention window (MESSAGE_RETENTION_HOURS, default 24h).
 import { config } from '../config.ts';
-import { one } from '../db/index.ts';
+import { one, type Db } from '../db/index.ts';
+import type { RoomRow } from '../db/rows.ts';
+import type { SessionUser } from '../auth/sessions.ts';
 import { forbidden } from '../util.ts';
 import { cancelRoomJobs, enqueue } from '../jobs/queue.ts';
 import { notifyRoom } from '../realtime/bus.ts';
@@ -11,9 +13,9 @@ import { recordModeration } from '../moderation/audit.ts';
 import { roomAccess } from './service.ts';
 import { clearRoomContext } from '../ai/context-cache.ts';
 
-export async function endRoom(db, roomId, { reason, actorId = null }) {
+export async function endRoom(db: Db, roomId: string, { reason, actorId = null }: { reason: string; actorId?: string | null }) {
   const ended = await db.tx(async (q) => {
-    const row = await one(q,
+    const row = await one<Pick<RoomRow, 'id' | 'purge_after'>>(q,
       `UPDATE rooms SET status = 'ended', ended_at = now(), end_reason = $2, updated_at = now(),
               purge_after = now() + make_interval(hours => $3)
         WHERE id = $1 AND status = 'active' RETURNING id, purge_after`,
@@ -38,7 +40,7 @@ export async function endRoom(db, roomId, { reason, actorId = null }) {
   return ended;
 }
 
-export async function endRoomByUser(db, user, roomId) {
+export async function endRoomByUser(db: Db, user: SessionUser, roomId: string) {
   const { room, role } = await roomAccess(db, roomId, user);
   const allowed = room.room_type === 'private' ? role === 'owner' : user.is_moderator;
   if (!allowed) throw forbidden(room.room_type === 'private' ? 'Only the room owner can end this watch party.' : 'Public watch parties are ended by Huddle.');
@@ -47,9 +49,9 @@ export async function endRoomByUser(db, user, roomId) {
 }
 
 // Deletes room content after the retention window. Safe to run any number of times.
-export async function purgeRoom(db, roomId) {
+export async function purgeRoom(db: Db, roomId: string): Promise<'purged' | 'already_purged' | 'not_ended'> {
   return db.tx(async (q) => {
-    const room = await one(q, 'SELECT status FROM rooms WHERE id = $1 FOR UPDATE', [roomId]);
+    const room = await one<Pick<RoomRow, 'status'>>(q, 'SELECT status FROM rooms WHERE id = $1 FOR UPDATE', [roomId]);
     if (!room || room.status === 'purged') return 'already_purged';
     if (room.status !== 'ended') return 'not_ended';
     await q.query('DELETE FROM room_events WHERE room_id = $1', [roomId]);

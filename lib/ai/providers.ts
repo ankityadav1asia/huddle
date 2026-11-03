@@ -10,14 +10,14 @@ import Anthropic from '@anthropic-ai/sdk';
 export interface GenerateRequest {
   system: string;
   user: string;
-  schema: object;
+  schema: Record<string, unknown>; // a JSON Schema object
   name: string;
   maxTokens: number;
   timeoutMs: number;
 }
 
 export interface GenerateResult {
-  content: any;
+  content: any; // the model's JSON, parsed but not yet checked: RunRequest.validate decides what may be used
   provider: string;
   model: string;
   requestId: string | null;
@@ -46,7 +46,7 @@ export class AIError extends Error {
 // Transient infrastructure failures: the only ones that may trigger a retry or the fallback provider.
 export const RETRYABLE = new Set(['timeout', 'rate_limited', 'unavailable', 'server_error']);
 
-export function categoryForStatus(status) {
+export function categoryForStatus(status: number) {
   if (status === 408) return 'timeout';
   if (status === 429) return 'rate_limited';
   if (status === 401 || status === 403) return 'authentication_error';
@@ -55,7 +55,7 @@ export function categoryForStatus(status) {
   return 'invalid_request';
 }
 
-function retryAfterMs(value) {
+function retryAfterMs(value: string | null | undefined): number | null {
   if (value == null || value === '') return null;
   const secs = Number(value);
   if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
@@ -63,7 +63,7 @@ function retryAfterMs(value) {
   return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
 }
 
-export function parseJsonObject(text) {
+export function parseJsonObject(text: string): unknown {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
   if (start < 0 || end <= start) throw new AIError('bad_response', 'No JSON object in the response');
@@ -74,7 +74,10 @@ export function parseJsonObject(text) {
   }
 }
 
-async function postJson(fetchImpl, url, { headers, body, timeoutMs }) {
+// A vendor's HTTP reply. Its JSON stays untyped at this boundary: each adapter reads only the fields it knows.
+interface VendorReply { res: Response; json: any }
+
+async function postJson(fetchImpl: typeof fetch, url: string, { headers, body, timeoutMs }: { headers: Record<string, string>; body: object; timeoutMs: number }): Promise<VendorReply> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -82,21 +85,27 @@ async function postJson(fetchImpl, url, { headers, body, timeoutMs }) {
     const json = await res.json().catch(() => null);
     return { res, json };
   } catch (err) {
-    if (err?.name === 'AbortError') throw new AIError('timeout', 'The provider did not answer in time');
+    // An abort rejects with a DOMException, which is an Error.
+    if (err instanceof Error && err.name === 'AbortError') throw new AIError('timeout', 'The provider did not answer in time');
     throw new AIError('unavailable', 'Could not reach the provider');
   } finally {
     clearTimeout(timer);
   }
 }
 
-function httpFailure(res, json, provider) {
+function httpFailure(res: Response, json: any, provider: string): AIError {
   const category = categoryForStatus(res.status);
   const msg = typeof json?.error?.message === 'string' ? json.error.message.slice(0, 160) : `HTTP ${res.status}`;
   return new AIError(category, `${provider}: ${msg}`, { status: res.status, retryAfterMs: retryAfterMs(res.headers?.get?.('retry-after')) });
 }
 
+// A vendor's settings, as config().ai.providers holds them.
+export interface ProviderSettings { apiKey: string; model: string }
+export interface AnthropicSettings extends ProviderSettings { effort: string }
+export interface OpenRouterSettings extends ProviderSettings { appUrl: string }
+
 // ---------------------------------------------------------------- Anthropic (Claude) via the official SDK
-function normaliseAnthropic(err) {
+function normaliseAnthropic(err: unknown): AIError {
   if (err instanceof AIError) return err;
   if (err instanceof Anthropic.APIConnectionTimeoutError) return new AIError('timeout', 'Claude did not answer in time');
   if (err instanceof Anthropic.APIConnectionError) return new AIError('unavailable', 'Could not reach Claude');
@@ -114,7 +123,7 @@ function normaliseAnthropic(err) {
   return new AIError('unavailable', 'Claude call failed');
 }
 
-export function anthropicAdapter({ apiKey, model, effort }, { client }: { client?: any } = {}): Provider {
+export function anthropicAdapter({ apiKey, model, effort }: AnthropicSettings, { client }: { client?: Anthropic } = {}): Provider {
   // SDK retries are off: the orchestrator owns retry, fallback and deadline policy.
   const sdk = client || new Anthropic({ apiKey, maxRetries: 0 });
   return {
@@ -122,14 +131,15 @@ export function anthropicAdapter({ apiKey, model, effort }, { client }: { client
     model,
     async generate(req) {
       const started = Date.now();
-      const params: any = {
+      const params: Anthropic.MessageCreateParamsNonStreaming = {
         model,
         max_tokens: req.maxTokens,
         system: req.system,
         messages: [{ role: 'user', content: req.user }],
-        output_config: { effort, format: { type: 'json_schema', schema: req.schema } },
+        // ANTHROPIC_EFFORT is sent as configured; the API rejects a level it does not know.
+        output_config: { effort: effort as Anthropic.OutputConfig['effort'], format: { type: 'json_schema', schema: req.schema } },
       };
-      let res;
+      let res: Anthropic.Message | Anthropic.Beta.BetaMessage;
       try {
         // Anthropic's own server-side refusal fallback (as before) re-runs a classifier false positive on another
         // Claude model. Our orchestrator never switches providers because of a refusal.
@@ -152,13 +162,13 @@ export function anthropicAdapter({ apiKey, model, effort }, { client }: { client
 
 // ---------------------------------------------------------------- OpenAI chat-completions format (OpenRouter, xAI)
 function chatCompletionsAdapter({ name, label, url, headers = {}, extraBody = {} }: { name: string; label: string; url: string; headers?: Record<string, string>; extraBody?: object },
-  { apiKey, model }, fetchImpl: typeof fetch): Provider {
+  { apiKey, model }: ProviderSettings, fetchImpl: typeof fetch): Provider {
   return {
     name,
     model,
     async generate(req) {
       const started = Date.now();
-      const send = (structured) => postJson(fetchImpl, url, {
+      const send = (structured: boolean) => postJson(fetchImpl, url, {
         timeoutMs: req.timeoutMs,
         headers: { authorization: `Bearer ${apiKey}`, ...headers },
         body: {
@@ -188,7 +198,7 @@ function chatCompletionsAdapter({ name, label, url, headers = {}, extraBody = {}
 }
 
 // OpenRouter: many models behind one key.
-export function openRouterAdapter({ apiKey, model, appUrl }, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
+export function openRouterAdapter({ apiKey, model, appUrl }: OpenRouterSettings, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
   return chatCompletionsAdapter({
     name: 'openrouter', label: 'OpenRouter', url: 'https://openrouter.ai/api/v1/chat/completions',
     headers: { 'HTTP-Referer': appUrl, 'X-Title': 'Huddle Watch Party' }, extraBody: { reasoning: { effort: 'low' } },
@@ -196,18 +206,21 @@ export function openRouterAdapter({ apiKey, model, appUrl }, { fetchImpl = fetch
 }
 
 // xAI (Grok): the same chat-completions format at api.x.ai, with structured outputs.
-export function xaiAdapter({ apiKey, model }, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
+export function xaiAdapter({ apiKey, model }: ProviderSettings, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
   return chatCompletionsAdapter({ name: 'xai', label: 'xAI', url: 'https://api.x.ai/v1/chat/completions' }, { apiKey, model }, fetchImpl);
 }
 
 // ---------------------------------------------------------------- Google Gemini
-export function geminiAdapter({ apiKey, model }, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
+// A part of Gemini's reply: thought summaries are flagged, answer text is not.
+interface GeminiPart { text?: string; thought?: boolean }
+
+export function geminiAdapter({ apiKey, model }: ProviderSettings, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
   return {
     name: 'gemini',
     model,
     async generate(req) {
       const started = Date.now();
-      const send = (strict) => postJson(fetchImpl, `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      const send = (strict: boolean) => postJson(fetchImpl, `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
         timeoutMs: req.timeoutMs,
         headers: { 'x-goog-api-key': apiKey },
         body: {
@@ -228,7 +241,7 @@ export function geminiAdapter({ apiKey, model }, { fetchImpl = fetch }: { fetchI
       const candidate = json?.candidates?.[0];
       if (['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII'].includes(candidate?.finishReason)) throw new AIError('safety_refusal', 'Gemini declined the request');
       if (candidate?.finishReason === 'MAX_TOKENS') throw new AIError('bad_response', 'The response was cut off');
-      const text = candidate?.content?.parts?.filter((p) => !p.thought).map((p) => p.text || '').join('') || '';
+      const text: string = candidate?.content?.parts?.filter((p: GeminiPart) => !p.thought).map((p: GeminiPart) => p.text || '').join('') || '';
       return {
         content: parseJsonObject(text), provider: 'gemini', model, requestId: json?.responseId || null,
         latencyMs: Date.now() - started, usage: { input: json?.usageMetadata?.promptTokenCount ?? null, output: json?.usageMetadata?.candidatesTokenCount ?? null },
@@ -237,16 +250,32 @@ export function geminiAdapter({ apiKey, model }, { fetchImpl = fetch }: { fetchI
   };
 }
 
-const FACTORIES: Record<string, (settings: any) => Provider> = { anthropic: anthropicAdapter, openrouter: openRouterAdapter, gemini: geminiAdapter, xai: xaiAdapter };
-const DEFAULT_ORDER = ['anthropic', 'openrouter', 'gemini', 'xai'];
+interface SettingsByProvider { anthropic: AnthropicSettings; openrouter: OpenRouterSettings; gemini: ProviderSettings; xai: ProviderSettings }
+type ProviderName = keyof SettingsByProvider;
+
+const FACTORIES: { [K in ProviderName]: (settings: SettingsByProvider[K]) => Provider } = { anthropic: anthropicAdapter, openrouter: openRouterAdapter, gemini: geminiAdapter, xai: xaiAdapter };
+const DEFAULT_ORDER: ProviderName[] = ['anthropic', 'openrouter', 'gemini', 'xai'];
+
+// config().ai, or the part of it that picks providers. A vendor without an apiKey is skipped, so its settings may be empty.
+export interface ProviderChoice {
+  primary: string;
+  fallback: string;
+  providers: { [K in ProviderName]: Partial<SettingsByProvider[K]> };
+}
+
+// AI_PRIMARY and AI_FALLBACK are free text: only names FACTORIES knows count.
+const isProviderName = (name: string): name is ProviderName => name in FACTORIES;
+
+// has() vouched for the API key; a vendor's other settings come from config as they are.
+const build = <K extends ProviderName>(name: K, settings: Partial<SettingsByProvider[K]>): Provider => FACTORIES[name](settings as SettingsByProvider[K]);
 
 // Primary and fallback come from configuration (AI_PRIMARY / AI_FALLBACK). Without explicit choices the order is
 // Anthropic, OpenRouter, Gemini, then xAI (Grok), among providers that have keys.
-export function configuredProviders(aiCfg): Provider[] {
-  const has = (name: string) => Boolean(aiCfg.providers[name]?.apiKey);
-  const order: string[] = [];
-  for (const name of [aiCfg.primary, aiCfg.fallback]) if (name && FACTORIES[name] && has(name) && !order.includes(name)) order.push(name);
+export function configuredProviders(aiCfg: ProviderChoice): Provider[] {
+  const has = (name: ProviderName) => Boolean(aiCfg.providers[name]?.apiKey);
+  const order: ProviderName[] = [];
+  for (const name of [aiCfg.primary, aiCfg.fallback]) if (name && isProviderName(name) && has(name) && !order.includes(name)) order.push(name);
   if (!aiCfg.primary) for (const name of DEFAULT_ORDER) if (has(name) && !order.includes(name)) order.push(name);
   if (!aiCfg.fallback) for (const name of DEFAULT_ORDER) if (has(name) && !order.includes(name) && order.length < 2) order.push(name);
-  return order.slice(0, 2).map((name) => FACTORIES[name](aiCfg.providers[name]));
+  return order.slice(0, 2).map((name) => build(name, aiCfg.providers[name]));
 }

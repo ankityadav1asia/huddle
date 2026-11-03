@@ -3,9 +3,10 @@
 // little housekeeping, then claims and runs due jobs with bounded concurrency. A slow AI job never blocks chat:
 // chat delivery does not go through this queue at all.
 import { config } from '../config.ts';
-import { one } from '../db/index.ts';
+import { one, type Db } from '../db/index.ts';
+import type { RoomRow } from '../db/rows.ts';
 import { log } from '../log.ts';
-import { claimJobs, completeJob, failJob, cancelJob } from './queue.ts';
+import { claimJobs, completeJob, failJob, cancelJob, failureTags, type ClaimedJob } from './queue.ts';
 import { advanceFeeds } from '../match/feed.ts';
 import { handleAnswerJob, handleContinuityJob, handleMomentumJob } from '../cohost/index.ts';
 import { handleInviteJob, handlePushDelivery } from '../notify/index.ts';
@@ -15,34 +16,41 @@ import { RoomEndedError } from '../rooms/events.ts';
 import { sweep } from './sweep.ts';
 import { observe, count } from '../metrics.ts';
 
+// Runs one claimed job and names the outcome (for logs and metrics). Handlers are idempotent: a job can run twice.
+// Each handler declares only the job fields it reads (payloads hold ids), so tests can call one directly.
+export type JobHandler = (db: Db, job: ClaimedJob) => Promise<string>;
+
 export const HANDLERS = {
   ai_answer: handleAnswerJob,
   continuity_check: handleContinuityJob,
   momentum_signal: handleMomentumJob,
-  poll_close: async (db, job) => ((await closePoll(db, job.payload.poll_id)) ? 'closed' : 'done'),
-  room_auto_end: async (db, job) => {
+  poll_close: async (db: Db, job: { payload: { poll_id: string } }) => ((await closePoll(db, job.payload.poll_id)) ? 'closed' : 'done'),
+  room_auto_end: async (db: Db, job: { payload: { room_id: string; match_id?: string } }) => {
     // A private replay restarted after it finished keeps its room open: the room has moved to a new run.
-    const room = job.payload.match_id ? await one(db, 'SELECT match_id FROM rooms WHERE id = $1', [job.payload.room_id]) : null;
+    const room = job.payload.match_id ? await one<Pick<RoomRow, 'match_id'>>(db, 'SELECT match_id FROM rooms WHERE id = $1', [job.payload.room_id]) : null;
     if (room && room.match_id !== job.payload.match_id) return 'done';
     return (await endRoom(db, job.payload.room_id, { reason: 'match_completed' })) ? 'ended' : 'done';
   },
-  room_purge: async (db, job) => purgeRoom(db, job.payload.room_id),
+  room_purge: async (db: Db, job: { payload: { room_id: string } }) => purgeRoom(db, job.payload.room_id),
   push_invite: handleInviteJob,
   push_delivery: handlePushDelivery,
 };
 
+// Job types are read back from the database, so a lookup can find nothing.
+const BY_TYPE: Record<string, JobHandler | undefined> = HANDLERS;
+
 let inFlight: Promise<number> | null = null;
 let lastSweep = 0;
 
-export async function runJob(db, job) {
+export async function runJob(db: Db, job: ClaimedJob): Promise<string> {
   const started = Date.now();
-  let outcome;
+  let outcome: string;
   try {
     if (job.expires_at && new Date(job.expires_at) <= new Date()) {
       await cancelJob(db, job, 'expired');
       outcome = 'expired';
     } else {
-      const handler = HANDLERS[job.type];
+      const handler = Object.hasOwn(BY_TYPE, job.type) ? BY_TYPE[job.type] : undefined; // never Object.prototype names
       if (!handler) throw Object.assign(new Error(`no handler for ${job.type}`), { category: 'unknown_job', retryable: false });
       outcome = await handler(db, job);
       await completeJob(db, job);
@@ -53,7 +61,8 @@ export async function runJob(db, job) {
       outcome = 'room_ended';
     } else {
       outcome = await failJob(db, job, err);
-      log.warn('job.failed', { type: job.type, id: job.id, attempts: job.attempts, outcome, category: err?.category || err?.code, err });
+      const tags = failureTags(err);
+      log.warn('job.failed', { type: job.type, id: job.id, attempts: job.attempts, outcome, category: tags.category || tags.code, err });
     }
   }
   const ms = Date.now() - started;
@@ -65,7 +74,7 @@ export async function runJob(db, job) {
 }
 
 // Single-flight per process: overlapping callers share one pump.
-export function pump(db, { budgetMs = 4000, maxJobs = 8 } = {}): Promise<number> {
+export function pump(db: Db, { budgetMs = 4000, maxJobs = 8 } = {}): Promise<number> {
   inFlight ||= (async () => {
     try {
       const deadline = Date.now() + budgetMs;
@@ -92,7 +101,7 @@ export function pump(db, { budgetMs = 4000, maxJobs = 8 } = {}): Promise<number>
   return inFlight;
 }
 
-export function startWorker(db) {
+export function startWorker(db: Db): () => void {
   const { intervalMs } = config().worker;
   let stopped = false;
   const loop = async () => {

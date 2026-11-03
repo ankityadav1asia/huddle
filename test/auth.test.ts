@@ -1,8 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, client, signUp } from './helpers.ts';
+import { startApp, client, signUp, type App } from './helpers.ts';
 
-let app;
+let app: App;
 before(async () => { app = await startApp(); });
 after(async () => { await app.close(); });
 
@@ -23,7 +23,7 @@ test('joining as a guest creates a profile and a session, with no phone or passw
 
 test('names and handles are validated, unique and safety-checked; privileged fields are refused', async () => {
   const c = client(app.base);
-  const join = (body) => c.post('/api/auth/guest', body);
+  const join = (body: unknown) => c.post('/api/auth/guest', body);
   assert.equal((await join({ display_name: 'X', handle: 'ab' })).status, 400); // too short
   assert.equal((await join({ display_name: 'X', handle: 'has space' })).status, 400);
   assert.equal((await join({ display_name: 'X', handle: 'huddle' })).status, 400); // reserved
@@ -78,7 +78,8 @@ test('without a server secret, joining fails closed', async () => {
 });
 
 test('fans pick a team and up to three players in each sport, keep them on edit, or clear them', async () => {
-  const config = (await client(app.base).get('/api/config')).body;
+  const config: { max_picks: number; sports: { sport: string; label: string; teams: { code: string }[]; players: { name: string; short: string; team: string }[] }[] }
+    = (await client(app.base).get('/api/config')).body;
   assert.equal(config.max_picks, 3);
   assert.deepEqual(config.sports.map((s) => [s.sport, s.label, s.teams.map((t) => t.code)]), [
     ['cricket', 'Cricket', ['MI', 'CSK']], ['f1', 'F1', ['MCL', 'RBR', 'FER', 'MER']],
@@ -97,7 +98,7 @@ test('fans pick a team and up to three players in each sport, keep them on edit,
     assert.equal(bad.status, 400);
     assert.equal(bad.body.error.code, 'invalid_picks');
   }
-  const edit = (extra) => c.put('/api/me/profile', { display_name: 'Picker', handle: 'picker_1', ...extra });
+  const edit = (extra: Record<string, unknown>) => c.put('/api/me/profile', { display_name: 'Picker', handle: 'picker_1', ...extra });
   assert.deepEqual((await edit({})).body.user.sports, sports); // left out: kept
   assert.deepEqual((await edit({ sports: { cricket: { team: 'CSK' } } })).body.user.sports.cricket.picks, ['MS Dhoni', 'Jasprit Bumrah']);
   assert.deepEqual((await edit({ sports: { cricket: { team: 'MI', picks: [] } } })).body.user.sports,
@@ -105,7 +106,7 @@ test('fans pick a team and up to three players in each sport, keep them on edit,
   assert.deepEqual(Object.keys((await edit({ sports: { f1: null } })).body.user.sports), ['cricket']); // forgotten: asked again
 
   // One sport at a time: what a room asks when you first watch that sport.
-  const pick = (sport, body) => c.put(`/api/me/sports/${sport}`, body);
+  const pick = (sport: string, body: unknown) => c.put(`/api/me/sports/${sport}`, body);
   assert.deepEqual((await pick('basketball', { team: 'GSW' })).body.user.sports.basketball, { team: 'GSW', picks: [] });
   assert.deepEqual((await pick('hockey', { team: null })).body.user.sports.hockey, { team: null, picks: [] }); // just watching
   assert.equal((await pick('basketball', { team: 'MCL' })).body.error.code, 'invalid_team');

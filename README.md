@@ -89,8 +89,9 @@ npm test
 npm run typecheck
 ```
 
-`npm run typecheck` checks the server, tests and browser code with the TypeScript compiler (`strict`, with untyped
-parameters still allowed while types are added module by module).
+`npm run typecheck` checks the server, tests and browser code with the TypeScript compiler in full `strict` mode
+(no implicit `any`). Table rows have their own types (`lib/db/rows.ts`); `any` remains only at the edges where
+data is not modelled: raw request JSON before validation, vendor JSON and some per-sport script data.
 
 118 tests (under a minute) cover joining and the teams and players fans back in each sport, room access and isolation, invitations and roles (including
 the demo friends), the 10-second message rule (including concurrent sends and the exact boundary), moderation levels

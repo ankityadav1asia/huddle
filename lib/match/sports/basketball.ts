@@ -1,11 +1,35 @@
 // Basketball: the last six minutes of a made-up Warriors v Lakers game, with real players. Labelled as a simulated
 // game everywhere. Points are added up from the plays, so the scoreboard is always consistent with them.
+import type { FactsInput, Fixture, PollTemplate, Team } from '../fixture.ts';
 import { makeFans } from '../fans.ts';
-import { scriptedSignals, scriptedThread, scriptedBurst, ROLE } from './scripted.ts';
+import { scriptedSignals, scriptedThread, scriptedBurst, ROLE, type ScriptedItem } from './scripted.ts';
 
-const TEAMS = { LAL: 'Lakers', GSW: 'Warriors' };
-const SIDES = [{ code: 'GSW', name: 'Warriors' }, { code: 'LAL', name: 'Lakers' }];
-const PLAYERS = {
+// The game as the script has it. Scores and team fouls (this quarter) are by team code, points by player.
+interface BasketballState {
+  period: string;
+  clock: string;
+  score: Record<string, number>;
+  fouls: Record<string, number>;
+  players: Record<string, { team: string; pts: number }>;
+  result: string | null;
+  last_seq: number;
+  last_text: string;
+}
+
+// A play or event of the quarter: `score` is a basket or free throws, `foul` the team that fouled.
+interface BasketballItem extends ScriptedItem<BasketballState> {
+  game_clock: string;
+  score?: { player: string; team: string; points: number };
+  foul?: string;
+  final?: boolean;
+}
+type Extra = Omit<BasketballItem, 'kind' | 'clock' | 'game_clock' | 'text' | 'type' | 'label'>;
+type BasketballScore = ReturnType<typeof snapshot>;
+
+const TEAMS: Record<string, string> = { LAL: 'Lakers', GSW: 'Warriors' };
+const SIDES: Team[] = [{ code: 'GSW', name: 'Warriors' }, { code: 'LAL', name: 'Lakers' }];
+// `pts`: points before the last six minutes.
+const PLAYERS: Record<string, { team: string; role: string; pts: number }> = {
   'Luka Dončić': { team: 'LAL', role: 'guard', pts: 27 },
   'LeBron James': { team: 'LAL', role: 'forward', pts: 22 },
   'Austin Reaves': { team: 'LAL', role: 'guard', pts: 16 },
@@ -13,14 +37,14 @@ const PLAYERS = {
   'Jimmy Butler': { team: 'GSW', role: 'forward', pts: 19 },
   'Draymond Green': { team: 'GSW', role: 'forward', pts: 8 },
 };
-const last = (name) => name.split(' ').slice(-1)[0];
-const line = (s) => `Warriors ${s.score.GSW}, Lakers ${s.score.LAL}`;
-const P = (clock, text, extra = {}) => ({ kind: 'play', clock: `Q4 ${clock}`, game_clock: clock, text, ...extra });
-const E = (clock, type, label, text, extra = {}) => ({ kind: 'event', type, label, clock: `Q4 ${clock}`, game_clock: clock, text, ...extra });
-const scored = (player, points) => ({ player, team: PLAYERS[player].team, points });
+const last = (name: string) => name.split(' ').slice(-1)[0];
+const line = (s: BasketballState) => `Warriors ${s.score.GSW}, Lakers ${s.score.LAL}`;
+const P = (clock: string, text: string, extra: Extra = {}): BasketballItem => ({ kind: 'play', clock: `Q4 ${clock}`, game_clock: clock, text, ...extra });
+const E = (clock: string, type: string, label: string, text: string, extra: Extra = {}): BasketballItem => ({ kind: 'event', type, label, clock: `Q4 ${clock}`, game_clock: clock, text, ...extra });
+const scored = (player: string, points: number) => ({ player, team: PLAYERS[player].team, points });
 const CURRY_THREES = { slug: 'curry-threes', about: 'Stephen Curry heats up from deep in the fourth quarter.', keywords: ['curry', 'steph', 'splash', 'from deep'] };
 
-const SCRIPT: any[] = [
+const SCRIPT: BasketballItem[] = [
   E('6:00', 'start', 'Fourth quarter', 'Six minutes left in the fourth: the Lakers lead 98-96.', { crowd: { key: 'start', n: 8, spread: 6000 }, pause: 4000 }),
   P('5:41', 'Curry pulls up from 28 feet... BANG! Warriors in front.', { score: scored('Stephen Curry', 3), crowd: { key: 'curry_three', n: 6, share: 0.35 } }),
   P('5:20', 'Dončić answers with a step-back three over Green.', { score: scored('Luka Dončić', 3), crowd: { key: 'luka', n: 6, share: 0.65 } }),
@@ -75,7 +99,7 @@ const SCRIPT: any[] = [
   }),
 ];
 
-function initialState() {
+function initialState(): BasketballState {
   return {
     period: 'Q4', clock: '6:00', score: { LAL: 98, GSW: 96 }, fouls: { LAL: 2, GSW: 3 },
     players: Object.fromEntries(Object.entries(PLAYERS).map(([name, p]) => [name, { team: p.team, pts: p.pts }])),
@@ -83,7 +107,7 @@ function initialState() {
   };
 }
 
-function applyItem(prev, item, seq) {
+function applyItem(prev: BasketballState, item: BasketballItem, seq: number) {
   const s = structuredClone(prev);
   s.last_seq = seq;
   s.last_text = item.text;
@@ -97,8 +121,8 @@ function applyItem(prev, item, seq) {
   return { state: s, ball: null };
 }
 
-function snapshot(s) {
-  const leaders = (team) => Object.entries<any>(s.players).filter(([, p]) => p.team === team).sort((a, b) => b[1].pts - a[1].pts)
+function snapshot(s: BasketballState) {
+  const leaders = (team: string) => Object.entries(s.players).filter(([, p]) => p.team === team).sort((a, b) => b[1].pts - a[1].pts)
     .map(([name, p]) => ({ name, short: last(name), pts: p.pts }));
   return {
     sport: 'basketball', period: s.period, clock: s.clock, result: s.result,
@@ -107,7 +131,7 @@ function snapshot(s) {
   };
 }
 
-function facts(snap) {
+function facts(snap: FactsInput<BasketballScore>) {
   const sc = snap.score;
   const [a, b] = sc.teams;
   return {
@@ -120,7 +144,7 @@ function facts(snap) {
   };
 }
 
-function templatePoll(s) {
+function templatePoll(s: BasketballState): PollTemplate {
   if (s.result) return { question: 'Player of the game?', options: ['Stephen Curry', 'Luka Dončić'] };
   return { question: 'Who wins this one?', options: ['Warriors', 'Lakers'] };
 }
@@ -172,7 +196,7 @@ const CROWD = {
   },
 };
 
-export const BASKETBALL = {
+export const BASKETBALL: Fixture<BasketballState, BasketballItem, BasketballScore> = {
   key: 'nba-gsw-lal-demo',
   sport: 'basketball',
   sportName: 'basketball',

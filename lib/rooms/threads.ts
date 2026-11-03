@@ -3,33 +3,39 @@
 // goal in hockey...), and a room opens one when three or more messages from at least two people argue about the same
 // topic (each sport lists its topics). A message joins a thread when it is sent from it, mentions its topic, or
 // follows a big moment within seconds; every message still shows in "All chat". Deterministic: no AI involved.
-import { one, many } from '../db/index.ts';
+import { one, many, type Queryable } from '../db/index.ts';
+import type { MessageRow, RoomRow, ThreadRow } from '../db/rows.ts';
+import type { MomentThread, Topic } from '../match/fixture.ts';
 import { badRequest, newId } from '../util.ts';
 import { appendEvent, RoomEndedError } from './events.ts';
 
 const FRESH_SECONDS = 30; // chat this soon after a big moment is about it
 const DISCUSSION = { messages: 3, people: 2, minutes: 10 };
 
-export const topicFor = (text, topics) => {
+// A thread as clients list it.
+export type ThreadItem = Pick<ThreadRow, 'id' | 'slug' | 'title' | 'about' | 'source' | 'created_at' | 'last_active_at'> & { messages: number };
+
+export const topicFor = (text: string, topics: Topic[]) => {
   const t = text.toLowerCase();
   return topics.find((topic) => topic.keywords.some((k) => t.includes(k))) || null;
 };
 
-async function openThread(q, roomId, { slug, about, keywords, source }) {
-  const row = await one(q,
+async function openThread(q: Queryable, roomId: string, { slug, about, keywords, source }: Pick<ThreadRow, 'slug' | 'about' | 'keywords' | 'source'>) {
+  // ON CONFLICT DO UPDATE returns the row whether it was inserted or already there.
+  const row = (await one<{ id: string; created: boolean }>(q,
     `INSERT INTO room_threads (id, room_id, slug, title, about, keywords, source) VALUES ($1, $2, $3, $4, $5, $6::text[], $7)
      ON CONFLICT (room_id, slug) DO UPDATE SET last_active_at = now()
      RETURNING id, (xmax = 0) AS created`,
-    [newId('thr'), roomId, slug, `#${slug}`, about, keywords, source]);
+    [newId('thr'), roomId, slug, `#${slug}`, about, keywords, source]))!;
   if (row.created) await appendEvent(q, roomId, 'thread', row.id);
   return row;
 }
 
 // Called by feed ingestion (inside its transaction) for the big moments that just happened. Skipped balls (a jump)
 // open nothing, like they alert nobody.
-export async function openMomentThreads(q, matchId, opened) {
+export async function openMomentThreads(q: Queryable, matchId: string, opened: MomentThread[]) {
   if (!opened.length) return;
-  const rooms = await many(q, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active'`, [matchId]);
+  const rooms = await many<Pick<RoomRow, 'id'>>(q, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active'`, [matchId]);
   for (const r of rooms) {
     for (const t of opened) {
       try {
@@ -42,14 +48,14 @@ export async function openMomentThreads(q, matchId, opened) {
 }
 
 // Which thread a new message joins: the one it was sent from, else one whose topic it mentions, else a big moment
-// from the last few seconds.
-export async function threadForMessage(q, roomId, text, requested) {
+// from the last few seconds. requested: the thread_id the client sent, unchecked.
+export async function threadForMessage(q: Queryable, roomId: string, text: string, requested: unknown): Promise<string | null> {
   if (requested != null) {
-    const t = typeof requested === 'string' && await one(q, 'SELECT id FROM room_threads WHERE id = $1 AND room_id = $2', [requested, roomId]);
+    const t = typeof requested === 'string' && await one<Pick<ThreadRow, 'id'>>(q, 'SELECT id FROM room_threads WHERE id = $1 AND room_id = $2', [requested, roomId]);
     if (!t) throw badRequest('That thread is not in this room.', 'invalid_thread');
     return t.id;
   }
-  const threads = await many(q,
+  const threads = await many<Pick<ThreadRow, 'id' | 'keywords' | 'source'> & { fresh: boolean }>(q,
     `SELECT id, keywords, source, created_at > now() - make_interval(secs => $2) AS fresh
        FROM room_threads WHERE room_id = $1 ORDER BY created_at DESC LIMIT 20`, [roomId, FRESH_SECONDS]);
   const lower = text.toLowerCase();
@@ -61,11 +67,12 @@ export async function threadForMessage(q, roomId, text, requested) {
 
 // A topic the room keeps arguing about becomes a thread once enough people have joined in; those messages move
 // into it.
-export async function maybeOpenDiscussion(q, roomId, text, topics: { slug: string; keywords: string[] }[] = []) {
+export async function maybeOpenDiscussion(q: Queryable, roomId: string, text: string, topics: Topic[] = []) {
   const topic = topicFor(text, topics);
   if (!topic) return null;
   if (await one(q, 'SELECT 1 FROM room_threads WHERE room_id = $1 AND slug = $2', [roomId, topic.slug])) return null;
-  const recent = await many(q,
+  // Visible user messages always have a sender and a body.
+  const recent = await many<Pick<MessageRow, 'id'> & { sender_id: string; body: string }>(q,
     `SELECT id, sender_id, body FROM messages
       WHERE room_id = $1 AND sender_type = 'user' AND status = 'visible' AND thread_id IS NULL
         AND created_at > now() - make_interval(mins => $2)
@@ -79,12 +86,12 @@ export async function maybeOpenDiscussion(q, roomId, text, topics: { slug: strin
   return thread.id;
 }
 
-export async function touchThread(q, threadId) {
+export async function touchThread(q: Queryable, threadId: string) {
   await q.query('UPDATE room_threads SET last_active_at = now() WHERE id = $1', [threadId]);
 }
 
-export async function hydrateThreads(q, roomId, ids: string[] | null = null) {
-  const rows = await many(q,
+export async function hydrateThreads(q: Queryable, roomId: string, ids: string[] | null = null) {
+  const rows = await many<ThreadItem>(q,
     `SELECT t.id, t.slug, t.title, t.about, t.source, t.created_at, t.last_active_at,
             (SELECT count(*)::int FROM messages m WHERE m.thread_id = t.id AND m.status = 'visible') AS messages
        FROM room_threads t

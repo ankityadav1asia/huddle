@@ -1,20 +1,20 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, type App, type Client } from './helpers.ts';
+import { startApp, signUp, type App, type Client, type ApiInvitation, type ApiPublicRoom } from './helpers.ts';
 import { ensureDemoMatch, ingestDue } from '../lib/match/feed.ts';
 import { crowdLines } from '../lib/match/crowd.ts';
 import { CROWD } from '../lib/match/demo-script.ts';
 
 let app: App; let host: Client; let friend: Client; let shared: string;
-const runOf = async (id) => (await app.db.query('SELECT match_id FROM rooms WHERE id = $1', [id])).rows[0].match_id;
-const itemOf = (line) => Number(line.id.split(':')[1]);
+const runOf = async (id: string) => (await app.db.query('SELECT match_id FROM rooms WHERE id = $1', [id])).rows[0].match_id;
+const itemOf = (line: { id: string }) => Number(line.id.split(':')[1]);
 
 // A private room with its own replay, started 25 seconds ago (the first few balls and their crowd).
 async function startedRoom(name: string, invitees: Client[] = []) {
   const r = await host.post('/api/rooms', { name, match_id: shared, own_replay: true, invitee_ids: invitees.map((u) => u.user.id) });
   assert.equal(r.status, 201);
   for (const u of invitees) {
-    const inv = (await u.get('/api/me/invitations')).body.invitations.find((i) => i.room_id === r.body.room_id);
+    const inv = (await u.get('/api/me/invitations')).body.invitations.find((i: ApiInvitation) => i.room_id === r.body.room_id);
     assert.equal((await u.post(`/api/invitations/${inv.id}/accept`)).status, 200);
   }
   assert.equal((await host.post(`/api/rooms/${r.body.room_id}/replay`, { action: 'start' })).status, 200);
@@ -34,7 +34,7 @@ before(async () => {
 after(async () => { await app.close(); });
 
 test('simulated fans are the same for everyone in the public watch party, labelled, and never stored as chat', async () => {
-  const pub = (await host.get('/api/rooms')).body.public_rooms.find((r) => r.sport === 'cricket');
+  const pub = (await host.get('/api/rooms')).body.public_rooms.find((r: ApiPublicRoom) => r.sport === 'cricket');
   for (const c of [host, friend]) assert.equal((await c.post(`/api/rooms/${pub.id}/join`)).status, 200);
   await app.db.query(`UPDATE matches SET feed_started_at = now() - interval '25 seconds' WHERE id = $1`, [shared]);
   await ingestDue(app.db, shared);
@@ -60,7 +60,7 @@ test('private rooms hold only the people invited: no simulated fans', async () =
 
 test('the crowd is seeded per room, and balls skipped by a jump get none', async () => {
   const a = await startedRoom('Crowd A');
-  const said = async (roomId) => (await crowdLines(app.db, { roomId, matchId: a.run })).map((c) => `${c.fan}: ${c.text}`);
+  const said = async (roomId: string) => (await crowdLines(app.db, { roomId, matchId: a.run })).map((c) => `${c.fan}: ${c.text}`);
   assert.notDeepEqual(await said('room_seed_one_0000000'), await said('room_seed_two_0000000'));
   assert.equal((await host.post(`/api/rooms/${a.roomId}/replay`, { action: 'jump', moment: 'last-over' })).status, 200);
   const skipped = new Set((await app.db.query('SELECT seq FROM match_events WHERE match_id = $1 AND backfilled', [a.run])).rows.map((r) => r.seq));
@@ -70,7 +70,7 @@ test('the crowd is seeded per room, and balls skipped by a jump get none', async
 
 test('at 2x the crowd reacts twice as fast', async () => {
   const { roomId, run } = await startedRoom('Crowd speed');
-  const times = async (speed) => new Map((await crowdLines(app.db, { roomId, matchId: run, speed })).map((c) => [c.id, Date.parse(c.at)]));
+  const times = async (speed: number) => new Map((await crowdLines(app.db, { roomId, matchId: run, speed })).map((c) => [c.id, Date.parse(c.at)]));
   const occurred = new Map<number, number>((await app.db.query('SELECT seq, occurred_at FROM match_events WHERE match_id = $1', [run])).rows.map((r) => [r.seq, new Date(r.occurred_at).getTime()]));
   const normal = await times(1);
   const fast = await times(2);

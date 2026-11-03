@@ -2,8 +2,10 @@
 // built from common first names and sport-flavoured words by a seeded generator, so every server instance agrees.
 export const CROWD_SIZE = 200;
 
+export interface Fan { handle: string; team: string }
+
 // FNV-1a over the seed, then mulberry32: the same sequence everywhere.
-export function seeded(seed) {
+export function seeded(seed: string): () => number {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
   let a = h >>> 0;
@@ -23,9 +25,9 @@ const NAMES = ['aarav', 'vivaan', 'aditya', 'vihaan', 'arjun', 'sai', 'reyansh',
   'avni', 'khushi', 'farhan', 'imran', 'joel', 'sameer', 'aman', 'raj', 'vikram', 'gauri', 'mira', 'tina', 'arnav', 'samar'];
 
 // `keep`: hand-written personas that come first. The rest alternate between the two fan sides.
-export function makeFans(sides: string[], words: string[], { keep = [], count = CROWD_SIZE, seed = 'fans' }: { keep?: { handle: string; team: string }[]; count?: number; seed?: string } = {}) {
+export function makeFans(sides: string[], words: string[], { keep = [], count = CROWD_SIZE, seed = 'fans' }: { keep?: Fan[]; count?: number; seed?: string } = {}): Fan[] {
   const rand = seeded(seed);
-  const pick = (xs) => xs[Math.floor(rand() * xs.length)];
+  const pick = (xs: string[]) => xs[Math.floor(rand() * xs.length)];
   const fans = keep.map(({ handle, team }) => ({ handle, team }));
   const used = new Set(fans.map((f) => f.handle));
   while (fans.length < count) {

@@ -1,9 +1,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, secondDevice } from './helpers.ts';
+import { startApp, signUp, secondDevice, type App, type ApiPublicRoom } from './helpers.ts';
 import { ensureDemoMatch } from '../lib/match/feed.ts';
 
-let app;
+let app: App;
 before(async () => { app = await startApp(); });
 after(async () => { await app.close(); });
 
@@ -26,13 +26,13 @@ test('public watch parties hold at most PUBLIC_ROOM_MAX_MEMBERS, and finished ma
   const third = await z.post(`/api/rooms/${pub.id}/join`);
   assert.equal(third.status, 409);
   assert.equal(third.body.error.code, 'room_full');
-  assert.equal((await z.get('/api/rooms')).body.public_rooms.find((r) => r.id === pub.id).full, true);
+  assert.equal((await z.get('/api/rooms')).body.public_rooms.find((r: ApiPublicRoom) => r.id === pub.id).full, true);
   assert.equal((await x.post(`/api/rooms/${pub.id}/join`)).status, 200); // members can come back
   app.cfg.rooms.publicMaxMembers = 100;
 
   await app.db.query(`UPDATE matches SET status = 'completed' WHERE id = $1`, [pub.match_id]);
   await ensureDemoMatch(app.db);
-  const listed = (await x.get('/api/rooms')).body.public_rooms;
+  const listed: ApiPublicRoom[] = (await x.get('/api/rooms')).body.public_rooms;
   assert.deepEqual(listed.map((r) => r.sport), ['cricket', 'f1', 'basketball', 'hockey']); // one public watch party per sport
   assert.ok(!listed.some((r) => r.id === pub.id)); // the finished game's room is no longer offered
 });

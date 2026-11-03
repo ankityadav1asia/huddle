@@ -90,6 +90,6 @@ export async function openPostgres(url: string): Promise<Db> {
 }
 
 // Small helpers used across services.
-// Rows come back untyped (any): each query site knows the columns it selected.
-export const one = async (q: Queryable, sql: string, params?: unknown[]): Promise<any> => (await q.query(sql, params)).rows[0] || null;
-export const many = async (q: Queryable, sql: string, params?: unknown[]): Promise<any[]> => (await q.query(sql, params)).rows;
+// Rows come back untyped unless the caller names the row type (lib/db/rows.ts): each query site knows its columns.
+export const one = async <T = any>(q: Queryable, sql: string, params?: unknown[]): Promise<T | null> => (await q.query(sql, params)).rows[0] || null;
+export const many = async <T = any>(q: Queryable, sql: string, params?: unknown[]): Promise<T[]> => (await q.query(sql, params)).rows;

@@ -4,9 +4,16 @@
 import { MANDATORY, PRIVACY, UNCERTAIN, PROFANITY_STRONG, PROFANITY_MILD, INSULT, TARGETED, LINK } from './lexicon.ts';
 import { POLICY_VERSION } from './policy.ts';
 
-const LEET = { 0: 'o', 1: 'i', 3: 'e', 4: 'a', 5: 's', 7: 't', 8: 'b', '@': 'a', $: 's', '!': 'i' };
+const LEET: Record<string, string> = { 0: 'o', 1: 'i', 3: 'e', 4: 'a', 5: 's', 7: 't', 8: 'b', '@': 'a', $: 's', '!': 'i' };
 
-export function normalise(text) {
+type Action = 'allow' | 'flag' | 'hold' | 'reject';
+type Risk = 'low' | 'medium' | 'high';
+interface Verdict<A extends Action, R extends string | null> { action: A; risk: Risk; categories: string[]; level: string; reason: R; policy_version: string }
+// What the gate decided: allow, flag (published and logged), hold (for human review) or reject (never stored).
+// A reject or hold always carries the reason the sender sees; allow and flag carry none.
+export type Decision = Verdict<'reject' | 'hold', string> | Verdict<'allow' | 'flag', null>;
+
+export function normalise(text: string): string {
   let t = text.normalize('NFKC').toLowerCase().replace(/[’'`]/g, '');
   // Leetspeak only between letters, so scores ("148/3") and @mentions survive.
   t = t.replace(/(?<=[a-z])[013457@$!8](?=[a-z])/g, (c) => LEET[c] || c);
@@ -17,11 +24,12 @@ export function normalise(text) {
 
 // The same text with separators inside words removed ("ch.u.t.i.y.a" -> "chutiya"), checked alongside the
 // normalised text. Links are matched on the normalised text only, where their dots are intact.
-const squash = (t) => t.replace(/(?<=[a-z])[.*_-]+(?=[a-z])/g, '').replace(/([a-z])\1{2,}/g, '$1');
+const squash = (t: string) => t.replace(/(?<=[a-z])[.*_-]+(?=[a-z])/g, '').replace(/([a-z])\1{2,}/g, '$1');
 
-const hit = (patterns, text) => patterns.some((re) => re.test(text));
+const hit = (patterns: RegExp[], text: string) => patterns.some((re) => re.test(text));
 
-const REASONS = {
+// By rule name; the mandatory rules are keyed by their MANDATORY category.
+const REASONS: Record<string, string> = {
   threat: 'Threats are not allowed in Huddle, even as a joke.',
   self_harm: 'Telling someone to hurt themselves is not allowed.',
   hate: 'Hate speech and slurs are not allowed.',
@@ -34,18 +42,21 @@ const REASONS = {
   disruptive: 'This room filters links and spammy messages.',
 };
 
-function decision(action, risk, categories, level, reasonKey) {
+function decision(action: 'reject' | 'hold', risk: Risk, categories: string[], level: string, reasonKey: string): Decision;
+function decision(action: 'allow' | 'flag', risk: Risk, categories: string[], level: string, reasonKey: null): Decision;
+function decision(action: Action, risk: Risk, categories: string[], level: string, reasonKey: string | null): Verdict<Action, string | null> {
   return { action, risk, categories, level, reason: reasonKey ? REASONS[reasonKey] : null, policy_version: POLICY_VERSION };
 }
 
-function disruptive(original) {
+function disruptive(original: string) {
   const letters = original.replace(/[^A-Za-z]/g, '');
   const shouting = letters.length >= 25 && letters.replace(/[^A-Z]/g, '').length / letters.length > 0.9;
   return shouting || /(.)\1{9,}/u.test(original) || /\b(\w+)\b(?:\W+\1\b){4,}/i.test(original);
 }
 
-// level: relaxed | balanced | strict (resolved server-side by policy.effectivePolicy).
-export function classify(original, { level = 'balanced' } = {}) {
+// level: relaxed | balanced | strict (resolved server-side by policy.effectivePolicy). Any other string gets the
+// relaxed rules.
+export function classify(original: string, { level = 'balanced' }: { level?: string } = {}): Decision {
   const base = normalise(original);
   const squashed = squash(base);
   const text = squashed === base ? base : `${base}\n${squashed}`;
@@ -63,7 +74,7 @@ export function classify(original, { level = 'balanced' } = {}) {
   const insult = INSULT.test(text);
   const targeted = TARGETED.test(text);
   const link = LINK.test(base);
-  const categories = [strong && 'profanity_strong', mild && 'profanity_mild', insult && 'insult', targeted && (strong || mild || insult) && 'targeted', link && 'link'].filter(Boolean);
+  const categories = [strong && 'profanity_strong', mild && 'profanity_mild', insult && 'insult', targeted && (strong || mild || insult) && 'targeted', link && 'link'].filter((c) => c !== false);
 
   if (level === 'strict') {
     if ((strong || mild || insult) && targeted) return decision('reject', 'medium', categories, level, 'personal_attack');
@@ -88,7 +99,7 @@ export function classify(original, { level = 'balanced' } = {}) {
 }
 
 // Names (handles, display names, room names) are public labels: strict, plus no mentions or links.
-export function checkName(value) {
+export function checkName(value: string): boolean {
   const d = classify(value, { level: 'strict' });
   return d.action === 'allow' && !/@/.test(value);
 }

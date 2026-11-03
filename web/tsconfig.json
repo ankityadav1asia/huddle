@@ -8,8 +8,6 @@
     "moduleResolution": "bundler",
     "types": [],
     "strict": true,
-    "noImplicitAny": false,
-    "useUnknownInCatchVariables": false,
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "rewriteRelativeImportExtensions": true,

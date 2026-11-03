@@ -1,12 +1,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, makePrivateRoom, msgId, clearCooldown, logs } from './helpers.ts';
+import { startApp, signUp, makePrivateRoom, msgId, clearCooldown, logs, type App, type Client, type ApiInvitation } from './helpers.ts';
 import { pump } from '../lib/jobs/worker.ts';
 import { purgeRoom } from '../lib/rooms/lifecycle.ts';
 import { setPushSender } from '../lib/notify/push.ts';
 import { claimJobs, failJob, enqueue } from '../lib/jobs/queue.ts';
 
-let app; let owner; let friend; let mod; let third;
+let app: App; let owner: Client; let friend: Client; let mod: Client; let third: Client;
 before(async () => {
   app = await startApp((cfg) => { cfg.cohost.unansweredDelaySeconds = 120; });
   owner = await signUp(app.base, 'life_owner');
@@ -19,7 +19,7 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
-async function say(c, room, text, extra = {}) {
+async function say(c: Client, room: string, text: string, extra: Record<string, unknown> = {}) {
   await clearCooldown(app.db, c.user.id);
   return c.post(`/api/rooms/${room}/messages`, { client_msg_id: msgId(), text, ...extra });
 }
@@ -68,16 +68,23 @@ test('failed jobs retry with backoff and land in the dead-letter state after max
 });
 
 test('a member who left gets no further room alerts', async () => {
-  const sent: any[] = [];
-  setPushSender(async (sub) => { sent.push(sub.endpoint); });
-  const room = await makePrivateRoom(app, owner, [friend]);
-  await friend.post('/api/me/push-subscriptions', { endpoint: 'https://push.example.test/left', keys: { p256dh: 'p'.repeat(40), auth: 'a'.repeat(16) } });
-  await friend.post(`/api/rooms/${room}/leave`);
+  setPushSender(async () => {});
+  // Fresh people, in this room only: one leaves, one stays and still gets the alert.
+  const leaver = await signUp(app.base, 'life_leaver');
+  const stayer = await signUp(app.base, 'life_stayer');
+  const room = await makePrivateRoom(app, owner, [leaver, stayer]);
+  const keys = { p256dh: 'p'.repeat(40), auth: 'a'.repeat(16) };
+  await leaver.post('/api/me/push-subscriptions', { endpoint: 'https://push.example.test/left', keys });
+  await stayer.post('/api/me/push-subscriptions', { endpoint: 'https://push.example.test/stayed', keys });
+  await leaver.post(`/api/rooms/${room}/leave`);
   const { queueMomentumPushes } = await import('../lib/notify/index.ts');
   const matchId = (await app.db.query('SELECT match_id FROM rooms WHERE id = $1', [room])).rows[0].match_id;
-  const n = await queueMomentumPushes(app.db, { id: 'sig_00000000000000000001', match_id: matchId });
-  assert.equal(n, 0);
-  assert.equal(sent.length, 0);
+  // A high-priority moment, so the alert gets past the priority filter to the membership check.
+  const signalId = 'sig_00000000000000000001';
+  const n = await queueMomentumPushes(app.db, { id: signalId, match_id: matchId, priority: 'high', trigger: 'wicket_fallen' });
+  const to = (await app.db.query(`SELECT recipient_id FROM notification_deliveries WHERE kind = 'momentum' AND ref_id = $1`, [signalId])).rows;
+  assert.deepEqual(to.map((r) => r.recipient_id), [stayer.user.id]);
+  assert.equal(n, 1);
 });
 
 test('invitations notify in-app, and by push only with permission and the preference on', async () => {
@@ -85,7 +92,7 @@ test('invitations notify in-app, and by push only with permission and the prefer
   setPushSender(async (sub, payload) => { sent.push(JSON.parse(payload)); });
   await third.post('/api/me/push-subscriptions', { endpoint: 'https://push.example.test/invitee', keys: { p256dh: 'p'.repeat(40), auth: 'a'.repeat(16) } });
   const r = await owner.post('/api/rooms', { name: 'Late night crew', invitee_ids: [third.user.id] });
-  assert.equal((await third.get('/api/me/invitations')).body.invitations.some((i) => i.room_id === r.body.room_id), true);
+  assert.equal((await third.get('/api/me/invitations')).body.invitations.some((i: ApiInvitation) => i.room_id === r.body.room_id), true);
   await pump(app.db, { budgetMs: 3000 });
   await pump(app.db, { budgetMs: 3000 });
   assert.equal(sent.length, 1);
@@ -111,7 +118,7 @@ test('reports reach human review; three reports hide a message; moderators appro
   assert.equal(third3.body.hidden, true);
   const queue = await mod.get('/api/mod/queue');
   assert.equal(queue.status, 200);
-  assert.ok(queue.body.held.some((m) => m.id === target.id));
+  assert.ok(queue.body.held.some((m: { id: string }) => m.id === target.id));
   assert.equal((await friend.get('/api/mod/queue')).status, 403);
   assert.equal((await mod.post(`/api/mod/messages/${target.id}`, { action: 'approve' })).status, 200);
   const visible = (await app.db.query('SELECT status FROM messages WHERE id = $1', [target.id])).rows[0].status;

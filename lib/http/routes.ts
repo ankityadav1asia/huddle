@@ -1,7 +1,8 @@
 // HTTP API (JSON). The acting user always comes from the session cookie; see docs/api-contract.md.
 import { route, reply } from './router.ts';
-import { config } from '../config.ts';
+import { config, type Config } from '../config.ts';
 import { one, many } from '../db/index.ts';
+import type { MatchRow } from '../db/rows.ts';
 import { HttpError, forbidden, notFound, badRequest, onlyKeys, safeEqual } from '../util.ts';
 import { sessionCookie, clearSessionCookie, revokeSession, revokeAllSessions } from '../auth/sessions.ts';
 import { publicMe, createGuest, updateProfile, setSportChoice, searchUsers, ensureDemoFriends, demoFriends, MAX_PICKS } from '../users.ts';
@@ -87,7 +88,7 @@ route('GET', '/api/rooms', async ({ db, cfg, user }) => {
   await ensureDemoMatches(db); // one shared simulated game, with its public watch party, per sport
   if (cfg.demoFriends) await ensureDemoFriends(db);
   const rooms = await listRooms(db, user);
-  const matches = (await many(db, `SELECT id, title, status, source, fixture_key FROM matches WHERE status IN ('scheduled', 'live') AND room_id IS NULL`))
+  const matches = (await many<Pick<MatchRow, 'id' | 'title' | 'status' | 'source' | 'fixture_key'>>(db, `SELECT id, title, status, source, fixture_key FROM matches WHERE status IN ('scheduled', 'live') AND room_id IS NULL`))
     .sort((a, b) => sportRank(a.fixture_key) - sportRank(b.fixture_key))
     .map(({ fixture_key: key, ...m }) => ({ ...m, sport: fixtureFor({ fixture_key: key }).sport, sport_name: fixtureFor({ fixture_key: key }).sportName }));
   return { ...rooms, matches };
@@ -150,7 +151,7 @@ route('POST', '/api/mod/messages/:mid', async ({ db, user, params, body }) => mo
 route('POST', '/api/mod/appeals/:rid', async ({ db, user, params, body }) => resolveAppeal(db, user, params.rid, body));
 
 // ---------------------------------------------------------------- demo controls (labelled as such in the UI)
-function requireDemo(cfg) {
+function requireDemo(cfg: Config) {
   if (!cfg.demoControls) throw forbidden('Demo controls are switched off on this server.');
 }
 route('POST', '/api/demo/matches/:id/jump', async ({ db, cfg, body, params }) => {
@@ -158,7 +159,7 @@ route('POST', '/api/demo/matches/:id/jump', async ({ db, cfg, body, params }) =>
   onlyKeys(body, ['moment']);
   if (typeof body.moment !== 'string') throw badRequest('Pick a moment.');
   // A private room's own replay is moved only by that room's owner and admins (POST /api/rooms/:id/replay).
-  if ((await one(db, 'SELECT room_id FROM matches WHERE id = $1', [params.id]))?.room_id) {
+  if ((await one<Pick<MatchRow, 'room_id'>>(db, 'SELECT room_id FROM matches WHERE id = $1', [params.id]))?.room_id) {
     throw forbidden('This replay belongs to a private room; its host controls it from the room.');
   }
   return jumpToMoment(db, params.id, body.moment);
@@ -169,17 +170,32 @@ route('POST', '/api/demo/matches', async ({ db, cfg }) => {
 });
 
 // ---------------------------------------------------------------- operations
+// Last-hour aggregates for the ops view.
+interface AiCallStats {
+  provider: string | null;
+  outcome: string;
+  error_category: string;
+  n: number;
+  p50_ms: number | null;
+  max_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  with_fallback: number;
+}
+interface ModerationStats { event_type: string; action_taken: string; n: number }
+interface RoomCounts { active: number; ended_awaiting_purge: number; purge_overdue: number; purged: number }
+
 route('GET', '/api/ops/metrics', async ({ db, user }) => {
   if (!user.is_moderator) throw forbidden('Moderators only.');
-  const ai = await many(db,
+  const ai = await many<AiCallStats>(db,
     `SELECT provider, outcome, COALESCE(error_category, '') AS error_category, count(*)::int AS n,
             percentile_disc(0.5) WITHIN GROUP (ORDER BY latency_ms) AS p50_ms, max(latency_ms) AS max_ms,
             sum(input_tokens)::int AS input_tokens, sum(output_tokens)::int AS output_tokens,
             count(*) FILTER (WHERE fallback_reason IS NOT NULL)::int AS with_fallback
        FROM ai_calls WHERE created_at > now() - interval '1 hour' GROUP BY 1, 2, 3 ORDER BY 1, 2`);
-  const moderation = await many(db,
+  const moderation = await many<ModerationStats>(db,
     `SELECT event_type, action_taken, count(*)::int AS n FROM moderation_events WHERE created_at > now() - interval '1 hour' GROUP BY 1, 2`);
-  const rooms = await one(db,
+  const rooms = await one<RoomCounts>(db,
     `SELECT count(*) FILTER (WHERE status = 'active')::int AS active, count(*) FILTER (WHERE status = 'ended')::int AS ended_awaiting_purge,
             count(*) FILTER (WHERE status = 'ended' AND purge_after <= now())::int AS purge_overdue, count(*) FILTER (WHERE status = 'purged')::int AS purged
        FROM rooms`);

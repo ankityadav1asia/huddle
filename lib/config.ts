@@ -16,17 +16,17 @@ export function loadDotEnv(file = path.join(ROOT, '.env')) {
   }
 }
 
-const env = (name, fallback = '') => (process.env[name] ?? '').trim() || fallback;
-const int = (name, fallback) => {
+const env = (name: string, fallback = '') => (process.env[name] ?? '').trim() || fallback;
+const int = (name: string, fallback: number) => {
   const n = Number.parseInt(env(name), 10);
   return Number.isFinite(n) ? n : fallback;
 };
-const bool = (name, fallback) => {
+const bool = (name: string, fallback: boolean) => {
   const v = env(name).toLowerCase();
   if (!v) return fallback;
   return ['1', 'true', 'yes', 'on'].includes(v);
 };
-const list = (name) => env(name).split(',').map((s) => s.trim()).filter(Boolean);
+const list = (name: string) => env(name).split(',').map((s) => s.trim()).filter(Boolean);
 
 export const HOSTED = Boolean(process.env.VERCEL);
 // Production never allows the demo sign-in, never auto-generates secrets and fails closed when unconfigured.
@@ -34,7 +34,7 @@ export const PRODUCTION = HOSTED || process.env.NODE_ENV === 'production';
 
 // A stable server secret signs nothing client-visible; it keys the HMACs that hash OTP codes and phone numbers.
 // Hosted deployments must set HUDDLE_SECRET. Local dev generates one and keeps it in .data/ (git-ignored).
-function serverSecret(dataDir) {
+function serverSecret(dataDir: string) {
   const given = env('HUDDLE_SECRET');
   if (given) return given;
   if (PRODUCTION || env('DATABASE_URL')) return '';

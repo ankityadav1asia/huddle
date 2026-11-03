@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, makePrivateRoom } from './helpers.ts';
+import { startApp, signUp, makePrivateRoom, type App, type ApiEvent } from './helpers.ts';
 import { DEMO_FIXTURE, schedule } from '../lib/match/fixture.ts';
 import { initialState, applyItem, snapshot } from '../lib/match/scorecard.ts';
 import { detectSignals } from '../lib/match/momentum.ts';
@@ -8,14 +8,14 @@ import { ingestDue, ensureDemoMatch, clearMatchCache } from '../lib/match/feed.t
 import { pump } from '../lib/jobs/worker.ts';
 import { setPushSender } from '../lib/notify/push.ts';
 
-let app;
+let app: App;
 before(async () => { app = await startApp(); });
 after(async () => { await app.close(); });
 
 const offsets = schedule(DEMO_FIXTURE, 10);
 
 // Moves the replay clock so that exactly item i is due now (and fresh), then ingests.
-async function ingestItem(matchId, i) {
+async function ingestItem(matchId: string, i: number) {
   await app.db.query(`UPDATE matches SET status = 'live', feed_started_at = now() - $2::float8 * interval '1 second' WHERE id = $1`, [matchId, offsets[i] + 0.05]);
   return ingestDue(app.db, matchId);
 }
@@ -34,7 +34,7 @@ test('the scorecard is computed deterministically from verified feed events', ()
   assert.equal(snap.overs, '20.0');
   assert.equal(snap.chase_won, true);
   assert.equal(snap.result, 'CSK win by 6 wickets off the final ball.');
-  assert.deepEqual(snap.fall_of_wickets.slice(-2).map((w) => w.name), ['Shivam Dube', 'Dewald Brevis']);
+  assert.deepEqual(snap.fall_of_wickets.slice(-2).map((w: { name: string }) => w.name), ['Shivam Dube', 'Dewald Brevis']);
 });
 
 test('momentum rules fire on wickets, drops, pressure and the result, and stay quiet on ordinary balls', () => {
@@ -120,7 +120,7 @@ test('a crucial moment creates one deduplicated insight in every active room, an
   assert.ok(following.includes(roomA) && following.includes(roomB) && following.length === 3); // + the public room
   assert.deepEqual(insights.sort(), following.sort());
   const ev = await here.get(`/api/rooms/${roomA}/events?after=0`);
-  const insight = ev.body.events.find((e) => e.type === 'insight');
+  const insight = ev.body.events.find((e: ApiEvent) => e.type === 'insight');
   assert.equal(insight.data.label, 'Big wicket');
   assert.equal(insight.data.priority, 'high');
 

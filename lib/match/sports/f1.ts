@@ -1,9 +1,41 @@
 // Formula 1: the final 13 laps of a made-up Italian Grand Prix at Monza, with real drivers. Labelled as a
 // simulated race everywhere. Big moments, threads and crowd cues are marked in the script (see scripted.js).
+import type { FactsInput, Fixture, PollTemplate } from '../fixture.ts';
 import { makeFans } from '../fans.ts';
-import { scriptedSignals, scriptedThread, scriptedBurst, ROLE } from './scripted.ts';
+import { scriptedSignals, scriptedThread, scriptedBurst, ROLE, type ScriptedItem } from './scripted.ts';
 
-const DRIVERS = {
+interface Driver { name: string; short: string; team: string }
+type Tyre = 'S' | 'M' | 'H';
+
+// The race as the script has it, by driver code: running order, gap to the leader (seconds), tyre and pit stops.
+interface F1State {
+  lap: number;
+  order: string[];
+  gaps: Record<string, number>;
+  tyres: Record<string, Tyre>;
+  pits: Record<string, number>;
+  fastest: { driver: string; time: string };
+  total: number;
+  sc: boolean;
+  result: string | null;
+  last_seq: number;
+  last_text: string;
+}
+
+// A play or race event on a lap; the optional fields are what it changes.
+interface F1Item extends ScriptedItem<F1State> {
+  lap: number;
+  order?: string[];
+  gaps?: Record<string, number>;
+  pit?: { driver: string; tyre: Tyre };
+  sc?: boolean;
+  fastest?: { driver: string; time: string };
+  result?: string;
+}
+type Extra = Omit<F1Item, 'kind' | 'clock' | 'lap' | 'text' | 'type' | 'label'>;
+type F1Score = ReturnType<typeof snapshot>;
+
+const DRIVERS: Record<string, Driver> = {
   VER: { name: 'Max Verstappen', short: 'Verstappen', team: 'Red Bull' },
   NOR: { name: 'Lando Norris', short: 'Norris', team: 'McLaren' },
   LEC: { name: 'Charles Leclerc', short: 'Leclerc', team: 'Ferrari' },
@@ -11,16 +43,16 @@ const DRIVERS = {
   HAM: { name: 'Lewis Hamilton', short: 'Hamilton', team: 'Ferrari' },
   RUS: { name: 'George Russell', short: 'Russell', team: 'Mercedes' },
 };
-const CONSTRUCTORS = { MCL: 'McLaren', RBR: 'Red Bull', FER: 'Ferrari', MER: 'Mercedes' };
+const CONSTRUCTORS: Record<string, string> = { MCL: 'McLaren', RBR: 'Red Bull', FER: 'Ferrari', MER: 'Mercedes' };
 const constructorCode = (team: string): string => Object.keys(CONSTRUCTORS).find((code) => CONSTRUCTORS[code] === team) ?? team;
-const TYRES = { S: 'soft', M: 'medium', H: 'hard' };
+const TYRES: Record<Tyre, string> = { S: 'soft', M: 'medium', H: 'hard' };
 const TOTAL_LAPS = 53;
-const short = (code) => DRIVERS[code].short;
-const P = (lap, text, extra = {}) => ({ kind: 'play', clock: `Lap ${lap}`, lap, text, ...extra });
-const E = (lap, type, label, text, extra = {}) => ({ kind: 'event', type, label, clock: `Lap ${lap}`, lap, text, ...extra });
-const gapsOf = (list) => Object.fromEntries(list.map(([code, gap]) => [code, gap]));
+const short = (code: string) => DRIVERS[code].short;
+const P = (lap: number, text: string, extra: Extra = {}): F1Item => ({ kind: 'play', clock: `Lap ${lap}`, lap, text, ...extra });
+const E = (lap: number, type: string, label: string, text: string, extra: Extra = {}): F1Item => ({ kind: 'event', type, label, clock: `Lap ${lap}`, lap, text, ...extra });
+const gapsOf = (list: [string, number][]): Record<string, number> => Object.fromEntries(list.map(([code, gap]) => [code, gap]));
 
-const START = {
+const START: Pick<F1State, 'lap' | 'order' | 'gaps' | 'tyres' | 'pits' | 'fastest'> = {
   lap: 41,
   order: ['VER', 'NOR', 'LEC', 'PIA', 'HAM', 'RUS'],
   gaps: gapsOf([['VER', 0], ['NOR', 1.8], ['LEC', 4.5], ['PIA', 6.1], ['HAM', 9.4], ['RUS', 12.0]]),
@@ -29,7 +61,7 @@ const START = {
   fastest: { driver: 'NOR', time: '1:22.4' },
 };
 
-const SCRIPT: any[] = [
+const SCRIPT: F1Item[] = [
   E(41, 'start', 'Final laps', 'Lap 41 of 53 at Monza: Verstappen leads Norris by 1.8 seconds, Leclerc third.', { crowd: { key: 'start', n: 8, spread: 6000 }, pause: 4000 }),
   P(42, 'Norris sets the fastest lap so far, 1:22.1, and the gap to Verstappen drops to 1.3 seconds.',
     { gaps: { NOR: 1.3 }, fastest: { driver: 'NOR', time: '1:22.1' }, crowd: { key: 'mcl_push', n: 5, share: 0.6 } }),
@@ -108,11 +140,11 @@ const SCRIPT: any[] = [
   }),
 ];
 
-function initialState() {
+function initialState(): F1State {
   return { ...structuredClone(START), total: TOTAL_LAPS, sc: false, result: null, last_seq: -1, last_text: '' };
 }
 
-function applyItem(prev, item, seq) {
+function applyItem(prev: F1State, item: F1Item, seq: number) {
   const s = structuredClone(prev);
   s.last_seq = seq;
   s.last_text = item.text;
@@ -123,13 +155,13 @@ function applyItem(prev, item, seq) {
     s.tyres[item.pit.driver] = item.pit.tyre;
     s.pits[item.pit.driver] += 1;
   }
-  if ('sc' in item) s.sc = item.sc;
+  if ('sc' in item) s.sc = item.sc!; // `in` keeps undefined in the type; the script only sets sc to true or false
   if (item.fastest) s.fastest = item.fastest;
   if (item.result) s.result = item.result;
   return { state: s, ball: null };
 }
 
-function snapshot(s) {
+function snapshot(s: F1State) {
   return {
     sport: 'f1', lap: s.lap, total_laps: s.total, safety_car: s.sc, result: s.result,
     leader: DRIVERS[s.order[0]].name,
@@ -141,7 +173,7 @@ function snapshot(s) {
   };
 }
 
-function facts(snap) {
+function facts(snap: FactsInput<F1Score>) {
   const sc = snap.score;
   return {
     headline: `Lap ${sc.lap}/${sc.total_laps} · ${sc.result || `${sc.order[0].short} leads${sc.safety_car ? ' · safety car' : ''}`}`,
@@ -152,7 +184,7 @@ function facts(snap) {
   };
 }
 
-function templatePoll(s) {
+function templatePoll(s: F1State): PollTemplate {
   if (s.result) return { question: 'Driver of the day?', options: [short(s.order[0]), short(s.order[2])] };
   return { question: 'Who wins at Monza?', options: [`${short(s.order[0])} holds on`, `${short(s.order[1])} wins it`] };
 }
@@ -224,7 +256,7 @@ const CROWD = {
   },
 };
 
-export const F1 = {
+export const F1: Fixture<F1State, F1Item, F1Score> = {
   key: 'f1-monza-demo',
   sport: 'f1',
   sportName: 'F1',

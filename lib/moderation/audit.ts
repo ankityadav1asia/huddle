@@ -1,8 +1,25 @@
 // Minimal moderation audit trail: ids, categories, policy version and the action taken. Never message text.
 import { newId } from '../util.ts';
+import type { Queryable } from '../db/index.ts';
 import { POLICY_VERSION } from './policy.ts';
 
-export async function recordModeration(q, {
+// moderation_events: what was decided about whom, never the text it was about.
+export interface ModerationEventRow {
+  id: string;
+  room_id: string | null;
+  actor_id: string | null; // null for automated decisions
+  target_user_id: string | null;
+  message_id: string | null;
+  event_type: string;
+  severity: string;
+  categories: string[];
+  policy_version: string;
+  level: string | null;
+  action_taken: string;
+  created_at: Date;
+}
+
+export async function recordModeration(q: Queryable, {
   roomId = null, actorId = null, targetUserId = null, messageId = null, eventType, severity,
   categories = [], level = null, action, policyVersion = POLICY_VERSION,
 }: {
@@ -18,8 +35,11 @@ export async function recordModeration(q, {
   return id;
 }
 
+// Automated rejections and holds of one user in the last 10 minutes. last_at is null only when n is 0.
+export interface Strikes { n: number; last_at: Date }
+
 // Repeated rejected or held messages in a short window trigger a temporary posting pause (never a permanent ban).
-export async function recentStrikes(q, userId) {
+export async function recentStrikes(q: Queryable, userId: string): Promise<Strikes> {
   const row = (await q.query(
     `SELECT count(*)::int AS n, max(created_at) AS last_at FROM moderation_events
       WHERE target_user_id = $1 AND actor_id IS NULL AND action_taken IN ('rejected', 'held')

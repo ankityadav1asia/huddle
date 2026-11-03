@@ -1,9 +1,33 @@
 // Home: invitations, the platform's public watch party, your private rooms, and creating a room.
-import { api } from './api.ts';
+import { api, ApiError, errorMessage, type CreatedRoom, type LevelInfo, type ModerationLevel, type Role } from './api.ts';
 import { el, icon, plural, inHours, setRail, railIntro, toast, teamLogo } from './ui.ts';
 import { openSheet, closeSheet, sheetActions } from './sheets.ts';
 import { openNotificationSettings } from './push.ts';
-import type { Ctx } from './app.ts';
+import type { ReadyCtx } from './app.ts';
+
+// What home reads from the server. Private rooms always have a moderation level.
+// GET /api/me/invitations: pending invitations to private rooms.
+interface Invitation { id: string; room_name: string | null; inviter_handle: string; match_title: string | null; moderation_level: ModerationLevel; expires_at: string }
+
+// GET /api/rooms: the public watch parties (one per sport), your private rooms and the games a new room can follow.
+interface PublicRoom {
+  id: string;
+  name: string | null;
+  sport: string;
+  match_title: string;
+  match_status: string;
+  members: number;
+  max_members: number;
+  online: number;
+  joined: boolean;
+  full: boolean;
+}
+interface MyRoom { id: string; name: string | null; status: string; role: Role; moderation_level: ModerationLevel; members: number; online: number }
+interface Game { id: string; title: string; sport: string }
+interface RoomLists { public_rooms: PublicRoom[]; my_rooms: MyRoom[]; matches: Game[] }
+
+// A fan found by handle or name, or one of the labelled demo friends (GET /api/users/search, /api/users/demo).
+interface FoundUser { id: string; handle: string; name: string | null; teams: string[]; demo: boolean }
 
 let refreshTimer = 0;
 
@@ -13,7 +37,7 @@ export function leaveHome() {
 
 const LEVEL_NAMES = { relaxed: 'Relaxed', balanced: 'Balanced', strict: 'Strict' };
 
-export async function renderHome(ctx: Ctx) {
+export async function renderHome(ctx: ReadyCtx) {
   leaveHome();
   setRail(railIntro());
   const view = document.getElementById('view');
@@ -22,7 +46,7 @@ export async function renderHome(ctx: Ctx) {
   const live = el('section', { class: 'home-section', 'aria-labelledby': 'h-live' });
   const mine = el('section', { class: 'home-section', 'aria-labelledby': 'h-mine' });
   const create = el('button', { type: 'button', class: 'btn primary', text: 'Create a private room' });
-  let data: any = null; // the /api/rooms response, once loaded
+  let data: RoomLists | null = null; // the /api/rooms response, once loaded
   create.addEventListener('click', () => openCreateRoom(ctx, data));
 
   const bell = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Alert settings', onclick: () => openNotificationSettings(ctx.config) });
@@ -46,22 +70,22 @@ export async function renderHome(ctx: Ctx) {
 
   const load = async () => {
     try {
-      const [rooms, inv] = await Promise.all([api.get('/api/rooms'), api.get('/api/me/invitations')]);
+      const [rooms, inv]: [RoomLists, { invitations: Invitation[] }] = await Promise.all([api.get('/api/rooms'), api.get('/api/me/invitations')]);
       if (!document.contains(live)) return;
       data = rooms;
       renderInvites(ctx, invites, inv.invitations, load);
       renderLive(ctx, live, rooms);
       renderMine(ctx, mine, rooms.my_rooms);
     } catch (err) {
-      if (err.status === 401) return ctx.signedOut();
-      if (document.contains(live)) live.replaceChildren(el('p', { class: 'empty', text: err.message }));
+      if (err instanceof ApiError && err.status === 401) return ctx.signedOut();
+      if (document.contains(live)) live.replaceChildren(el('p', { class: 'empty', text: errorMessage(err) }));
     }
   };
   await load();
   refreshTimer = setInterval(() => { if (!document.hidden) load(); }, 15000);
 }
 
-function renderInvites(ctx, section, invitations, reload) {
+function renderInvites(ctx: ReadyCtx, section: HTMLElement, invitations: Invitation[], reload: () => void) {
   section.replaceChildren();
   section.hidden = !invitations.length;
   if (!invitations.length) return;
@@ -76,13 +100,13 @@ function renderInvites(ctx, section, invitations, reload) {
         const r = await api.post(`/api/invitations/${inv.id}/accept`);
         ctx.navigate(`#/room/${r.room_id}`);
       } catch (e) {
-        err.textContent = e.message;
+        err.textContent = errorMessage(e);
         setTimeout(reload, 1500);
       }
     });
     decline.addEventListener('click', async () => {
       accept.disabled = decline.disabled = true;
-      try { await api.post(`/api/invitations/${inv.id}/decline`); } catch (e) { err.textContent = e.message; }
+      try { await api.post(`/api/invitations/${inv.id}/decline`); } catch (e) { err.textContent = errorMessage(e); }
       reload();
     });
     section.append(el('article', { class: 'card invite-card' },
@@ -94,12 +118,12 @@ function renderInvites(ctx, section, invitations, reload) {
 }
 
 // Only rooms for live or scheduled matches are listed; rooms of finished matches are not.
-const matchStatus = (status) => (status === 'live' ? 'Live · simulated replay' : 'Starts when the first fan joins');
+const matchStatus = (status: string) => (status === 'live' ? 'Live · simulated replay' : 'Starts when the first fan joins');
 
-const SPORT_LABEL = { cricket: 'Cricket · T20', f1: 'Formula 1', basketball: 'Basketball · NBA', hockey: 'Ice hockey · NHL' };
-const SPORT_TAG = { f1: 'F1', basketball: 'NBA', hockey: 'NHL' };
+const SPORT_LABEL: Partial<Record<string, string>> = { cricket: 'Cricket · T20', f1: 'Formula 1', basketball: 'Basketball · NBA', hockey: 'Ice hockey · NHL' };
+const SPORT_TAG: Partial<Record<string, string>> = { f1: 'F1', basketball: 'NBA', hockey: 'NHL' };
 
-function renderLive(ctx, section, rooms) {
+function renderLive(ctx: ReadyCtx, section: HTMLElement, rooms: RoomLists) {
   section.replaceChildren(el('h2', { class: 'section-title', id: 'h-live', text: 'Public watch parties' }));
   const pub = rooms.public_rooms;
   if (!pub.length) {
@@ -116,9 +140,9 @@ function renderLive(ctx, section, rooms) {
         if (!room.joined) await api.post(`/api/rooms/${room.id}/join`);
         ctx.navigate(`#/room/${room.id}`);
       } catch (e) {
-        err.textContent = e.message;
-        go.disabled = e.code === 'room_full';
-        if (e.code === 'room_full') go.textContent = 'Full';
+        err.textContent = errorMessage(e);
+        go.disabled = e instanceof ApiError && e.code === 'room_full';
+        if (e instanceof ApiError && e.code === 'room_full') go.textContent = 'Full';
       }
     });
     const seats = room.max_members ? `${room.members}/${room.max_members}` : plural(room.members, 'member');
@@ -137,7 +161,7 @@ function renderLive(ctx, section, rooms) {
   }
 }
 
-function renderMine(ctx, section, rooms) {
+function renderMine(ctx: ReadyCtx, section: HTMLElement, rooms: MyRoom[]) {
   section.replaceChildren(el('h2', { class: 'section-title', id: 'h-mine', text: 'Your private rooms' }));
   if (!rooms.length) {
     section.append(el('p', { class: 'empty', text: 'No private rooms yet. Create one and invite friends.' }));
@@ -160,7 +184,7 @@ function renderMine(ctx, section, rooms) {
 
 // ---------------------------------------------------------------- menu
 // "Cricket: CSK (Dhoni, Bumrah) · F1: Ferrari": what you back in each sport you answered for.
-function backingLine(ctx) {
+function backingLine(ctx: ReadyCtx) {
   return (ctx.config.sports || []).filter((s) => ctx.me.sports?.[s.sport]).map((s) => {
     const { team, picks } = ctx.me.sports[s.sport];
     const names = picks.map((p) => s.players.find((x) => x.name === p)?.short || p);
@@ -168,7 +192,7 @@ function backingLine(ctx) {
   }).join(' · ');
 }
 
-function openMenu(ctx) {
+function openMenu(ctx: ReadyCtx) {
   const s = openSheet({ title: ctx.me.display_name || ctx.me.handle });
   s.body.append(
     el('p', { class: 'lede', text: `@${ctx.me.handle}` }),
@@ -183,7 +207,7 @@ function openMenu(ctx) {
 }
 
 // Guest profiles have no password to sign back in with, so signing out asks for a second, explicit click.
-function signOutButton(ctx) {
+function signOutButton(ctx: ReadyCtx) {
   let armed = false;
   const b = el('button', { type: 'button', class: 'menu-item danger', text: 'Sign out' });
   b.addEventListener('click', async () => {
@@ -202,7 +226,7 @@ function signOutButton(ctx) {
 
 // ---------------------------------------------------------------- create a private room
 export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?: Set<string>; onChange?: (ids: string[]) => void }) {
-  const selected = new Map();
+  const selected: Map<string, FoundUser> = new Map();
   const input = el('input', { id: 'friend-search', type: 'search', placeholder: 'Search by handle or name', autocomplete: 'off', 'aria-describedby': 'friend-hint' });
   const results = el('ul', { class: 'search-results', 'aria-live': 'polite' });
   const chips = el('div', { class: 'selected-chips' });
@@ -215,7 +239,7 @@ export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?
       return x;
     }));
   };
-  const userItem = (u) => el('li', {},
+  const userItem = (u: FoundUser) => el('li', {},
     el('button', { type: 'button', class: 'result-btn', 'aria-pressed': String(selected.has(u.id)), onclick: (e) => {
       if (selected.has(u.id)) selected.delete(u.id); else selected.set(u.id, u);
       e.currentTarget.setAttribute('aria-pressed', String(selected.has(u.id)));
@@ -226,16 +250,16 @@ export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?
     u.teams?.length ? el('small', { text: u.teams.join(' · ') }) : null));
 
   // With an empty search box, offer the labelled demo friends so the invite flow can be tried alone.
-  let demo = [];
-  let hidden = new Set();
-  const offered = (u) => !excludeIds.has(u.id) && !hidden.has(u.id);
+  let demo: FoundUser[] = [];
+  let hidden: Set<string> = new Set();
+  const offered = (u: FoundUser) => !excludeIds.has(u.id) && !hidden.has(u.id);
   const showDemo = () => {
     const users = demo.filter(offered);
     results.replaceChildren(...(users.length
       ? [el('li', { class: 'results-head', text: 'Demo friends (no one signs in as them, so their invites stay pending)' }), ...users.map(userItem)]
       : []));
   };
-  api.get('/api/users/demo').then((r) => {
+  api.get('/api/users/demo').then((r: { users: FoundUser[] }) => {
     demo = r.users || [];
     if (input.value.trim().length < 2) showDemo();
   }).catch(() => {});
@@ -247,13 +271,13 @@ export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?
     timer = setTimeout(async () => {
       const mineSeq = ++seq;
       try {
-        const r = await api.get(`/api/users/search?q=${encodeURIComponent(q)}`);
+        const r: { users: FoundUser[] } = await api.get(`/api/users/search?q=${encodeURIComponent(q)}`);
         if (mineSeq !== seq) return;
         const users = r.users.filter(offered);
         results.replaceChildren(...(users.length ? users.map(userItem)
           : [el('li', { class: 'empty small', text: 'No fans found with that handle.' })]));
       } catch (err) {
-        results.replaceChildren(el('li', { class: 'empty small', text: err.message }));
+        results.replaceChildren(el('li', { class: 'empty small', text: errorMessage(err) }));
       }
     }, 250);
   });
@@ -264,7 +288,7 @@ export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?
       chips, results),
     ids: () => [...selected.keys()],
     // People with a pending invitation: not offered again, and dropped from the selection, until it is revoked.
-    hide: (ids) => {
+    hide: (ids: string[]) => {
       hidden = new Set(ids);
       for (const id of hidden) selected.delete(id);
       renderChips();
@@ -274,7 +298,7 @@ export function friendPicker({ excludeIds = new Set(), onChange }: { excludeIds?
   };
 }
 
-export function levelChooser(levels, current, name = 'level') {
+export function levelChooser(levels: LevelInfo[], current: ModerationLevel, name = 'level') {
   const wrap = el('div', { class: 'choice-list', role: 'radiogroup', 'aria-label': 'Moderation level' });
   for (const l of levels) {
     const id = `${name}-${l.id}`;
@@ -285,12 +309,12 @@ export function levelChooser(levels, current, name = 'level') {
   return { node: wrap, value: () => wrap.querySelector<HTMLInputElement>('input:checked')?.value };
 }
 
-function openCreateRoom(ctx, data) {
+function openCreateRoom(ctx: ReadyCtx, data: RoomLists | null) {
   const s = openSheet({ title: 'Create a private room', lede: 'Invite friends, pick how strict the chat should be, and watch together.' });
   const error = el('p', { class: 'form-error', role: 'alert' });
   const name = el('input', { id: 'room-name', maxlength: '40', required: true, placeholder: 'e.g. Chepauk crew' });
   const matches = data?.matches || [];
-  let match = matches[0];
+  let match: Game | undefined = matches[0];
   const followTitle = el('b', { text: match ? `Follow ${match.title}` : '' });
   // One simulated game per sport: pick which one the room watches.
   const pickMatch = matches.length > 1 ? el('fieldset', { class: 'field' }, el('legend', { text: 'Game' }),
@@ -333,7 +357,7 @@ function openCreateRoom(ctx, data) {
     create.disabled = true;
     error.textContent = '';
     try {
-      const r = await api.post('/api/rooms', {
+      const r: CreatedRoom = await api.post('/api/rooms', {
         name: name.value,
         match_id: follow.checked && match ? match.id : null,
         ...(follow.checked && match ? { own_replay: own.checked } : {}),
@@ -346,7 +370,7 @@ function openCreateRoom(ctx, data) {
       if (missed.length) toast(`${plural(missed.length, 'invitation')} could not be sent.`);
       ctx.navigate(`#/room/${r.room_id}`);
     } catch (err) {
-      error.textContent = err.message;
+      error.textContent = errorMessage(err);
       create.disabled = false;
     }
   });

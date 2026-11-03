@@ -391,6 +391,6 @@ As in the original demo, a room splits its chat into #threads without anyone man
 - Live AI providers were not exercised end to end in this environment (no API keys); adapters are tested with mocked
   HTTP and the SDK's typed errors.
 - Browser push was exercised with a mocked push service, not on a real device.
-- The code moved from JavaScript to TypeScript with `strict` checks but `noImplicitAny` off: many function parameters
-  and every database row are still `any`. The shared shapes (configuration, database, users, fixtures, AI providers,
-  the HTTP router) are typed; the rest gains types module by module.
+- Types are checked at compile time only: query results are trusted to match the row types in `lib/db/rows.ts`
+  (nothing validates them at runtime), and `any` remains at the edges where data is not modelled (raw request JSON
+  before validation, vendor JSON, some per-sport script data).

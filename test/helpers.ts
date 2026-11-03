@@ -21,6 +21,13 @@ export interface App {
   close(): Promise<void>;
 }
 
+// Shapes of the API JSON the tests read (docs/api-contract.md), with only the fields tests use.
+export interface ApiEvent { seq: number; type: string; data: any }
+export interface ApiInvitation { id: string; room_id: string; user_id: string; status: string; result: string }
+export interface ApiPublicRoom { id: string; sport: string; match_id: string; match_title: string; full: boolean }
+export interface ApiUser { id: string; handle: string; demo: boolean }
+export interface ApiThread { id: string; title: string; source: string; messages: number }
+
 // A signed-in (or anonymous) API client. Bodies are untyped JSON: each test knows what it asked for.
 export interface Client {
   req(method: string, url: string, body?: unknown, headers?: Record<string, string>): Promise<{ status: number; body: any; headers: Headers }>;
@@ -108,8 +115,8 @@ export async function secondDevice(app: App, userId: string): Promise<Client> {
   const c = client(app.base);
   const cookie = `huddle_session=${token}`;
   return Object.assign(c, {
-    get: (u) => c.req('GET', u, undefined, { cookie }),
-    post: (u, b = {}) => c.req('POST', u, b, { cookie }),
+    get: (u: string) => c.req('GET', u, undefined, { cookie }),
+    post: (u: string, b: unknown = {}) => c.req('POST', u, b, { cookie }),
   });
 }
 
@@ -126,7 +133,7 @@ export async function makePrivateRoom(app: App, owner: Client, invitees: Client[
   const r = await owner.post('/api/rooms', { name: 'Friends room', moderation_level: 'balanced', match_id: matchId, invitee_ids: invitees.map((u) => u.user.id), ...extra });
   if (r.status !== 201) throw new Error(`room create failed: ${JSON.stringify(r.body)}`);
   for (const u of invitees) {
-    const inv = (await u.get('/api/me/invitations')).body.invitations.find((i) => i.room_id === r.body.room_id);
+    const inv = (await u.get('/api/me/invitations')).body.invitations.find((i: ApiInvitation) => i.room_id === r.body.room_id);
     const a = await u.post(`/api/invitations/${inv.id}/accept`);
     if (a.status !== 200) throw new Error(`accept failed: ${JSON.stringify(a.body)}`);
   }

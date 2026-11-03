@@ -1,11 +1,45 @@
 // Ice hockey: the third period of a made-up Oilers v Maple Leafs game, with real players. Labelled as a simulated
 // game everywhere. Goals, shots and penalties are applied play by play, so the scoreboard always matches them.
+import type { FactsInput, Fixture, PollTemplate, Team } from '../fixture.ts';
 import { makeFans } from '../fans.ts';
-import { scriptedSignals, scriptedThread, scriptedBurst, ROLE } from './scripted.ts';
+import { scriptedSignals, scriptedThread, scriptedBurst, ROLE, type ScriptedItem } from './scripted.ts';
 
-const TEAMS = { EDM: 'Oilers', TOR: 'Maple Leafs' };
-const SIDES = [{ code: 'EDM', name: 'Oilers' }, { code: 'TOR', name: 'Maple Leafs' }];
-const PLAYERS = {
+interface Goal { team: string; scorer: string; assists: string[]; strength: string }
+// `until`: the game clock when the penalty ends.
+interface Penalty { team: string; player: string; infraction: string; until: string }
+
+// The period as the script has it. Scores and shots on goal are by team code; `empty_net` is the team that pulled
+// its goalie.
+interface HockeyState {
+  period: string;
+  clock: string;
+  score: Record<string, number>;
+  shots: Record<string, number>;
+  goals: (Goal & { time: string })[];
+  penalties: (Penalty & { time: string })[];
+  power_play: { team: string; until: string; player: string; infraction: string } | null;
+  empty_net: string | null;
+  result: string | null;
+  last_seq: number;
+  last_text: string;
+}
+
+// A play or event of the period: `shot` is the team that shot on goal, `pp_end` ends the power play.
+interface HockeyItem extends ScriptedItem<HockeyState> {
+  game_clock: string;
+  shot?: string;
+  goal?: Goal;
+  penalty?: Penalty;
+  pp_end?: boolean;
+  empty_net?: string;
+  final?: boolean;
+}
+type Extra = Omit<HockeyItem, 'kind' | 'clock' | 'game_clock' | 'text' | 'type' | 'label'>;
+type HockeyScore = ReturnType<typeof snapshot>;
+
+const TEAMS: Record<string, string> = { EDM: 'Oilers', TOR: 'Maple Leafs' };
+const SIDES: Team[] = [{ code: 'EDM', name: 'Oilers' }, { code: 'TOR', name: 'Maple Leafs' }];
+const PLAYERS: Record<string, { team: string; role: string }> = {
   'Connor McDavid': { team: 'EDM', role: 'centre' }, 'Leon Draisaitl': { team: 'EDM', role: 'centre' },
   'Evan Bouchard': { team: 'EDM', role: 'defenceman' }, 'Zach Hyman': { team: 'EDM', role: 'left wing' },
   'Stuart Skinner': { team: 'EDM', role: 'goaltender' },
@@ -13,13 +47,13 @@ const PLAYERS = {
   'John Tavares': { team: 'TOR', role: 'centre' }, 'Morgan Rielly': { team: 'TOR', role: 'defenceman' },
   'Anthony Stolarz': { team: 'TOR', role: 'goaltender' },
 };
-const line = (s) => `Oilers ${s.score.EDM}, Maple Leafs ${s.score.TOR}`;
-const P = (clock, text, extra = {}) => ({ kind: 'play', clock: `P3 ${clock}`, game_clock: clock, text, ...extra });
-const E = (clock, type, label, text, extra = {}) => ({ kind: 'event', type, label, clock: `P3 ${clock}`, game_clock: clock, text, ...extra });
-const goal = (scorer, assists, strength = 'even strength') => ({ team: PLAYERS[scorer].team, scorer, assists, strength });
+const line = (s: HockeyState) => `Oilers ${s.score.EDM}, Maple Leafs ${s.score.TOR}`;
+const P = (clock: string, text: string, extra: Extra = {}): HockeyItem => ({ kind: 'play', clock: `P3 ${clock}`, game_clock: clock, text, ...extra });
+const E = (clock: string, type: string, label: string, text: string, extra: Extra = {}): HockeyItem => ({ kind: 'event', type, label, clock: `P3 ${clock}`, game_clock: clock, text, ...extra });
+const goal = (scorer: string, assists: string[], strength = 'even strength'): Goal => ({ team: PLAYERS[scorer].team, scorer, assists, strength });
 const POWER_PLAY = { slug: 'power-play', about: 'Penalties and power plays in the third period.', keywords: ['power play', 'powerplay', 'penalty kill', 'tripping', 'hooking', 'penalty'] };
 
-const SCRIPT: any[] = [
+const SCRIPT: HockeyItem[] = [
   E('20:00', 'start', 'Third period', 'The third period is under way and it is 2-2.', { crowd: { key: 'start', n: 8, spread: 6000 }, pause: 4000 }),
   P('18:41', 'Matthews rips a wrist shot, Skinner gloves it.', { shot: 'TOR', crowd: { key: 'save', n: 4, share: 0.6 } }),
   P('17:30', 'Draisaitl one-timer from the slot, Stolarz kicks it away.', { shot: 'EDM' }),
@@ -79,14 +113,14 @@ const SCRIPT: any[] = [
   }),
 ];
 
-function initialState() {
+function initialState(): HockeyState {
   return {
     period: 'P3', clock: '20:00', score: { EDM: 2, TOR: 2 }, shots: { EDM: 24, TOR: 27 },
     goals: [], penalties: [], power_play: null, empty_net: null, result: null, last_seq: -1, last_text: '',
   };
 }
 
-function applyItem(prev, item, seq) {
+function applyItem(prev: HockeyState, item: HockeyItem, seq: number) {
   const s = structuredClone(prev);
   s.last_seq = seq;
   s.last_text = item.text;
@@ -110,7 +144,7 @@ function applyItem(prev, item, seq) {
   return { state: s, ball: null };
 }
 
-function snapshot(s) {
+function snapshot(s: HockeyState) {
   return {
     sport: 'hockey', period: s.period, clock: s.clock, result: s.result,
     teams: ['EDM', 'TOR'].map((code) => ({ code, name: TEAMS[code], score: s.score[code], shots: s.shots[code] })),
@@ -122,7 +156,7 @@ function snapshot(s) {
   };
 }
 
-function facts(snap) {
+function facts(snap: FactsInput<HockeyScore>) {
   const sc = snap.score;
   const [a, b] = sc.teams;
   return {
@@ -138,7 +172,7 @@ function facts(snap) {
   };
 }
 
-function templatePoll(s) {
+function templatePoll(s: HockeyState): PollTemplate {
   if (s.result) return { question: 'Player of the game?', options: ['Connor McDavid', 'William Nylander'] };
   return { question: 'Who takes this one?', options: ['Oilers', 'Maple Leafs'] };
 }
@@ -190,7 +224,7 @@ const CROWD = {
   },
 };
 
-export const HOCKEY = {
+export const HOCKEY: Fixture<HockeyState, HockeyItem, HockeyScore> = {
   key: 'nhl-edm-tor-demo',
   sport: 'hockey',
   sportName: 'hockey',

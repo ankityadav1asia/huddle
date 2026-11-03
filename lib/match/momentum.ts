@@ -1,9 +1,12 @@
 // Match Momentum Engine, stage 1: deterministic rules over verified, structured feed data.
 // The LLM never decides that a wicket happened; it may only explain a signal these rules produced.
 // Thresholds below are demo heuristics for a T20 chase, not universal cricket truths.
-import { oversText, rates, shortName } from './scorecard.ts';
+import type { Priority } from '../db/rows.ts';
+import type { CricketItem } from './demo-script.ts';
+import type { Signal } from './fixture.ts';
+import { oversText, rates, shortName, type BallRecord, type CricketState } from './scorecard.ts';
 
-export const RULES = {
+export const RULES: Record<string, { priority: Priority; label: string }> = {
   wicket_fallen: { priority: 'high', label: 'Big wicket' },
   partnership_break: { priority: 'high', label: 'Partnership broken' },
   match_result_confirmed: { priority: 'high', label: 'Result' },
@@ -23,25 +26,25 @@ export const THRESHOLDS = {
   deathOversFromBall: 90, // over 16 onwards
 };
 
-const PRIORITY_RANK = { high: 3, medium: 2, low: 1 };
-export const rank = (p) => PRIORITY_RANK[p] || 0;
+const PRIORITY_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+export const rank = (p: string) => PRIORITY_RANK[p] || 0;
 
-function scoreLine(s) {
+function scoreLine(s: CricketState) {
   return `${s.batting} ${s.runs}/${s.wkts} (${oversText(s.balls)})`;
 }
 
-function needLine(s) {
+function needLine(s: CricketState) {
   const r = rates(s);
   return r.need_runs > 0 ? `need ${r.need_runs} off ${r.need_balls}` : `${s.batting} have reached the target`;
 }
 
-function signal(trigger, evidence, factText, dedupe) {
+function signal(trigger: string, evidence: Record<string, unknown>, factText: string, dedupe: string): Signal {
   return { trigger, ...RULES[trigger], evidence, fact_text: factText, dedupe };
 }
 
 // prev/next: scorecard states around one feed item. Returns zero or more signals for that item.
-export function detectSignals(prev, next, item, ball) {
-  const out: any[] = [];
+export function detectSignals(prev: CricketState, next: CricketState, item: CricketItem, ball: BallRecord | null): Signal[] {
+  const out: Signal[] = [];
   const overNo = Math.floor(prev.balls / 6) + 1;
   if (item.kind === 'event') {
     if (item.type === 'result') {

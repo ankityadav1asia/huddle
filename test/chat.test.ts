@@ -1,8 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, makePrivateRoom, msgId, clearCooldown } from './helpers.ts';
+import { startApp, signUp, makePrivateRoom, msgId, clearCooldown, type App, type Client, type ApiEvent } from './helpers.ts';
 
-let app; let a; let b; let roomId; let roomId2;
+let app: App; let a: Client; let b: Client; let roomId: string; let roomId2: string;
 before(async () => {
   app = await startApp();
   a = await signUp(app.base, 'chat_a');
@@ -13,7 +13,7 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
-const send = (c, room, text, extra = {}) => c.post(`/api/rooms/${room}/messages`, { client_msg_id: msgId(), text, ...extra });
+const send = (c: Client, room: string, text: string, extra: Record<string, unknown> = {}) => c.post(`/api/rooms/${room}/messages`, { client_msg_id: msgId(), text, ...extra });
 
 test('a message is accepted, sequenced and delivered to other members through the event stream', async () => {
   const before = (await b.get(`/api/rooms/${roomId}`)).body.cursor;
@@ -22,7 +22,7 @@ test('a message is accepted, sequenced and delivered to other members through th
   assert.equal(r.body.status, 'visible');
   assert.ok(r.body.message.seq > before);
   const ev = await b.get(`/api/rooms/${roomId}/events?after=${before}`);
-  const delivered = ev.body.events.find((e) => e.type === 'message' && e.data.id === r.body.message.id);
+  const delivered = ev.body.events.find((e: ApiEvent) => e.type === 'message' && e.data.id === r.body.message.id);
   assert.equal(delivered.data.text, 'Dube is batting beautifully today');
   assert.equal(delivered.data.sender.handle, 'chat_a');
   assert.equal(delivered.data.sender.phone, undefined);
@@ -90,7 +90,7 @@ test('rejected messages are not stored, not broadcast and do not use up the cool
   assert.ok(audit.every((r) => !JSON.stringify(r).includes('maar')));
   assert.equal((await send(b, roomId, 'ok sorry, back to the cricket')).status, 201);
   const ev = await a.get(`/api/rooms/${roomId}/events?after=${cursor}`);
-  assert.ok(!ev.body.events.some((e) => e.data?.text?.includes('maar')));
+  assert.ok(!ev.body.events.some((e: ApiEvent) => e.data?.text?.includes('maar')));
   await clearCooldown(app.db, b.user.id);
   await app.db.query('DELETE FROM moderation_events WHERE target_user_id = $1', [b.user.id]);
 });
@@ -158,7 +158,7 @@ test('reactions accept only allowlisted emoji and are idempotent', async () => {
   assert.equal((await b.put(url, { emoji: '🔥', on: true })).status, 200);
   assert.equal((await b.put(url, { emoji: '💩', on: true })).status, 400);
   const room = await b.get(`/api/rooms/${roomId}`);
-  const msg = room.body.items.find((i) => i.data.id === m.body.message.id);
+  const msg = room.body.items.find((i: ApiEvent) => i.data.id === m.body.message.id);
   assert.deepEqual(msg.data.reactions, [{ emoji: '🔥', count: 1, mine: true }]);
   await clearCooldown(app.db, a.user.id);
 });
@@ -172,7 +172,7 @@ test('a long-poll wakes up as soon as a message arrives', async () => {
   await send(a, roomId, 'wake up');
   const ev = await waiting;
   assert.ok(Date.now() - started < 5000);
-  assert.ok(ev.body.events.some((e) => e.data?.text === 'wake up'));
+  assert.ok(ev.body.events.some((e: ApiEvent) => e.data?.text === 'wake up'));
   await clearCooldown(app.db, a.user.id);
 });
 

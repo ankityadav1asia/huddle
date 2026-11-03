@@ -1,11 +1,15 @@
 // Cricket: the scripted MI v CSK chase (real players, made-up match). Big moments come from deterministic rules
 // (lib/match/momentum.js) rather than the script; everything else follows the shared sport interface.
-import { START, SCRIPT, MOMENTS, TEAMS, SQUADS, CROWD, FANS, otherTeam, shortName } from '../demo-script.ts';
-import { initialState, applyItem, snapshot, rates } from '../scorecard.ts';
+import type { CrowdCue, FactsInput, Fixture, MomentThread, PollTemplate } from '../fixture.ts';
+import { START, SCRIPT, MOMENTS, TEAMS, SQUADS, CROWD, FANS, otherTeam, shortName, type CricketItem, type CricketStart } from '../demo-script.ts';
+import { initialState, applyItem, snapshot, rates, type CricketScore, type CricketState } from '../scorecard.ts';
 import { detectSignals } from '../momentum.ts';
 import { makeFans } from '../fans.ts';
 
-const slugify = (s) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+// The cricket fixture also carries the score at the start of its replay, which the scorecard starts from.
+export interface CricketFixture extends Fixture<CricketState, CricketItem, CricketScore> { initial: CricketStart }
+
+const slugify = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
 
 // Topics people argue about, in Hinglish and English (from the original demo). The first match wins.
 const TOPICS = [
@@ -15,10 +19,10 @@ const TOPICS = [
   { slug: 'bowling-change', keywords: ['bowling change', 'part-timer', 'part timer', 'bumrah kahan', 'bumrah kyun', 'masterstroke',
     'golden arm', 'tilak ko', 'kisne bola', 'hardik ko'] },
 ];
-const topicKeywords = (slug) => TOPICS.find((t) => t.slug === slug)?.keywords || [];
+const topicKeywords = (slug: string) => TOPICS.find((t) => t.slug === slug)?.keywords || [];
 
 // The thread a ball or event opens: a wicket, a drop, the DRS call, the bowling change, the last over, the result.
-function threadForItem(item) {
+function threadForItem(item: CricketItem): MomentThread | null {
   if (item.wicket) {
     const who = shortName(item.wicket.out);
     return { slug: `${slugify(who)}-out`, about: `${item.wicket.out} out, ${item.wicket.how}.`, keywords: [who.toLowerCase()] };
@@ -35,7 +39,7 @@ function threadForItem(item) {
 }
 
 // What the AI may state about the match: built from the verified snapshot only.
-function facts(snap) {
+function facts(snap: FactsInput<CricketScore>) {
   const s = snap.score;
   return {
     headline: `${s.batting} ${s.runs}/${s.wickets} (${s.overs})${s.result ? ` · ${s.result}` : s.need_runs ? ` · need ${s.need_runs} off ${s.need_balls}` : ''}`,
@@ -52,14 +56,14 @@ function facts(snap) {
   };
 }
 
-function templatePoll(state) {
+function templatePoll(state: CricketState): PollTemplate {
   const r = rates(state);
   if (state.result || r.need_runs === 0) return { question: 'Player of the match?', options: [`${state.batting} batter`, `${state.bowling} bowler`] };
   return { question: `${state.batting} need ${r.need_runs} off ${r.need_balls}. Who wins?`, options: [`${state.batting} chase it`, `${state.bowling} defend it`] };
 }
 
 // The script's crowd cue for an item, or the background chatter the original demo played between cues.
-function burstFor(item, state, rand) {
+function burstFor(item: CricketItem, state: CricketState, rand: () => number): CrowdCue | null {
   if (item.crowd) return item.crowd;
   if (item.kind === 'overend') return { key: 'overend', n: 3, spread: 2400 };
   if (item.kind !== 'ball') return null;
@@ -68,13 +72,13 @@ function burstFor(item, state, rand) {
   return rand() < 0.6 ? { key: state.balls >= 102 ? 'tension' : 'chatter', n: 1, spread: 2500 } : null;
 }
 
-const fill = (text, s) => text
+const fill = (text: string, s: CricketState) => text
   .replaceAll('{need}', String(Math.max(0, s.target - s.runs)))
   .replaceAll('{balls}', String(Math.max(0, 120 - s.balls)))
   .replaceAll('{bat}', shortName(s.striker))
   .replaceAll('{bowler}', shortName(s.bowler));
 
-const ROLES = {
+const ROLES: Record<string, string> = {
   'Jasprit Bumrah': 'fast bowler', 'Hardik Pandya': 'all-rounder and MI captain', 'Rohit Sharma': 'opening batter',
   'Suryakumar Yadav': 'batter', 'Tilak Varma': 'batter who bowls part-time spin', 'Trent Boult': 'left-arm fast bowler',
   'MS Dhoni': 'wicketkeeper-batter', 'Ruturaj Gaikwad': 'opening batter and CSK captain', 'Shivam Dube': 'batting all-rounder',
@@ -84,7 +88,7 @@ const ROLES = {
 const ROSTER = Object.entries(SQUADS).flatMap(([team, names]) => names.map((name) => ({ name, team, role: ROLES[name] || 'player' })))
   .concat([{ name: 'Mitchell Santner', team: 'MI', role: 'left-arm spinner' }]);
 
-export const CRICKET = {
+export const CRICKET: CricketFixture = {
   key: 'mi-csk-demo',
   sport: 'cricket',
   sportName: 'cricket',

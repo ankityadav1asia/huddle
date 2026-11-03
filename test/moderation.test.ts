@@ -32,7 +32,7 @@ test('uncertain threats are held for human review instead of being published', (
 });
 
 test('levels tune conversational strictness only', () => {
-  const at = (text) => LEVELS.map((level) => classify(text, { level }).action);
+  const at = (text: string) => LEVELS.map((level) => classify(text, { level }).action);
   assert.deepEqual(at('saala kya over tha'), ['allow', 'allow', 'reject']);
   assert.deepEqual(at('you are an idiot'), ['flag', 'reject', 'reject']);
   assert.deepEqual(at('tu chutiya hai'), ['reject', 'reject', 'reject']);

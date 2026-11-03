@@ -1,10 +1,62 @@
 // Deterministic scorecard built from stored, verified feed events. The LLM never computes or alters these numbers.
-const legalBall = (item) => item.kind === 'ball' && !item.extra;
+import type { BatterLine, BowlerLine, CricketItem } from './demo-script.ts';
+import type { CricketFixture } from './sports/cricket.ts';
 
-export const oversText = (balls) => `${Math.floor(balls / 6)}.${balls % 6}`;
-export const shortName = (name) => String(name || '').split(' ').slice(-1)[0];
+export interface Partnership { runs: number; balls: number }
+// A wicket on the card; score and over are null for the ones that fell before the replay started.
+export interface Out { name: string; r: number; b: number; how: string; score: string | null; over: string | null }
+// The wicket a ball took, and the stand it ended.
+export interface Dismissal { name: string; r: number; b: number; how: string; score: string; over: string; partnership: Partnership }
+// What one delivery was, as the momentum rules read it.
+export interface BallRecord {
+  seq: number;
+  label: string;
+  symbol: string;
+  runs: number;
+  legal: boolean;
+  boundary: boolean;
+  dot: boolean;
+  wicket: Dismissal | null;
+  drop: { by: string } | null;
+  bowler: string;
+  bat: string;
+  text: string;
+}
 
-export function rates(s) {
+export interface CricketState {
+  batting: string;
+  bowling: string;
+  target: number;
+  first_innings: string;
+  runs: number;
+  wkts: number;
+  balls: number;
+  batters: Record<string, BatterLine>;
+  striker: string;
+  bowler: string;
+  bowlers: Record<string, BowlerLine>;
+  outs: Out[];
+  this_over: string[];
+  over_legal: number;
+  ball_log: BallRecord[]; // the last 18 deliveries
+  partnership: Partnership;
+  extras: number;
+  fours: number;
+  sixes: number;
+  dots: number;
+  rrr_log: (number | null)[]; // the required rate after each of the last 18 legal balls
+  result: string | null;
+  last_seq: number;
+}
+
+export type CricketScore = ReturnType<typeof snapshot>;
+
+const legalBall = (item: CricketItem) => item.kind === 'ball' && !item.extra;
+
+export const oversText = (balls: number) => `${Math.floor(balls / 6)}.${balls % 6}`;
+export const shortName = (name: string) => String(name || '').split(' ').slice(-1)[0];
+
+export function rates(s: CricketState) {
   const need = Math.max(0, s.target - s.runs);
   const left = Math.max(0, 120 - s.balls);
   return {
@@ -15,7 +67,7 @@ export function rates(s) {
   };
 }
 
-export function initialState(fixture) {
+export function initialState(fixture: CricketFixture): CricketState {
   const s = structuredClone(fixture.initial);
   return {
     batting: s.batting,
@@ -25,10 +77,10 @@ export function initialState(fixture) {
     runs: s.runs,
     wkts: s.wkts,
     balls: s.balls,
-    batters: Object.fromEntries(Object.entries<any>(s.batters).map(([n, v]) => [n, { r: v.r, b: v.b }])),
+    batters: Object.fromEntries(Object.entries(s.batters).map(([n, v]) => [n, { r: v.r, b: v.b }])),
     striker: s.striker,
     bowler: s.bowler,
-    bowlers: Object.fromEntries(Object.entries<any>(s.bowlers).map(([n, v]) => [n, { b: v.b, r: v.r, w: v.w }])),
+    bowlers: Object.fromEntries(Object.entries(s.bowlers).map(([n, v]) => [n, { b: v.b, r: v.r, w: v.w }])),
     outs: s.outs.map((o) => ({ ...o, score: null, over: null })),
     this_over: [],
     over_legal: 0,
@@ -45,7 +97,7 @@ export function initialState(fixture) {
 }
 
 // Applies one feed item; returns a new state (inputs are not mutated) and what the item was.
-export function applyItem(prev, item, seq) {
+export function applyItem(prev: CricketState, item: CricketItem, seq: number): { state: CricketState; ball: BallRecord | null } {
   const s = structuredClone(prev);
   s.last_seq = seq;
   if (item.kind === 'overend') {
@@ -82,7 +134,7 @@ export function applyItem(prev, item, seq) {
   } else {
     s.extras += item.runs;
   }
-  let out: any = null;
+  let out: Dismissal | null = null;
   if (item.wicket) {
     s.wkts += 1;
     bowler.w += 1;
@@ -97,7 +149,7 @@ export function applyItem(prev, item, seq) {
   s.this_over.push(symbol);
   s.bowler = item.bowler;
   s.striker = item.wicket ? item.wicket.next : item.bat;
-  const ball = { seq, label, symbol, runs: item.runs, legal, boundary: legal && (item.runs === 4 || item.runs === 6), dot: legal && item.runs === 0 && !item.wicket, wicket: out, drop: item.drop || null, bowler: item.bowler, bat: item.bat, text: item.text };
+  const ball: BallRecord = { seq, label, symbol, runs: item.runs, legal, boundary: legal && (item.runs === 4 || item.runs === 6), dot: legal && item.runs === 0 && !item.wicket, wicket: out, drop: item.drop || null, bowler: item.bowler, bat: item.bat, text: item.text };
   s.ball_log.push(ball);
   if (s.ball_log.length > 18) s.ball_log.shift();
   if (legal) {
@@ -107,13 +159,13 @@ export function applyItem(prev, item, seq) {
   return { state: s, ball };
 }
 
-export function figures({ b, r, w }) {
+export function figures({ b, r, w }: BowlerLine) {
   const overs = b % 6 ? `${Math.floor(b / 6)}.${b % 6}` : `${b / 6}`;
   return `${overs}-0-${r}-${w}`;
 }
 
 // The client-facing scorecard. Only fields we actually have; no invented statistics.
-export function snapshot(s) {
+export function snapshot(s: CricketState) {
   const r = rates(s);
   const chaseWon = s.runs >= s.target;
   return {
@@ -128,11 +180,11 @@ export function snapshot(s) {
     ...r,
     result: s.result,
     chase_won: chaseWon,
-    batters: Object.entries<any>(s.batters).map(([name, v]) => ({
+    batters: Object.entries(s.batters).map(([name, v]) => ({
       name, short: shortName(name), runs: v.r, balls: v.b, strike_rate: v.b ? +((v.r / v.b) * 100).toFixed(1) : null, on_strike: name === s.striker,
     })),
     bowler: s.bowler ? { name: s.bowler, short: shortName(s.bowler), figures: figures(s.bowlers[s.bowler] || { b: 0, r: 0, w: 0 }), economy: s.bowlers[s.bowler]?.b ? +((s.bowlers[s.bowler].r / s.bowlers[s.bowler].b) * 6).toFixed(2) : null } : null,
-    bowling_card: Object.entries<any>(s.bowlers).filter(([, v]) => v.b).map(([name, v]) => ({ name, figures: figures(v), economy: +((v.r / v.b) * 6).toFixed(2), wickets: v.w })),
+    bowling_card: Object.entries(s.bowlers).filter(([, v]) => v.b).map(([name, v]) => ({ name, figures: figures(v), economy: +((v.r / v.b) * 6).toFixed(2), wickets: v.w })),
     fall_of_wickets: s.outs,
     partnership: s.partnership,
     this_over: s.this_over,

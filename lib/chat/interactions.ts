@@ -1,6 +1,8 @@
 // Reactions (allowlisted emoji only) and poll votes. Both are idempotent "set" operations.
-import { one } from '../db/index.ts';
-import { badRequest, notFound, conflict, onlyKeys, requireId } from '../util.ts';
+import { one, type Db } from '../db/index.ts';
+import type { MessageRow, PollRow } from '../db/rows.ts';
+import type { SessionUser } from '../auth/sessions.ts';
+import { badRequest, notFound, conflict, onlyKeys, requireId, type RequestBody } from '../util.ts';
 import { roomAccess } from '../rooms/service.ts';
 import { appendEvent } from '../rooms/events.ts';
 import { notifyRoom } from '../realtime/bus.ts';
@@ -8,7 +10,7 @@ import { requireToken } from '../limits.ts';
 import { config } from '../config.ts';
 import { REACTIONS } from './hydrate.ts';
 
-export async function setReaction(db, user, roomId, messageId, body) {
+export async function setReaction(db: Db, user: SessionUser, roomId: string, messageId: string, body: RequestBody) {
   onlyKeys(body, ['emoji', 'on']);
   if (!REACTIONS.includes(body.emoji)) throw badRequest('That reaction is not available.', 'invalid_reaction');
   if (typeof body.on !== 'boolean') throw badRequest('on must be true or false.');
@@ -16,7 +18,7 @@ export async function setReaction(db, user, roomId, messageId, body) {
   await roomAccess(db, roomId, user);
   await requireToken(db, `react:${user.id}`, { limit: config().chat.reactionsPerMinute, windowSeconds: 60 }, 'Slow down on the reactions.');
   const changed = await db.tx(async (q) => {
-    const msg = await one(q, `SELECT id FROM messages WHERE id = $1 AND room_id = $2 AND status = 'visible'`, [messageId, roomId]);
+    const msg = await one<Pick<MessageRow, 'id'>>(q, `SELECT id FROM messages WHERE id = $1 AND room_id = $2 AND status = 'visible'`, [messageId, roomId]);
     if (!msg) throw notFound('Message not found.');
     const res = body.on
       ? await q.query('INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING message_id', [messageId, user.id, body.emoji])
@@ -29,13 +31,13 @@ export async function setReaction(db, user, roomId, messageId, body) {
   return { ok: true };
 }
 
-export async function votePoll(db, user, roomId, pollId, body) {
+export async function votePoll(db: Db, user: SessionUser, roomId: string, pollId: string, body: RequestBody) {
   onlyKeys(body, ['option']);
   requireId(pollId, 'pol', 'poll');
   if (!Number.isInteger(body.option)) throw badRequest('Pick an option.');
   await roomAccess(db, roomId, user);
   const changed = await db.tx(async (q) => {
-    const poll = await one(q, `SELECT id, options, status, closes_at > now() AS live FROM polls WHERE id = $1 AND room_id = $2`, [pollId, roomId]);
+    const poll = await one<Pick<PollRow, 'id' | 'options' | 'status'> & { live: boolean }>(q, `SELECT id, options, status, closes_at > now() AS live FROM polls WHERE id = $1 AND room_id = $2`, [pollId, roomId]);
     if (!poll) throw notFound('Poll not found.');
     if (poll.status !== 'open' || !poll.live) throw conflict('This poll has closed.', 'poll_closed');
     if (body.option < 0 || body.option >= poll.options.length) throw badRequest('Pick one of the options.');

@@ -1,23 +1,23 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, makePrivateRoom, clearCooldown, msgId } from './helpers.ts';
+import { startApp, signUp, makePrivateRoom, clearCooldown, msgId, type App, type Client, type ApiEvent, type ApiThread } from './helpers.ts';
 import { ensureDemoMatch, ingestDue } from '../lib/match/feed.ts';
 import { crowdLines } from '../lib/match/crowd.ts';
 import { DEMO_FIXTURE, schedule } from '../lib/match/fixture.ts';
 import { endRoom, purgeRoom } from '../lib/rooms/lifecycle.ts';
 
-let app; let host; let friend; let shared; let roomA; let roomB;
+let app: App; let host: Client; let friend: Client; let shared: string; let roomA: string; let roomB: string;
 const offsets = () => schedule(DEMO_FIXTURE, app.cfg.match.ballSeconds);
-const idx = (pred) => DEMO_FIXTURE.items.findIndex(pred);
-const threadsOf = async (room) => (await app.db.query('SELECT slug, source FROM room_threads WHERE room_id = $1 ORDER BY created_at', [room])).rows;
-const say = async (c, room, text, extra = {}) => {
+const idx = (pred: (item: any) => unknown) => DEMO_FIXTURE.items.findIndex(pred); // script items: the cricket fixture's own shape
+const threadsOf = async (room: string) => (await app.db.query('SELECT slug, source FROM room_threads WHERE room_id = $1 ORDER BY created_at', [room])).rows;
+const say = async (c: Client, room: string, text: string, extra: Record<string, unknown> = {}) => {
   await clearCooldown(app.db, c.user.id);
   const r = await c.post(`/api/rooms/${room}/messages`, { client_msg_id: msgId(), text, ...extra });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body.message;
 };
 // Play the shared replay up to fixture item `i` (inclusive), as fresh balls (not a jump).
-async function playTo(i, { backfillUntil = -1 } = {}) {
+async function playTo(i: number, { backfillUntil = -1 }: { backfillUntil?: number } = {}) {
   await app.db.query(`UPDATE matches SET status = 'live', backfill_until = $2, feed_started_at = now() - $3::float8 * interval '1 second' WHERE id = $1`,
     [shared, backfillUntil, offsets()[i] + 0.05]);
   await ingestDue(app.db, shared);
@@ -43,10 +43,10 @@ test('big moments open a #thread in every room following the match, once each', 
   await playTo(wicket); // ingesting again opens nothing new
   assert.equal((await threadsOf(roomA)).length, 2);
   const boot = (await host.get(`/api/rooms/${roomA}`)).body;
-  assert.deepEqual(boot.threads.map((t) => [t.title, t.source]), [['#bowling-change', 'moment'], ['#dube-out', 'moment']]);
+  assert.deepEqual(boot.threads.map((t: ApiThread) => [t.title, t.source]), [['#bowling-change', 'moment'], ['#dube-out', 'moment']]);
   assert.match(boot.threads[1].about, /Shivam Dube out, c Suryakumar b Tilak/);
-  const events = (await friend.get(`/api/rooms/${roomA}/events?after=0`)).body.events.filter((e) => e.type === 'thread');
-  assert.deepEqual(events.map((e) => e.data.title), ['#bowling-change', '#dube-out']);
+  const events = (await friend.get(`/api/rooms/${roomA}/events?after=0`)).body.events.filter((e: ApiEvent) => e.type === 'thread');
+  assert.deepEqual(events.map((e: ApiEvent) => e.data.title), ['#bowling-change', '#dube-out']);
 });
 
 test('balls skipped by a jump open no threads', async () => {
@@ -65,7 +65,7 @@ test('messages join the thread they are sent from, or one whose topic they menti
   const wrong = await friend.post(`/api/rooms/${roomB}/messages`, { client_msg_id: msgId(), text: 'hello', thread_id: dube.id }); // another room's thread
   assert.equal(wrong.status, 400);
   assert.equal(wrong.body.error.code, 'invalid_thread');
-  const counts = (await host.get(`/api/rooms/${roomA}`)).body.threads.find((t) => t.id === dube.id).messages;
+  const counts = (await host.get(`/api/rooms/${roomA}`)).body.threads.find((t: ApiThread) => t.id === dube.id).messages;
   assert.equal(counts, 2);
 });
 
@@ -89,7 +89,7 @@ test('a topic three messages from two people argue about becomes its own thread'
   const tagged = (await app.db.query(
     `SELECT count(*)::int AS n FROM messages m JOIN room_threads t ON t.id = m.thread_id WHERE t.room_id = $1 AND t.slug = 'drs-call'`, [roomA])).rows[0].n;
   assert.equal(tagged, 3); // the earlier messages moved into it
-  const updates = (await host.get(`/api/rooms/${roomA}/events?after=0`)).body.events.filter((e) => e.type === 'message_update' && e.data.thread?.title === '#drs-call');
+  const updates = (await host.get(`/api/rooms/${roomA}/events?after=0`)).body.events.filter((e: ApiEvent) => e.type === 'message_update' && e.data.thread?.title === '#drs-call');
   assert.ok(updates.length >= 3);
   assert.equal((await threadsOf(roomB)).some((t) => t.slug === 'drs-call'), false); // only this room argued about it
 });

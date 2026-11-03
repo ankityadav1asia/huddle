@@ -2,12 +2,14 @@
 // unanswered questions), conversation continuity (quiet-room polls), match momentum explanations and Catch Me Up.
 // Every behaviour re-checks room state and membership before publishing, and never publishes unchecked output.
 import { config } from '../config.ts';
-import { one, many } from '../db/index.ts';
-import { HttpError, badRequest, conflict, onlyKeys, clamp, newId } from '../util.ts';
+import { one, many, type Db } from '../db/index.ts';
+import type { AnswerState, JobRow, MatchRow, MessageRow, PollRow, RoomEventRow, RoomRow, SignalRow } from '../db/rows.ts';
+import type { SessionUser } from '../auth/sessions.ts';
+import { HttpError, badRequest, conflict, onlyKeys, clamp, newId, errorCode, type RequestBody } from '../util.ts';
 import { log } from '../log.ts';
 import { ai } from '../ai/index.ts';
 import { SYSTEM, SCHEMAS, buildPrompt, validateOutput, allowedNumbersFrom } from '../ai/tasks.ts';
-import { roomAccess } from '../rooms/service.ts';
+import { roomAccess, type MemberStatus } from '../rooms/service.ts';
 import { nextSeq, appendEvent, RoomEndedError } from '../rooms/events.ts';
 import { notifyRoom } from '../realtime/bus.ts';
 import { takeToken } from '../limits.ts';
@@ -21,7 +23,17 @@ import { cached } from '../ai/context-cache.ts';
 
 const AI_LABEL = 'AI Co-host';
 
-async function aiBudget(db, room, userId) {
+// Jobs as the handlers read them (payloads hold ids only; lib/chat/messages.ts and lib/match/feed.ts queue them).
+type AnswerJob = Pick<JobRow, 'room_id'> & { payload: { message_id: string; mode: 'mention' | 'unanswered' } };
+type MomentumJob = { payload: { signal_id: string } };
+// The claimed question: a member's message, so it always has a sender and text.
+type Question = Pick<MessageRow, 'id' | 'room_id' | 'seq' | 'thread_id' | 'match_seq'> & { sender_id: string; body: string };
+// A poll as Catch Me Up summarises it: counts maps option index to votes, null before the first vote.
+type PollSummary = Pick<PollRow, 'question' | 'options' | 'status'> & { counts: Record<string, number> | null };
+// A fresh poll for a quiet room: AI-written, or the sport's template when the AI is off or fails.
+interface PollIdea { question: string; options: string[]; source: string }
+
+async function aiBudget(db: Db, room: Pick<RoomRow, 'id'>, userId: string | null) {
   const c = config().cohost;
   const roomOk = await takeToken(db, `ai_room:${room.id}`, { limit: c.roomAiPer10Min, windowSeconds: 600 });
   if (!roomOk.ok) return false;
@@ -30,20 +42,20 @@ async function aiBudget(db, room, userId) {
 }
 
 // ---------------------------------------------------------------- answers (mention or unanswered question)
-export async function handleAnswerJob(db, job) {
+export async function handleAnswerJob(db: Db, job: AnswerJob) {
   const { message_id: messageId, mode } = job.payload;
   // Compare-and-set: only one path (a human reply or this job) can win the question.
-  const q = await one(db,
+  const q = await one<Question>(db,
     `UPDATE messages SET answer_state = 'ai_claimed' WHERE id = $1 AND room_id = $2 AND answer_state = 'pending'
      RETURNING id, room_id, sender_id, body, seq, thread_id, match_seq`, [messageId, job.room_id]);
   if (!q) return 'cancelled';
-  const room = await one(db, 'SELECT * FROM rooms WHERE id = $1', [q.room_id]);
-  const asker = await one(db, `SELECT status FROM room_members WHERE room_id = $1 AND user_id = $2`, [q.room_id, q.sender_id]);
-  const giveUp = async (state, visible) => {
+  const room = await one<RoomRow>(db, 'SELECT * FROM rooms WHERE id = $1', [q.room_id]);
+  const asker = await one<{ status: MemberStatus }>(db, `SELECT status FROM room_members WHERE room_id = $1 AND user_id = $2`, [q.room_id, q.sender_id]);
+  const giveUp = async (state: AnswerState, visible: boolean) => {
     await db.tx(async (t) => {
       await t.query(`UPDATE messages SET answer_state = $2 WHERE id = $1 AND answer_state = 'ai_claimed'`, [q.id, state]);
       if (visible) await appendEvent(t, q.room_id, 'message_update', q.id);
-    }).catch((err) => { if (!(err instanceof RoomEndedError)) throw err; });
+    }).catch((err: unknown) => { if (!(err instanceof RoomEndedError)) throw err; });
     if (visible) notifyRoom(q.room_id);
     return state;
   };
@@ -69,7 +81,7 @@ export async function handleAnswerJob(db, job) {
       QUESTION_UNTRUSTED: question,
     }),
     validate: (v) => validateOutput('answer', v, grounding),
-    isCancelled: async () => (await one(db, `SELECT status FROM rooms WHERE id = $1`, [room.id]))?.status !== 'active',
+    isCancelled: async () => (await one<Pick<RoomRow, 'status'>>(db, `SELECT status FROM rooms WHERE id = $1`, [room.id]))?.status !== 'active',
   });
   if (!result.ok) {
     log.info('cohost.answer_unavailable', { room: room.id, category: result.category, mode });
@@ -87,10 +99,10 @@ export async function handleAnswerJob(db, job) {
   };
   // Idempotent publication: the client key is derived from the question, so a re-run cannot post twice.
   const published = await db.tx(async (t) => {
-    const claim = await one(t, `UPDATE messages SET answer_state = 'ai_answered' WHERE id = $1 AND answer_state = 'ai_claimed' RETURNING id`, [q.id]);
+    const claim = await one<Pick<MessageRow, 'id'>>(t, `UPDATE messages SET answer_state = 'ai_answered' WHERE id = $1 AND answer_state = 'ai_claimed' RETURNING id`, [q.id]);
     if (!claim) return null;
     const seq = await nextSeq(t, room.id);
-    const row = await one(t,
+    const row = await one<Pick<MessageRow, 'id'>>(t,
       `INSERT INTO messages (id, room_id, seq, sender_type, sender_id, client_msg_id, body, reply_to_id, status, ai_meta, thread_id)
        VALUES ($1, $2, $3, 'ai', NULL, $4, $5, $6, 'visible', $7::jsonb, $8)
        ON CONFLICT (room_id, client_msg_id) WHERE sender_type = 'ai' DO NOTHING RETURNING id`,
@@ -99,7 +111,7 @@ export async function handleAnswerJob(db, job) {
     await appendEvent(t, room.id, 'message', row.id, seq);
     await appendEvent(t, room.id, 'message_update', q.id);
     return row.id;
-  }).catch((err) => { if (err instanceof RoomEndedError) return null; throw err; });
+  }).catch((err: unknown) => { if (err instanceof RoomEndedError) return null; throw err; });
   if (!published) return 'discarded';
   notifyRoom(room.id);
   await queueAnswerPush(db, { roomId: room.id, userId: q.sender_id, messageId: q.id });
@@ -107,8 +119,8 @@ export async function handleAnswerJob(db, job) {
 }
 
 // ---------------------------------------------------------------- conversation continuity
-async function generatePoll(db, room, userId): Promise<{ question: string; options: string[]; source: string } | null> {
-  const m = room.match_id ? await one(db, 'SELECT * FROM matches WHERE id = $1', [room.match_id]) : null;
+async function generatePoll(db: Db, room: Pick<RoomRow, 'id' | 'match_id' | 'ai_enabled'>, userId: string | null): Promise<PollIdea | null> {
+  const m = room.match_id ? await one<MatchRow>(db, 'SELECT * FROM matches WHERE id = $1', [room.match_id]) : null;
   if (!m) return null;
   const fixture = fixtureFor(m);
   const state = await matchState(db, m);
@@ -124,19 +136,20 @@ async function generatePoll(db, room, userId): Promise<{ question: string; optio
   return res.ok ? { question: res.value.question, options: res.value.options, source: 'ai' } : fallback;
 }
 
-export async function handleContinuityJob(db, job) {
+export async function handleContinuityJob(db: Db, job: Pick<JobRow, 'room_id'>) {
   const c = config().cohost;
-  const room = await one(db, 'SELECT * FROM rooms WHERE id = $1', [job.room_id]);
+  const room = await one<RoomRow>(db, 'SELECT * FROM rooms WHERE id = $1', [job.room_id]);
   if (!room || room.status !== 'active' || !room.ai_enabled || !room.match_id) return 'skipped';
-  const match = await one(db, 'SELECT status FROM matches WHERE id = $1', [room.match_id]);
+  const match = await one<Pick<MatchRow, 'status'>>(db, 'SELECT status FROM matches WHERE id = $1', [room.match_id]);
   if (match?.status !== 'live') return 'skipped';
-  const last = await one(db,
+  // Aggregate queries always return one row; idle is null before the room's first member message.
+  const last = await one<{ idle: number | null }>(db,
     `SELECT EXTRACT(EPOCH FROM (now() - max(created_at)))::float8 AS idle FROM messages WHERE room_id = $1 AND sender_type = 'user'`, [room.id]);
   if (last?.idle != null && last.idle < c.quietMinutes * 60) return 'not_quiet';
-  const online = await one(db, `SELECT count(*)::int AS n FROM room_presence WHERE room_id = $1 AND last_seen_at > now() - interval '45 seconds'`, [room.id]);
+  const online = (await one<{ n: number }>(db, `SELECT count(*)::int AS n FROM room_presence WHERE room_id = $1 AND last_seen_at > now() - interval '45 seconds'`, [room.id]))!;
   if (online.n < 1) return 'nobody_here';
-  const recent = await one(db,
-    `SELECT count(*)::int AS n FROM polls WHERE room_id = $1 AND created_at > now() - make_interval(mins => $2)`, [room.id, c.promptCooldownMinutes]);
+  const recent = (await one<{ n: number }>(db,
+    `SELECT count(*)::int AS n FROM polls WHERE room_id = $1 AND created_at > now() - make_interval(mins => $2)`, [room.id, c.promptCooldownMinutes]))!;
   if (recent.n > 0) return 'cooldown';
   const poll = await generatePoll(db, room, null);
   if (!poll) return 'skipped';
@@ -144,20 +157,20 @@ export async function handleContinuityJob(db, job) {
   try {
     await createPoll(db, room.id, { ...poll, idempotencyKey: `continuity:${room.id}:${bucket}` });
   } catch (err) {
-    if (err instanceof RoomEndedError || err?.code === 'poll_open') return 'skipped';
+    if (err instanceof RoomEndedError || errorCode(err) === 'poll_open') return 'skipped';
     throw err;
   }
   return 'published';
 }
 
-export async function suggestPoll(db, user, roomId, body) {
+export async function suggestPoll(db: Db, user: SessionUser, roomId: string, body: RequestBody) {
   onlyKeys(body, ['client_request_id']);
   if (typeof body.client_request_id !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(body.client_request_id)) throw badRequest('client_request_id is required.');
   const { room } = await roomAccess(db, roomId, user);
   if (!room.match_id) throw badRequest('This room is not following a match.');
-  const open = await one(db, `SELECT id FROM polls WHERE room_id = $1 AND status = 'open' AND closes_at > now()`, [roomId]);
+  const open = await one<Pick<PollRow, 'id'>>(db, `SELECT id FROM polls WHERE room_id = $1 AND status = 'open' AND closes_at > now()`, [roomId]);
   if (open) throw conflict('There is already an open poll in this room.', 'poll_open');
-  const recent = await one(db, `SELECT count(*)::int AS n FROM polls WHERE room_id = $1 AND created_at > now() - interval '60 seconds'`, [roomId]);
+  const recent = (await one<{ n: number }>(db, `SELECT count(*)::int AS n FROM polls WHERE room_id = $1 AND created_at > now() - interval '60 seconds'`, [roomId]))!; // count(*) always returns a row
   if (recent.n) throw new HttpError(429, 'rate_limited', 'A poll was just posted. Try again in a minute.', { retry_after: 60 });
   const poll = await generatePoll(db, room, user.id);
   if (!poll) throw badRequest('This room is not following a match.');
@@ -166,8 +179,8 @@ export async function suggestPoll(db, user, roomId, body) {
 }
 
 // ---------------------------------------------------------------- match momentum
-export async function handleMomentumJob(db, job) {
-  const signal = await one(db,
+export async function handleMomentumJob(db: Db, job: MomentumJob) {
+  const signal = await one<SignalRow & { expired: boolean }>(db,
     `SELECT s.*, (s.expires_at <= now()) AS expired FROM match_signals s WHERE s.id = $1`, [job.payload.signal_id]);
   if (!signal || signal.status !== 'pending') return 'done';
   if (signal.expired) {
@@ -175,11 +188,11 @@ export async function handleMomentumJob(db, job) {
     return 'expired';
   }
   // Stage 2: the AI explains the verified signal in one sentence. Optional; the fact text stands on its own.
-  let aiText = null;
-  let provider = null;
-  let model = null;
+  let aiText: string | null = null;
+  let provider: string | null = null;
+  let model: string | null = null;
   const orchestrator = await ai();
-  const anyAiRoom = await one(db, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active' AND ai_enabled LIMIT 1`, [signal.match_id]);
+  const anyAiRoom = await one<Pick<RoomRow, 'id'>>(db, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active' AND ai_enabled LIMIT 1`, [signal.match_id]);
   if (orchestrator.available && anyAiRoom) {
     const mc = await matchContext(db, { match_id: signal.match_id });
     const allowedEventIds = new Set<string>([...mc.allowedEventIds, signal.event_id]);
@@ -194,17 +207,17 @@ export async function handleMomentumJob(db, job) {
     });
     if (res.ok) ({ value: { text: aiText }, provider, model } = res);
   }
-  const published = await one(db,
+  const published = await one<Pick<SignalRow, 'id'>>(db,
     `UPDATE match_signals SET status = 'published', published_at = now(), ai_text = $2, ai_provider = $3, ai_model = $4
       WHERE id = $1 AND status = 'pending' AND expires_at > now() RETURNING id`, [signal.id, aiText, provider, model]);
   if (!published) return 'done';
   // Fan-out: one in-app insight per active room following this match (deduped per room + signal).
-  const rooms = await many(db, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active'`, [signal.match_id]);
+  const rooms = await many<Pick<RoomRow, 'id'>>(db, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active'`, [signal.match_id]);
   for (const r of rooms) {
     try {
       const added = await db.tx(async (t) => {
         const seq = await nextSeq(t, r.id);
-        const row = await one(t,
+        const row = await one<{ id: string }>(t,
           `INSERT INTO room_insights (id, room_id, signal_id, seq) VALUES ($1, $2, $3, $4)
            ON CONFLICT (room_id, signal_id) DO NOTHING RETURNING id`,
           [newId('ins'), r.id, signal.id, seq]);
@@ -214,7 +227,9 @@ export async function handleMomentumJob(db, job) {
       });
       if (added) notifyRoom(r.id);
     } catch (err) {
-      if (!(err instanceof RoomEndedError) && !err.duplicate) throw err;
+      // The marker thrown above when this room already has the insight.
+      const duplicate = err instanceof Error && 'duplicate' in err && err.duplicate;
+      if (!(err instanceof RoomEndedError) && !duplicate) throw err;
     }
   }
   await queueMomentumPushes(db, signal); // applies the priority filter and the per-match cap
@@ -222,19 +237,19 @@ export async function handleMomentumJob(db, job) {
 }
 
 // ---------------------------------------------------------------- Catch Me Up (on request, to the requester only)
-export async function catchUp(db, user, roomId, body) {
+export async function catchUp(db: Db, user: SessionUser, roomId: string, body: RequestBody) {
   onlyKeys(body, ['since_seq']);
   const { room } = await roomAccess(db, roomId, user);
   const limited = await takeToken(db, `catchup:${user.id}`, { limit: 4, windowSeconds: 120 });
   if (!limited.ok) throw new HttpError(429, 'rate_limited', 'Give it a moment before catching up again.', { retry_after: limited.retryAfter });
   const sinceSeq = Number.isInteger(body.since_seq) ? clamp(body.since_seq, Math.max(0, room.last_seq - 300), room.last_seq) : Math.max(0, room.last_seq - 40);
-  const sinceRow = await one(db, 'SELECT created_at FROM room_events WHERE room_id = $1 AND seq <= $2 ORDER BY seq DESC LIMIT 1', [roomId, sinceSeq]);
+  const sinceRow = await one<Pick<RoomEventRow, 'created_at'>>(db, 'SELECT created_at FROM room_events WHERE room_id = $1 AND seq <= $2 ORDER BY seq DESC LIMIT 1', [roomId, sinceSeq]);
   const since = sinceRow?.created_at || null;
 
   const messages = await roomMessages(db, roomId, { limit: 40, sinceSeq });
   const events = (await eventsSince(db, room.match_id, since)).reverse();
   const signals = await publishedSignalsSince(db, room.match_id, since);
-  const polls = await many(db,
+  const polls = await many<PollSummary>(db,
     `SELECT p.question, p.options, p.status,
             (SELECT jsonb_object_agg(option_index, n) FROM (SELECT option_index, count(*)::int AS n FROM poll_votes v WHERE v.poll_id = p.id GROUP BY option_index) c) AS counts
        FROM polls p WHERE p.room_id = $1 AND p.seq > $2 ORDER BY p.seq LIMIT 3`, [roomId, sinceSeq]);

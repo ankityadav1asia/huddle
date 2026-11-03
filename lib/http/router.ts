@@ -1,17 +1,39 @@
 // Minimal JSON router shared by the local server (server.js) and the Vercel function (api/router.js).
 // Every handler gets the verified user from the session cookie; request bodies never carry identity.
-import { HttpError } from '../util.ts';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { HttpError, errorCode, type RequestBody } from '../util.ts';
 import { log } from '../log.ts';
-import { config } from '../config.ts';
-import { getDb } from '../db/index.ts';
-import { sessionUser } from '../auth/sessions.ts';
+import { config, type Config } from '../config.ts';
+import { getDb, type Db } from '../db/index.ts';
+import { sessionUser, type Session, type SessionUser } from '../auth/sessions.ts';
+
+// On Vercel the request may arrive with its body already read (parsed JSON, a string or a Buffer).
+export interface ApiRequest extends IncomingMessage { body?: unknown }
+
+// What every handler gets.
+interface BaseContext {
+  req: ApiRequest;
+  res: ServerResponse;
+  params: Record<string, string>; // from the route pattern, always present
+  query: Record<string, string | undefined>;
+  body: RequestBody; // null for GET and DELETE
+  db: Db;
+  cfg: Config;
+  ip: string;
+}
+// A signed-in route (auth: 'user', the default).
+export interface RouteContext extends BaseContext { user: SessionUser; session: Session }
+// A public route (auth: 'none'): no session is looked up.
+export interface PublicRouteContext extends BaseContext { user: null; session: null }
+// What handleApi builds; route() says which of the two a handler sees.
+type DispatchContext = BaseContext & { user: SessionUser | null; session: Session | null };
 
 type Auth = 'user' | 'none';
 interface Route {
   method: string;
   regex: RegExp;
   keys: string[];
-  handler: (ctx: any) => any;
+  handler: (ctx: DispatchContext) => unknown;
   auth: Auth;
   profile: boolean;
 }
@@ -20,16 +42,23 @@ const routes: Route[] = [];
 const MAX_BODY = 8 * 1024;
 const REPLY = Symbol('reply');
 
-// Handlers return a plain body (200), or reply(status, body, headers) for anything else.
-export const reply = (status: number, body: unknown, headers: Record<string, string> = {}) => ({ [REPLY]: true, status, body, headers });
+export interface Reply { [REPLY]: true; status: number; body: unknown; headers: Record<string, string> }
 
-export function route(method: string, pattern: string, handler: (ctx: any) => any, opts: { auth?: Auth; profile?: boolean } = {}) {
+// Handlers return a plain body (200), or reply(status, body, headers) for anything else.
+export const reply = (status: number, body: unknown, headers: Record<string, string> = {}): Reply => ({ [REPLY]: true, status, body, headers });
+
+// profile: whether the route needs a finished profile (a handle) as well as a session.
+export function route(method: string, pattern: string, handler: (ctx: RouteContext) => unknown, opts?: { auth?: 'user'; profile?: boolean }): void;
+export function route(method: string, pattern: string, handler: (ctx: PublicRouteContext) => unknown, opts: { auth: 'none' }): void;
+export function route(method: string, pattern: string, handler: ((ctx: RouteContext) => unknown) | ((ctx: PublicRouteContext) => unknown), opts: { auth?: Auth; profile?: boolean } = {}) {
   const keys: string[] = [];
-  const regex = new RegExp(`^${pattern.replace(/:([a-zA-Z]+)/g, (_, k) => { keys.push(k); return '([^/]+)'; })}/?$`);
-  routes.push({ method, regex, keys, handler, auth: opts.auth ?? 'user', profile: opts.profile ?? true });
+  const regex = new RegExp(`^${pattern.replace(/:([a-zA-Z]+)/g, (_, k: string) => { keys.push(k); return '([^/]+)'; })}/?$`);
+  // handleApi gives a 'user' route the signed-in user (it answers 401 without one) and a 'none' route no session,
+  // a pairing of r.auth with ctx.user that TypeScript cannot follow.
+  routes.push({ method, regex, keys, handler: handler as (ctx: DispatchContext) => unknown, auth: opts.auth ?? 'user', profile: opts.profile ?? true });
 }
 
-function match(method, pathname) {
+function match(method: string | undefined, pathname: string) {
   let allowed = false;
   for (const r of routes) {
     const m = r.regex.exec(pathname);
@@ -40,7 +69,7 @@ function match(method, pathname) {
   return allowed ? 'method' : null;
 }
 
-async function readJson(req) {
+async function readJson(req: ApiRequest): Promise<RequestBody> {
   if (req.method === 'GET' || req.method === 'DELETE') return null;
   const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   // Text and emoji only: multipart uploads, images, audio and documents are refused at the boundary.
@@ -67,7 +96,7 @@ async function readJson(req) {
   }
 }
 
-export function send(res, status, body, headers = {}) {
+export function send(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
   if (res.headersSent) return;
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -78,10 +107,10 @@ export function send(res, status, body, headers = {}) {
   res.end(JSON.stringify(body));
 }
 
-const clientIp = (req) => String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'local').split(',')[0].trim();
+const clientIp = (req: ApiRequest) => String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'local').split(',')[0].trim();
 
 // State-changing requests must come from this origin (cookie auth + CSRF defence alongside SameSite=Lax).
-function checkOrigin(req) {
+function checkOrigin(req: ApiRequest) {
   if (req.method === 'GET') return;
   const origin = req.headers.origin;
   if (!origin) return;
@@ -94,9 +123,13 @@ function checkOrigin(req) {
   }
 }
 
-export async function handleApi(req, res) {
+// A handler's reply(...) result, as opposed to a plain body.
+const isReply = (out: unknown): out is Reply => typeof out === 'object' && out !== null && REPLY in out;
+
+export async function handleApi(req: ApiRequest, res: ServerResponse) {
   const started = Date.now();
-  const url = new URL(req.url, 'http://localhost');
+  // Requests from an http.Server always carry a url.
+  const url = new URL(req.url!, 'http://localhost');
   let code = 'ok';
   try {
     const found = match(req.method, url.pathname);
@@ -109,21 +142,21 @@ export async function handleApi(req, res) {
     const auth = r.auth === 'none' ? null : await sessionUser(db, req);
     if (r.auth === 'user' && !auth) throw new HttpError(401, 'unauthenticated', 'Sign in to continue.');
     if (r.auth === 'user' && r.profile && !auth!.user.handle) throw new HttpError(403, 'profile_required', 'Finish setting up your profile first.');
-    const ctx = {
+    const ctx: DispatchContext = {
       req, res, params, body, db, cfg: config(), ip: clientIp(req),
       query: Object.fromEntries(url.searchParams),
       user: auth?.user || null, session: auth?.session || null,
     };
     const out = await r.handler(ctx);
     if (out === undefined) return; // handler wrote the response itself
-    if (out?.[REPLY]) send(res, out.status, out.body, out.headers);
+    if (isReply(out)) send(res, out.status, out.body, out.headers);
     else send(res, 200, out);
   } catch (err) {
     if (err instanceof HttpError) {
       code = err.code;
-      const headers = err.extra?.retry_after ? { 'retry-after': String(err.extra.retry_after) } : {};
+      const headers: Record<string, string> = err.extra?.retry_after ? { 'retry-after': String(err.extra.retry_after) } : {};
       send(res, err.status, { error: { code: err.code, message: err.message, ...err.extra } }, headers);
-    } else if (err?.code === 'db_not_configured') {
+    } else if (errorCode(err) === 'db_not_configured') {
       code = 'db_not_configured';
       send(res, 503, { error: { code, message: 'The Watch Party database is not configured on this server.' } });
     } else {

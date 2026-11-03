@@ -1,15 +1,39 @@
 // Moderator queue: approve or remove held messages, act on reports, resolve appeals.
-import { api } from './api.ts';
+import { api, ApiError, errorMessage, type MeResponse } from './api.ts';
 import { el, clock } from './ui.ts';
+
+// GET /api/mod/queue: held messages, and open reports and appeals with the message they are about (only these fields).
+interface HeldMessage {
+  id: string;
+  body: string | null;
+  sender_type: 'user' | 'ai';
+  handle: string | null;
+  room_type: string;
+  created_at: string;
+  reports: number;
+  moderation: { categories?: string[] } | null; // what the automated check flagged
+}
+interface QueuedReport {
+  id: string;
+  kind: 'message' | 'ai_response' | 'appeal';
+  reason: string;
+  note: string | null;
+  created_at: string;
+  message_id: string | null;
+  body: string | null;
+  message_status: string | null;
+  sender_type: 'user' | 'ai' | null;
+  author_handle: string | null;
+}
 
 const body = document.getElementById('mod-body');
 
-const REASON = {
+const REASON: Partial<Record<string, string>> = {
   harassment: 'Harassment', hate: 'Hate speech', threat: 'Threat', spam: 'Spam', personal_info: 'Personal details',
   sexual: 'Sexual content', misinformation: 'Wrong match information', other: 'Other',
 };
 
-function actionButton(label, run, cls = 'ctl') {
+function actionButton(label: string, run: () => Promise<unknown>, cls = 'ctl') {
   const b = el('button', { type: 'button', class: cls, text: label });
   b.addEventListener('click', async () => {
     b.disabled = true;
@@ -18,31 +42,36 @@ function actionButton(label, run, cls = 'ctl') {
       await load();
     } catch (err) {
       b.disabled = false;
-      alertLine(err.message);
+      alertLine(errorMessage(err));
     }
   });
   return b;
 }
 
 let status: HTMLParagraphElement;
-function alertLine(text) {
+function alertLine(text: string) {
   status.textContent = text;
 }
 
 async function load() {
   if (!body) return;
-  let me;
+  let me: MeResponse;
   try {
     me = await api.get('/api/me');
   } catch (err) {
-    body.replaceChildren(el('div', { class: 'card' }, el('p', { text: err.status === 401 ? 'Sign in on the main page first.' : err.message }), el('a', { href: '/', text: 'Go to Huddle' })));
+    body.replaceChildren(el('div', { class: 'card' }, el('p', { text: err instanceof ApiError && err.status === 401 ? 'Sign in on the main page first.' : errorMessage(err) }), el('a', { href: '/', text: 'Go to Huddle' })));
     return;
   }
-  let q;
+  let q: { held: HeldMessage[]; reports: QueuedReport[] };
   try {
     q = await api.get('/api/mod/queue');
   } catch (err) {
-    body.replaceChildren(el('div', { class: 'card' }, el('p', { text: err.status === 403 ? `Moderators only. You are signed in as @${me.user.handle}.` : err.message })));
+    // A profile without a handle is refused before the moderator check: it has to be finished first.
+    const refused = err instanceof ApiError && err.status === 403;
+    const text = !refused ? errorMessage(err)
+      : err.code === 'profile_required' || !me.user.handle ? 'Finish setting up your profile on the main page first.'
+        : `Moderators only. You are signed in as @${me.user.handle}.`;
+    body.replaceChildren(el('div', { class: 'card' }, el('p', { text })));
     return;
   }
   status = el('p', { class: 'form-error', role: 'alert' });

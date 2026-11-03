@@ -4,27 +4,32 @@
 // thing at the same moment, and nothing is stored. The UI labels them as simulated fans; they are not chat
 // messages, so they never reach the AI Co-host, the message rate limit or moderation queues. Private rooms do not
 // get them: only the people invited are there.
-import { one, many } from '../db/index.ts';
+import { one, many, type Queryable } from '../db/index.ts';
+import type { MatchEventRow, MatchRow, ModerationLevel } from '../db/rows.ts';
 import { fixtureFor } from './fixture.ts';
 import { seeded } from './fans.ts';
 import { classify } from '../moderation/classifier.ts';
 
 const WINDOW_SECONDS = 45;
 
+interface CrowdRequest { roomId: string; matchId: string; speed?: number; level?: ModerationLevel }
+// One simulated fan's line, as GET /api/rooms/:id/match sends it.
+export interface CrowdLine { id: string; at: string; fan: string; team: string; text: string; thread: string | null }
+
 // Lines for the plays of the last WINDOW_SECONDS (plays skipped by a jump get none), each with the moment it is
 // due: `at` = when the play happened plus its place in the burst, scaled by the replay speed. Lines the room's
 // moderation level would not allow are left out. Cues that react to the latest big moment carry its #thread.
-export async function crowdLines(db, { roomId, matchId, speed = 1, level = 'balanced' }) {
-  const recent = await many(db,
+export async function crowdLines(db: Queryable, { roomId, matchId, speed = 1, level = 'balanced' }: CrowdRequest): Promise<CrowdLine[]> {
+  const recent = await many<Pick<MatchEventRow, 'seq' | 'occurred_at'>>(db,
     `SELECT seq, occurred_at FROM match_events
       WHERE match_id = $1 AND NOT backfilled AND occurred_at > now() - make_interval(secs => $2) ORDER BY seq`,
     [matchId, WINDOW_SECONDS]);
   if (!recent.length) return [];
-  const fixture = fixtureFor(await one(db, 'SELECT fixture_key FROM matches WHERE id = $1', [matchId]) || {});
+  const fixture = fixtureFor(await one<Pick<MatchRow, 'fixture_key'>>(db, 'SELECT fixture_key FROM matches WHERE id = $1', [matchId]) || {});
   const { engine, crowd } = fixture;
   const [sideA, sideB] = fixture.teams.map((t) => t.code);
   const due = new Map(recent.map((r) => [r.seq, new Date(r.occurred_at).getTime()]));
-  const lines: { id: string; at: string; fan: string; team: string; text: string; thread: string | null }[] = [];
+  const lines: CrowdLine[] = [];
   let state = engine.initialState(fixture);
   let moment: string | null = null; // the #thread the latest big moment opened
   for (let i = 0; i <= recent[recent.length - 1].seq && i < fixture.items.length; i++) {
@@ -35,7 +40,7 @@ export async function crowdLines(db, { roomId, matchId, speed = 1, level = 'bala
     const burst = crowd.burstFor(fixture.items[i], state, rand);
     if (!burst) continue;
     const thread = crowd.momentCues.has(burst.key) ? moment : null;
-    const said = new Set();
+    const said = new Set<string>();
     for (let k = 0; k < burst.n; k++) {
       const team = rand() < (burst.share ?? burst.mi ?? 0.5) ? sideA : sideB;
       // Lines that @-mention someone were written for the old demo's creator-host, who is not in a watch party.

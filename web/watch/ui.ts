@@ -26,7 +26,8 @@ export function el(tag: string, props: Record<string, any> | null = {}, ...child
     else if (k === 'text') node.textContent = v;
     else if (k === 'dataset') Object.assign(node.dataset, v);
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (typeof v === 'boolean' || typeof v === 'number') node[k] = v;
+    // A property the caller names (hidden, disabled, checked); no type guard can check a name, hence the cast.
+    else if (typeof v === 'boolean' || typeof v === 'number') (node as HTMLElement & Record<string, unknown>)[k] = v;
     else node.setAttribute(k, v);
   }
   for (const c of children.flat(3)) {
@@ -62,27 +63,28 @@ export function aiLabel(text: string) {
   return label;
 }
 
-export const initials = (handle = '') => (String(handle).split(/[^a-z0-9]+/i).filter(Boolean).map((s) => s[0]).join('') || String(handle)).slice(0, 2).toUpperCase();
+export const initials = (handle: string | null = '') => (String(handle).split(/[^a-z0-9]+/i).filter(Boolean).map((s) => s[0]).join('') || String(handle)).slice(0, 2).toUpperCase();
 
 // Colours for every team a fan can back (and the simulated fans' sides); styles.css maps t-<code> to them.
 const TEAM_COLOURS = new Set(['MI', 'CSK', 'MCL', 'RBR', 'FER', 'MER', 'GSW', 'LAL', 'EDM', 'TOR']);
-export const teamClass = (team) => (TEAM_COLOURS.has(team) ? `team t-${team.toLowerCase()}` : '');
+export const teamClass = (team: string | null) => (team && TEAM_COLOURS.has(team) ? `team t-${team.toLowerCase()}` : '');
 
-export function teamLogo(team, cls = '') {
-  return el('img', { class: `logo ${cls}`.trim(), src: team?.logo || `assets/${String(team?.code || team).toLowerCase()}.png`, alt: '' });
+// A team code ('MI'), or a team from the match data, which may carry its own logo.
+export function teamLogo(team: string | { code: string; logo?: string }, cls = '') {
+  return el('img', { class: `logo ${cls}`.trim(), src: (typeof team === 'object' && team.logo) || `assets/${String(typeof team === 'object' ? team.code || team : team).toLowerCase()}.png`, alt: '' });
 }
 
-export function clock(date) {
+export function clock(date: string) {
   const d = new Date(date);
   return Number.isFinite(d.getTime()) ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 }
 
-export function clockSeconds(date) {
+export function clockSeconds(date: string) {
   const d = new Date(date);
   return Number.isFinite(d.getTime()) ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
 }
 
-export function ago(seconds) {
+export function ago(seconds: number | null) {
   if (seconds == null || !Number.isFinite(seconds)) return '';
   const s = Math.max(0, Math.round(seconds));
   if (s < 5) return 'just now';
@@ -91,14 +93,14 @@ export function ago(seconds) {
   return `${Math.floor(s / 3600)} h ago`;
 }
 
-export function inHours(date) {
+export function inHours(date: string) {
   const ms = new Date(date).getTime() - Date.now();
   if (!Number.isFinite(ms)) return '';
   const h = Math.round(ms / 3600000);
   return h >= 1 ? `expires in ${h} h` : 'expires soon';
 }
 
-export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // One floating message at a time (in-app alerts, errors, confirmations).
 let toastTimer = 0;
@@ -126,9 +128,9 @@ export function fitPhone() {
   if (phone) phone.style.zoom = innerWidth > 520 ? String(Math.min(1, (innerHeight - 32) / 864)) : '';
 }
 
-export function setRail(...children) {
+export function setRail(...children: (Node | null | readonly Node[])[]) {
   const rail = document.getElementById('rail');
-  if (rail) rail.replaceChildren(...children.flat().filter(Boolean));
+  if (rail) rail.replaceChildren(...children.flat().filter((c): c is Node => Boolean(c)));
 }
 
 export function railIntro() {

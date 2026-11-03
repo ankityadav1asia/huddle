@@ -2,10 +2,12 @@
 // the acting user comes from the session, room type and roles come from the database, and a private room
 // is indistinguishable from a missing one for anyone who is not a member.
 import { config } from '../config.ts';
-import { one, many } from '../db/index.ts';
-import { HttpError, badRequest, notFound, forbidden, conflict, cleanText, isId, requireId, onlyKeys, newId } from '../util.ts';
+import { one, many, type Db, type Queryable } from '../db/index.ts';
+import type { MatchRow, ModerationLevel, RoomRole, RoomRow, UserRow } from '../db/rows.ts';
+import type { SessionUser } from '../auth/sessions.ts';
+import { HttpError, badRequest, notFound, forbidden, conflict, cleanText, isId, requireId, onlyKeys, newId, type RequestBody } from '../util.ts';
 import { checkName } from '../moderation/classifier.ts';
-import { LEVELS, effectivePolicy, POLICY_VERSION } from '../moderation/policy.ts';
+import { LEVELS, effectivePolicy, POLICY_VERSION, type Policy } from '../moderation/policy.ts';
 import { appendEvent, RoomEndedError } from './events.ts';
 import { notifyRoom } from '../realtime/bus.ts';
 import { enqueue } from '../jobs/queue.ts';
@@ -14,12 +16,42 @@ import { startMatchIfScheduled } from '../match/feed.ts';
 import { createRoomReplay } from '../match/replay.ts';
 import { fixtureFor, sportRank } from '../match/fixture.ts';
 
-export const isAdminRole = (role) => role === 'owner' || role === 'admin';
+export type MemberStatus = 'active' | 'left' | 'removed';
+type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'expired' | 'revoked';
+
+interface InvitationRow {
+  id: string;
+  room_id: string;
+  inviter_id: string;
+  invitee_id: string;
+  status: InvitationStatus;
+  created_at: Date;
+  expires_at: Date;
+  responded_at: Date | null;
+}
+
+// A room with the acting user's room_members row (a LEFT JOIN: role and status are both null without one).
+type RoomWithMembership = RoomRow & (
+  | { role: RoomRole; member_status: 'active' }
+  | { role: RoomRole; member_status: 'left' | 'removed' }
+  | { role: null; member_status: null });
+
+// The room as an active member sees it, from roomAccess.
+export type MemberRoom = RoomRow & { role: RoomRole; member_status: 'active' };
+export interface RoomAccess { room: MemberRoom; role: RoomRole; policy: Policy }
+
+export interface InviteResult {
+  user_id: string;
+  result: 'invited' | 'not_found' | 'already_member' | 'room_full' | 'already_invited';
+  invitation_id?: string;
+}
+
+export const isAdminRole = (role: RoomRole) => role === 'owner' || role === 'admin';
 
 // Central access check. Returns { room, role, policy } for an active member of an active room.
-export async function roomAccess(q, roomId, user, { allowEnded = false } = {}) {
+export async function roomAccess(q: Queryable, roomId: string, user: Pick<SessionUser, 'id'>, { allowEnded = false } = {}): Promise<RoomAccess> {
   if (!isId(roomId, 'room')) throw notFound('Room not found.');
-  const room = await one(q,
+  const room = await one<RoomWithMembership>(q,
     `SELECT r.*, m.role, m.status AS member_status FROM rooms r
        LEFT JOIN room_members m ON m.room_id = r.id AND m.user_id = $2
       WHERE r.id = $1`, [roomId, user.id]);
@@ -36,7 +68,8 @@ export async function roomAccess(q, roomId, user, { allowEnded = false } = {}) {
   return { room, role: room.role, policy: effectivePolicy(room) };
 }
 
-function parseInvitees(value, selfId) {
+// value: the invitee_ids the client sent, unchecked.
+function parseInvitees(value: unknown, selfId: string): string[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw badRequest('invitee_ids must be a list.');
   const ids = [...new Set(value)];
@@ -45,23 +78,23 @@ function parseInvitees(value, selfId) {
   return ids.filter((id) => id !== selfId);
 }
 
-async function inviteMany(q, room, inviter, inviteeIds) {
+async function inviteMany(q: Queryable, room: Pick<RoomRow, 'id'>, inviter: Pick<SessionUser, 'id'>, inviteeIds: string[]) {
   const cfg = config();
-  const results: { user_id: string; result: string; invitation_id?: string }[] = [];
+  const results: InviteResult[] = [];
   for (const inviteeId of inviteeIds) {
-    const invitee = await one(q, 'SELECT id, handle FROM users WHERE id = $1 AND handle IS NOT NULL', [inviteeId]);
+    const invitee = await one<Pick<UserRow, 'id' | 'handle'>>(q, 'SELECT id, handle FROM users WHERE id = $1 AND handle IS NOT NULL', [inviteeId]);
     if (!invitee) { results.push({ user_id: inviteeId, result: 'not_found' }); continue; }
-    const member = await one(q, `SELECT status FROM room_members WHERE room_id = $1 AND user_id = $2`, [room.id, inviteeId]);
+    const member = await one<{ status: MemberStatus }>(q, `SELECT status FROM room_members WHERE room_id = $1 AND user_id = $2`, [room.id, inviteeId]);
     if (member?.status === 'active') { results.push({ user_id: inviteeId, result: 'already_member' }); continue; }
-    const seats = await one(q,
+    const seats = await one<{ n: number }>(q,
       `SELECT (SELECT count(*)::int FROM room_members WHERE room_id = $1 AND status = 'active')
             + (SELECT count(*)::int FROM room_invitations WHERE room_id = $1 AND status = 'pending' AND expires_at > now()) AS n`,
       [room.id]);
-    if (seats.n >= cfg.rooms.maxMembers) { results.push({ user_id: inviteeId, result: 'room_full' }); continue; }
+    if (seats!.n >= cfg.rooms.maxMembers) { results.push({ user_id: inviteeId, result: 'room_full' }); continue; }
     await q.query(
       `UPDATE room_invitations SET status = 'expired' WHERE room_id = $1 AND invitee_id = $2 AND status = 'pending' AND expires_at <= now()`,
       [room.id, inviteeId]);
-    const inv = await one(q,
+    const inv = await one<Pick<InvitationRow, 'id'>>(q,
       `INSERT INTO room_invitations (id, room_id, inviter_id, invitee_id, status, expires_at)
        VALUES ($1, $2, $3, $4, 'pending', now() + make_interval(hours => $5))
        ON CONFLICT (room_id, invitee_id) WHERE status = 'pending' DO NOTHING
@@ -77,7 +110,7 @@ async function inviteMany(q, room, inviter, inviteeIds) {
 
 // own_replay: the room gets its own copy of the match's simulated replay, which its owner and admins control
 // (lib/rooms/replay.js). Without it the room follows the shared replay, like the public watch party.
-export async function createPrivateRoom(db, user, body) {
+export async function createPrivateRoom(db: Db, user: SessionUser, body: RequestBody) {
   onlyKeys(body, ['name', 'match_id', 'own_replay', 'moderation_level', 'invitee_ids', 'ai_enabled']);
   const name = cleanText(body.name, { max: 40, field: 'Room name' });
   if (!checkName(name)) throw badRequest('Choose a different room name.', 'name_rejected');
@@ -85,11 +118,11 @@ export async function createPrivateRoom(db, user, body) {
   if (!LEVELS.includes(level)) throw badRequest('Moderation must be relaxed, balanced or strict.', 'invalid_moderation_level');
   if (body.ai_enabled !== undefined && typeof body.ai_enabled !== 'boolean') throw badRequest('ai_enabled must be true or false.');
   if (body.own_replay !== undefined && typeof body.own_replay !== 'boolean') throw badRequest('own_replay must be true or false.');
-  let matchId = null;
-  let shared: any = null;
+  let matchId: string | null = null;
+  let shared: Pick<MatchRow, 'id' | 'status' | 'fixture_key'> | null = null;
   if (body.match_id !== undefined && body.match_id !== null) {
     requireId(body.match_id, 'mat', 'match_id');
-    shared = await one(db, 'SELECT id, status, fixture_key FROM matches WHERE id = $1 AND room_id IS NULL', [body.match_id]);
+    shared = await one<Pick<MatchRow, 'id' | 'status' | 'fixture_key'>>(db, 'SELECT id, status, fixture_key FROM matches WHERE id = $1 AND room_id IS NULL', [body.match_id]);
     if (!shared || (shared.status === 'completed' && !body.own_replay)) throw badRequest('That match is not available.', 'invalid_match');
     if (!body.own_replay) matchId = shared.id;
   } else if (body.own_replay) {
@@ -98,13 +131,14 @@ export async function createPrivateRoom(db, user, body) {
   const invitees = parseInvitees(body.invitee_ids, user.id);
 
   const out = await db.tx(async (q) => {
-    const owned = await one(q, `SELECT count(*)::int AS n FROM rooms WHERE creator_id = $1 AND status = 'active'`, [user.id]);
+    const owned = await one<{ n: number }>(q, `SELECT count(*)::int AS n FROM rooms WHERE creator_id = $1 AND status = 'active'`, [user.id]);
     const cap = config().rooms.maxActiveOwned;
-    if (owned.n >= cap) throw conflict(`You already have ${cap} active private rooms. End one first.`, 'room_limit');
-    const room = await one(q,
+    if (owned!.n >= cap) throw conflict(`You already have ${cap} active private rooms. End one first.`, 'room_limit');
+    // INSERT ... RETURNING always returns the new row.
+    const room = (await one<RoomRow>(q,
       `INSERT INTO rooms (id, name, room_type, creator_id, match_id, moderation_level, ai_enabled)
        VALUES ($1, $2, 'private', $3, $4, $5, $6) RETURNING *`,
-      [newId('room'), name, user.id, matchId, level, body.ai_enabled ?? true]);
+      [newId('room'), name, user.id, matchId, level, body.ai_enabled ?? true]))!;
     if (shared && body.own_replay) {
       // Waits for the host to press Start, so friends can arrive first.
       await q.query('UPDATE rooms SET match_id = $2 WHERE id = $1', [room.id, await createRoomReplay(q, room.id, shared.fixture_key)]);
@@ -119,7 +153,7 @@ export async function createPrivateRoom(db, user, body) {
   return out;
 }
 
-export async function inviteToRoom(db, user, roomId, body) {
+export async function inviteToRoom(db: Db, user: SessionUser, roomId: string, body: RequestBody) {
   onlyKeys(body, ['invitee_ids']);
   const result = await db.tx(async (q) => {
     const { room, role } = await roomAccess(q, roomId, user);
@@ -132,10 +166,14 @@ export async function inviteToRoom(db, user, roomId, body) {
   return { invitations: result };
 }
 
-export async function roomInvitations(db, user, roomId) {
+// An invitation as the room's owner and admins list it, with the invitee's profile.
+type RoomInvitationRow = Pick<InvitationRow, 'id' | 'status' | 'created_at' | 'expires_at' | 'responded_at'>
+  & { user_id: string; handle: string | null; display_name: string | null; lapsed: boolean };
+
+export async function roomInvitations(db: Queryable, user: SessionUser, roomId: string) {
   const { room, role } = await roomAccess(db, roomId, user);
   if (room.room_type !== 'private' || !isAdminRole(role)) throw forbidden('Only the room owner or an admin can see invitations.');
-  const rows = await many(db,
+  const rows = await many<RoomInvitationRow>(db,
     `SELECT i.id, i.status, i.created_at, i.expires_at, i.responded_at, u.id AS user_id, u.handle, u.display_name,
             (i.status = 'pending' AND i.expires_at <= now()) AS lapsed
        FROM room_invitations i JOIN users u ON u.id = i.invitee_id
@@ -143,8 +181,21 @@ export async function roomInvitations(db, user, roomId) {
   return { invitations: rows.map(({ lapsed, ...r }) => ({ ...r, status: lapsed ? 'expired' : r.status })) };
 }
 
-export async function myInvitations(db, user) {
-  const rows = await many(db,
+// A pending invitation as its invitee sees it.
+interface MyInvitationRow {
+  id: string;
+  expires_at: Date;
+  created_at: Date;
+  room_id: string;
+  room_name: string | null;
+  moderation_level: ModerationLevel | null;
+  inviter_handle: string | null;
+  inviter_name: string | null;
+  match_title: string | null;
+}
+
+export async function myInvitations(db: Queryable, user: SessionUser) {
+  const rows = await many<MyInvitationRow>(db,
     `SELECT i.id, i.expires_at, i.created_at, r.id AS room_id, r.name AS room_name, r.moderation_level,
             inv.handle AS inviter_handle, inv.display_name AS inviter_name, mt.title AS match_title
        FROM room_invitations i
@@ -156,11 +207,12 @@ export async function myInvitations(db, user) {
   return { invitations: rows };
 }
 
-export async function respondToInvitation(db, user, invitationId, action) {
+// action: what the client asked for, checked here ('accept' or 'decline').
+export async function respondToInvitation(db: Db, user: SessionUser, invitationId: string, action: string) {
   if (!['accept', 'decline'].includes(action)) throw badRequest('Choose accept or decline.');
   if (!isId(invitationId, 'inv')) throw notFound('Invitation not found.');
   const out = await db.tx(async (q) => {
-    const inv = await one(q,
+    const inv = await one<InvitationRow & { room_status: RoomRow['status']; lapsed: boolean }>(q,
       `SELECT i.*, r.status AS room_status, (i.expires_at <= now()) AS lapsed
          FROM room_invitations i JOIN rooms r ON r.id = i.room_id
         WHERE i.id = $1 AND i.invitee_id = $2 FOR UPDATE OF i`, [invitationId, user.id]);
@@ -175,8 +227,8 @@ export async function respondToInvitation(db, user, invitationId, action) {
       await q.query(`UPDATE room_invitations SET status = 'declined', responded_at = now() WHERE id = $1`, [inv.id]);
       return { status: 'declined' };
     }
-    const members = await one(q, `SELECT count(*)::int AS n FROM room_members WHERE room_id = $1 AND status = 'active'`, [inv.room_id]);
-    if (members.n >= config().rooms.maxMembers) throw conflict('This room is full.', 'room_full');
+    const members = await one<{ n: number }>(q, `SELECT count(*)::int AS n FROM room_members WHERE room_id = $1 AND status = 'active'`, [inv.room_id]);
+    if (members!.n >= config().rooms.maxMembers) throw conflict('This room is full.', 'room_full');
     await q.query(
       `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member')
        ON CONFLICT (room_id, user_id) DO UPDATE
@@ -192,10 +244,10 @@ export async function respondToInvitation(db, user, invitationId, action) {
   return out;
 }
 
-export async function revokeInvitation(db, user, invitationId) {
+export async function revokeInvitation(db: Db, user: SessionUser, invitationId: string) {
   if (!isId(invitationId, 'inv')) throw notFound('Invitation not found.');
   const out = await db.tx(async (q) => {
-    const inv = await one(q, 'SELECT * FROM room_invitations WHERE id = $1 FOR UPDATE', [invitationId]);
+    const inv = await one<InvitationRow>(q, 'SELECT * FROM room_invitations WHERE id = $1 FOR UPDATE', [invitationId]);
     if (!inv) throw notFound('Invitation not found.');
     const { role } = await roomAccess(q, inv.room_id, user);
     if (!isAdminRole(role)) throw notFound('Invitation not found.');
@@ -206,19 +258,19 @@ export async function revokeInvitation(db, user, invitationId) {
   return out;
 }
 
-export async function joinPublicRoom(db, user, roomId) {
+export async function joinPublicRoom(db: Db, user: SessionUser, roomId: string) {
   if (!isId(roomId, 'room')) throw notFound('Room not found.');
   const out = await db.tx(async (q) => {
-    const room = await one(q, 'SELECT * FROM rooms WHERE id = $1 FOR UPDATE', [roomId]);
+    const room = await one<RoomRow>(q, 'SELECT * FROM rooms WHERE id = $1 FOR UPDATE', [roomId]);
     if (!room || room.room_type !== 'public') throw notFound('Room not found.');
     if (room.status !== 'active') throw new RoomEndedError();
-    const existing = await one(q, 'SELECT status FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, user.id]);
+    const existing = await one<{ status: MemberStatus }>(q, 'SELECT status FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, user.id]);
     if (existing?.status === 'removed') throw forbidden('You were removed from this room.');
     if (existing?.status === 'active') return { joined: false, match_id: room.match_id };
     // The room row is locked above, so concurrent joins cannot push it past the cap.
     const cap = config().rooms.publicMaxMembers;
-    const members = await one(q, `SELECT count(*)::int AS n FROM room_members WHERE room_id = $1 AND status = 'active'`, [roomId]);
-    if (members.n >= cap) throw conflict(`This watch party is full (${cap} members).`, 'room_full');
+    const members = await one<{ n: number }>(q, `SELECT count(*)::int AS n FROM room_members WHERE room_id = $1 AND status = 'active'`, [roomId]);
+    if (members!.n >= cap) throw conflict(`This watch party is full (${cap} members).`, 'room_full');
     await q.query(
       `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member')
        ON CONFLICT (room_id, user_id) DO UPDATE SET status = 'active', role = 'member', joined_at = now(), left_at = NULL`,
@@ -231,7 +283,7 @@ export async function joinPublicRoom(db, user, roomId) {
   return { room_id: roomId };
 }
 
-export async function leaveRoom(db, user, roomId) {
+export async function leaveRoom(db: Db, user: SessionUser, roomId: string) {
   await db.tx(async (q) => {
     const { role } = await roomAccess(q, roomId, user);
     if (role === 'owner') throw conflict('As the owner, end the watch party instead of leaving it.', 'owner_cannot_leave');
@@ -243,14 +295,14 @@ export async function leaveRoom(db, user, roomId) {
   return { left: true };
 }
 
-export async function setMemberRole(db, user, roomId, targetId, body) {
+export async function setMemberRole(db: Db, user: SessionUser, roomId: string, targetId: string, body: RequestBody) {
   onlyKeys(body, ['role']);
   if (!['admin', 'member'].includes(body.role)) throw badRequest('Role must be admin or member.', 'invalid_role');
   await db.tx(async (q) => {
     const { room, role } = await roomAccess(q, roomId, user);
     if (room.room_type !== 'private' || role !== 'owner') throw forbidden('Only the room owner can change roles.');
     if (targetId === user.id) throw forbidden('You cannot change your own role.');
-    const target = await one(q, `SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2 AND status = 'active' FOR UPDATE`, [roomId, targetId]);
+    const target = await one<{ role: RoomRole }>(q, `SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2 AND status = 'active' FOR UPDATE`, [roomId, targetId]);
     if (!target) throw notFound('That person is not in this room.');
     await q.query('UPDATE room_members SET role = $3 WHERE room_id = $1 AND user_id = $2', [roomId, targetId, body.role]);
     await appendEvent(q, roomId, 'member', targetId);
@@ -259,12 +311,12 @@ export async function setMemberRole(db, user, roomId, targetId, body) {
   return { role: body.role };
 }
 
-export async function removeMember(db, user, roomId, targetId) {
+export async function removeMember(db: Db, user: SessionUser, roomId: string, targetId: string) {
   await db.tx(async (q) => {
     const { role } = await roomAccess(q, roomId, user);
     if (!isAdminRole(role)) throw forbidden('Only the room owner or an admin can remove people.');
     if (targetId === user.id) throw badRequest('Use leave to exit the room.');
-    const target = await one(q, `SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2 AND status = 'active' FOR UPDATE`, [roomId, targetId]);
+    const target = await one<{ role: RoomRole }>(q, `SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2 AND status = 'active' FOR UPDATE`, [roomId, targetId]);
     if (!target) throw notFound('That person is not in this room.');
     if (target.role === 'owner' || (target.role === 'admin' && role !== 'owner')) throw forbidden('You cannot remove this person.');
     await q.query(`UPDATE room_members SET status = 'removed', left_at = now() WHERE room_id = $1 AND user_id = $2`, [roomId, targetId]);
@@ -277,7 +329,7 @@ export async function removeMember(db, user, roomId, targetId) {
 }
 
 // Private rooms only, owner/admin only. Public moderation is never user-configurable.
-export async function updateRoomSettings(db, user, roomId, body) {
+export async function updateRoomSettings(db: Db, user: SessionUser, roomId: string, body: RequestBody) {
   onlyKeys(body, ['moderation_level', 'ai_enabled']);
   const out = await db.tx(async (q) => {
     const { room, role } = await roomAccess(q, roomId, user);
@@ -298,11 +350,18 @@ export async function updateRoomSettings(db, user, roomId, body) {
   return out;
 }
 
-export async function listRooms(db, user) {
+// A public watch party on the home list, with its match and how many people are in it.
+type PublicRoomRow = Pick<RoomRow, 'id' | 'name' | 'status' | 'match_id'> & Pick<MatchRow, 'fixture_key'>
+  & { match_title: string; match_status: MatchRow['status']; members: number; online: number; joined: boolean };
+// One of the viewer's private rooms on the home list.
+type MyRoomRow = Pick<RoomRow, 'id' | 'name' | 'room_type' | 'status' | 'moderation_level' | 'ended_at'>
+  & { role: RoomRole; match_title: string | null; members: number; online: number };
+
+export async function listRooms(db: Queryable, user: SessionUser) {
   // One public watch party per match that is live or upcoming. Rooms of finished matches close on their own
   // a few minutes after the result and are no longer offered.
   const cap = config().rooms.publicMaxMembers;
-  const publicRooms = (await many(db,
+  const publicRooms = (await many<PublicRoomRow>(db,
     `SELECT r.id, r.name, r.status, r.match_id, mt.title AS match_title, mt.status AS match_status, mt.fixture_key,
             (SELECT count(*)::int FROM room_members m WHERE m.room_id = r.id AND m.status = 'active') AS members,
             (SELECT count(*)::int FROM room_presence p WHERE p.room_id = r.id AND p.last_seen_at > now() - interval '45 seconds') AS online,
@@ -312,7 +371,7 @@ export async function listRooms(db, user) {
       ORDER BY r.created_at DESC LIMIT 10`, [user.id]))
     .sort((a, b) => sportRank(a.fixture_key) - sportRank(b.fixture_key)) // one per sport: cricket, F1, basketball, hockey
     .map(({ fixture_key: key, ...r }) => ({ ...r, sport: fixtureFor({ fixture_key: key }).sport, max_members: cap, full: r.members >= cap && !r.joined }));
-  const mine = await many(db,
+  const mine = await many<MyRoomRow>(db,
     `SELECT r.id, r.name, r.room_type, r.status, r.moderation_level, r.ended_at, m.role, mt.title AS match_title,
             (SELECT count(*)::int FROM room_members x WHERE x.room_id = r.id AND x.status = 'active') AS members,
             (SELECT count(*)::int FROM room_presence p WHERE p.room_id = r.id AND p.last_seen_at > now() - interval '45 seconds') AS online

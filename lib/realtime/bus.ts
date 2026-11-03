@@ -5,9 +5,9 @@ import { EventEmitter } from 'node:events';
 const bus = new EventEmitter();
 bus.setMaxListeners(0);
 
-export const notifyRoom = (roomId) => bus.emit(`room:${roomId}`);
+export const notifyRoom = (roomId: string) => bus.emit(`room:${roomId}`);
 
-export function waitForRoom(roomId, ms) {
+export function waitForRoom(roomId: string, ms: number) {
   return new Promise<void>((resolve) => {
     const key = `room:${roomId}`;
     const done = () => {

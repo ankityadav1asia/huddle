@@ -1,17 +1,26 @@
 // Polls: bounded creation (one open poll per room, idempotency key) and closing by a scheduled job.
 import { config } from '../config.ts';
-import { one } from '../db/index.ts';
+import { one, type Db } from '../db/index.ts';
+import type { PollRow } from '../db/rows.ts';
 import { newId, conflict } from '../util.ts';
 import { nextSeq, appendEvent } from '../rooms/events.ts';
 import { enqueue } from '../jobs/queue.ts';
 import { notifyRoom } from '../realtime/bus.ts';
 
-export async function createPoll(db, roomId, { question, options, source, requestedBy = null, idempotencyKey }: { question: string; options: string[]; source: string; requestedBy?: string | null; idempotencyKey: string }) {
+export interface NewPoll {
+  question: string;
+  options: string[];
+  source: string;
+  requestedBy?: string | null;
+  idempotencyKey: string;
+}
+
+export async function createPoll(db: Db, roomId: string, { question, options, source, requestedBy = null, idempotencyKey }: NewPoll) {
   const seconds = config().cohost.pollSeconds;
   const out = await db.tx(async (q) => {
-    const existing = await one(q, 'SELECT id FROM polls WHERE idempotency_key = $1', [idempotencyKey]);
+    const existing = await one<Pick<PollRow, 'id'>>(q, 'SELECT id FROM polls WHERE idempotency_key = $1', [idempotencyKey]);
     if (existing) return { id: existing.id, created: false };
-    const open = await one(q, `SELECT id FROM polls WHERE room_id = $1 AND status = 'open' AND closes_at > now()`, [roomId]);
+    const open = await one<Pick<PollRow, 'id'>>(q, `SELECT id FROM polls WHERE room_id = $1 AND status = 'open' AND closes_at > now()`, [roomId]);
     if (open) throw conflict('There is already an open poll in this room.', 'poll_open');
     const seq = await nextSeq(q, roomId);
     const id = newId('pol');
@@ -27,9 +36,9 @@ export async function createPoll(db, roomId, { question, options, source, reques
   return out;
 }
 
-export async function closePoll(db, pollId) {
+export async function closePoll(db: Db, pollId: string) {
   const roomId = await db.tx(async (q) => {
-    const p = await one(q, `UPDATE polls SET status = 'closed' WHERE id = $1 AND status = 'open' RETURNING room_id`, [pollId]);
+    const p = await one<Pick<PollRow, 'room_id'>>(q, `UPDATE polls SET status = 'closed' WHERE id = $1 AND status = 'open' RETURNING room_id`, [pollId]);
     if (!p) return null;
     await appendEvent(q, p.room_id, 'poll', pollId);
     return p.room_id;

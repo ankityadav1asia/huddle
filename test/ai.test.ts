@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, makePrivateRoom, msgId, clearCooldown, logs } from './helpers.ts';
+import { startApp, signUp, makePrivateRoom, msgId, clearCooldown, logs, type App, type Client, type ApiEvent } from './helpers.ts';
 import { createOrchestrator } from '../lib/ai/orchestrator.ts';
 import { AIError, openRouterAdapter, xaiAdapter, configuredProviders, type GenerateRequest, type Provider } from '../lib/ai/providers.ts';
 import { readConfig } from '../lib/config.ts';
@@ -114,7 +114,7 @@ test('provider errors are normalised and API keys never leak into results or log
 });
 
 // ---------------------------------------------------------------- xAI (Grok)
-const askGrok = (grok) => grok.generate({ name: 'answer', system: 's', user: 'u', schema: { type: 'object' }, maxTokens: 50, timeoutMs: 5000 });
+const askGrok = (grok: Provider) => grok.generate({ name: 'answer', system: 's', user: 'u', schema: { type: 'object' }, maxTokens: 50, timeoutMs: 5000 });
 
 test('the Grok adapter sends the chat-completions format with a strict schema and reads the answer', async () => {
   const calls: any[] = [];
@@ -172,7 +172,7 @@ test('with Gemini and Grok keys, Gemini answers first and Grok backs it up; AI_P
 });
 
 // ---------------------------------------------------------------- Co-host behaviours against the real API
-let app; let a; let b; let outsider; let roomA; let roomB;
+let app: App; let a: Client; let b: Client; let outsider: Client; let roomA: string; let roomB: string;
 before(async () => {
   app = await startApp((cfg) => { cfg.cohost.unansweredDelaySeconds = 0; });
   a = await signUp(app.base, 'ai_a'); b = await signUp(app.base, 'ai_b'); outsider = await signUp(app.base, 'ai_out');
@@ -183,14 +183,14 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
-const answer = (text, extra = {}) => ({ type: 'answer', text, language: 'english', confidence: 'medium', grounding: { status: 'grounded', sourceEventIds: [] }, needsHumanReview: false, ...extra });
-async function say(c, room, text, extra = {}) {
+const answer = (text: string, extra: Record<string, unknown> = {}) => ({ type: 'answer', text, language: 'english', confidence: 'medium', grounding: { status: 'grounded', sourceEventIds: [] }, needsHumanReview: false, ...extra });
+async function say(c: Client, room: string, text: string, extra: Record<string, unknown> = {}) {
   await clearCooldown(app.db, c.user.id);
   const r = await c.post(`/api/rooms/${room}/messages`, { client_msg_id: msgId(), text, ...extra });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body.message;
 }
-const aiMessages = async (room) => (await app.db.query(`SELECT * FROM messages WHERE room_id = $1 AND sender_type = 'ai' ORDER BY seq`, [room])).rows;
+const aiMessages = async (room: string) => (await app.db.query(`SELECT * FROM messages WHERE room_id = $1 AND sender_type = 'ai' ORDER BY seq`, [room])).rows;
 
 test('an unanswered cricket question gets one grounded AI answer after the delay', async () => {
   const p = fake('primary', [answer('CSK need 59 off 36, so the chase is on.')]);
@@ -202,7 +202,7 @@ test('an unanswered cricket question gets one grounded AI answer after the delay
   assert.equal(ai[0].reply_to_id, q.id);
   assert.equal(ai[0].ai_meta.label, 'AI Co-host');
   const ev = await a.get(`/api/rooms/${roomA}/events?after=0`);
-  assert.ok(ev.body.events.some((e) => e.data?.sender?.type === 'ai'));
+  assert.ok(ev.body.events.some((e: ApiEvent) => e.data?.sender?.type === 'ai'));
   // Running the same job again cannot post a second answer.
   await handleAnswerJob(app.db, { room_id: roomA, payload: { message_id: q.id, mode: 'unanswered' } });
   assert.equal((await aiMessages(roomA)).length, 1);

@@ -56,7 +56,7 @@ export function closeSheet() {
   opener = null;
 }
 
-export function sheetActions(...buttons) {
+export function sheetActions(...buttons: HTMLElement[]) {
   return el('div', { class: 'sheet-actions' }, buttons);
 }
 

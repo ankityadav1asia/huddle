@@ -1,9 +1,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, client, signUp } from './helpers.ts';
+import { startApp, client, signUp, type App, type Client, type ApiInvitation, type ApiUser } from './helpers.ts';
 import { ensureDemoFriends, resetDemoFriendsFlag, DEMO_FRIENDS } from '../lib/users.ts';
 
-let app; let host;
+let app: App; let host: Client;
 before(async () => {
   resetDemoFriendsFlag();
   app = await startApp();
@@ -30,23 +30,23 @@ test('demo friends are offered in the invite picker and marked in search', async
   const list = await host.get('/api/users/demo');
   assert.equal(list.status, 200);
   assert.ok(list.body.users.length >= 5);
-  assert.ok(list.body.users.every((u) => u.demo === true));
+  assert.ok(list.body.users.every((u: ApiUser) => u.demo === true));
   const search = await host.get('/api/users/search?q=demo');
-  assert.ok(search.body.users.length >= 5 && search.body.users.every((u) => u.demo === true));
+  assert.ok(search.body.users.length >= 5 && search.body.users.every((u: ApiUser) => u.demo === true));
   const real = await signUp(app.base, 'real_friend');
   const mixed = await host.get('/api/users/search?q=real');
-  assert.equal(mixed.body.users.find((u) => u.handle === 'real_friend').demo, false);
+  assert.equal(mixed.body.users.find((u: ApiUser) => u.handle === 'real_friend').demo, false);
   assert.ok(real.user.id);
 });
 
 test('a private room can invite demo friends; their invitations stay pending', async () => {
   const demo = (await host.get('/api/users/demo')).body.users.slice(0, 3);
-  const r = await host.post('/api/rooms', { name: 'Demo invite room', invitee_ids: demo.map((u) => u.id) });
+  const r = await host.post('/api/rooms', { name: 'Demo invite room', invitee_ids: demo.map((u: ApiUser) => u.id) });
   assert.equal(r.status, 201);
-  assert.deepEqual(r.body.invitations.map((i) => i.result), ['invited', 'invited', 'invited']);
+  assert.deepEqual(r.body.invitations.map((i: ApiInvitation) => i.result), ['invited', 'invited', 'invited']);
   const invites = (await host.get(`/api/rooms/${r.body.room_id}/invitations`)).body.invitations;
   assert.equal(invites.length, 3);
-  assert.ok(invites.every((i) => i.status === 'pending'));
+  assert.ok(invites.every((i: ApiInvitation) => i.status === 'pending'));
 });
 
 test('nobody can join with a demo_ handle, so a real person is never mistaken for a demo friend', async () => {

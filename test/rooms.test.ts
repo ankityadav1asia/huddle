@@ -1,8 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, makePrivateRoom } from './helpers.ts';
+import { startApp, signUp, makePrivateRoom, type App, type Client, type ApiInvitation } from './helpers.ts';
 
-let app; let owner; let friend; let outsider; let other;
+let app: App; let owner: Client; let friend: Client; let outsider: Client; let other: Client;
 before(async () => {
   app = await startApp();
   owner = await signUp(app.base, 'owner_one');
@@ -16,12 +16,12 @@ after(async () => { await app.close(); });
 test('a creator can make a private room, invite several people and becomes owner', async () => {
   const r = await owner.post('/api/rooms', { name: 'Chennai crew', moderation_level: 'relaxed', invitee_ids: [friend.user.id, other.user.id] });
   assert.equal(r.status, 201);
-  assert.deepEqual(r.body.invitations.map((i) => i.result), ['invited', 'invited']);
+  assert.deepEqual(r.body.invitations.map((i: ApiInvitation) => i.result), ['invited', 'invited']);
   const room = await owner.get(`/api/rooms/${r.body.room_id}`);
   assert.equal(room.body.room.my_role, 'owner');
   assert.equal(room.body.room.moderation.level, 'relaxed');
   const list = await owner.get(`/api/rooms/${r.body.room_id}/invitations`);
-  assert.deepEqual(list.body.invitations.map((i) => i.status), ['pending', 'pending']);
+  assert.deepEqual(list.body.invitations.map((i: ApiInvitation) => i.status), ['pending', 'pending']);
 });
 
 test('invalid moderation levels and client-supplied privileged fields are rejected', async () => {
@@ -53,7 +53,7 @@ test('a member of one private room cannot reach another by changing the room id'
 
 test('only the intended recipient can accept an invitation', async () => {
   const r = await owner.post('/api/rooms', { name: 'Invite test', invitee_ids: [friend.user.id] });
-  const inv = (await friend.get('/api/me/invitations')).body.invitations.find((i) => i.room_id === r.body.room_id);
+  const inv = (await friend.get('/api/me/invitations')).body.invitations.find((i: ApiInvitation) => i.room_id === r.body.room_id);
   assert.equal((await outsider.post(`/api/invitations/${inv.id}/accept`)).status, 404);
   assert.equal((await friend.post(`/api/invitations/${inv.id}/accept`)).status, 200);
   assert.equal((await friend.post(`/api/invitations/${inv.id}/accept`)).status, 409); // already consumed
@@ -62,8 +62,8 @@ test('only the intended recipient can accept an invitation', async () => {
 test('expired and revoked invitations cannot be accepted', async () => {
   const r = await owner.post('/api/rooms', { name: 'Expiry test', invitee_ids: [friend.user.id, other.user.id] });
   const invs = (await owner.get(`/api/rooms/${r.body.room_id}/invitations`)).body.invitations;
-  const toFriend = invs.find((i) => i.user_id === friend.user.id);
-  const toOther = invs.find((i) => i.user_id === other.user.id);
+  const toFriend = invs.find((i: ApiInvitation) => i.user_id === friend.user.id);
+  const toOther = invs.find((i: ApiInvitation) => i.user_id === other.user.id);
   await app.db.query(`UPDATE room_invitations SET expires_at = now() - interval '1 minute' WHERE id = $1`, [toFriend.id]);
   assert.equal((await friend.post(`/api/invitations/${toFriend.id}/accept`)).status, 410);
   assert.equal((await owner.post(`/api/invitations/${toOther.id}/revoke`)).status, 200);

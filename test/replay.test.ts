@@ -1,17 +1,17 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, client, signUp, makePrivateRoom } from './helpers.ts';
+import { startApp, client, signUp, makePrivateRoom, type App, type Client, type ApiInvitation } from './helpers.ts';
 import { ensureDemoMatch, ingestDue } from '../lib/match/feed.ts';
 import { HANDLERS } from '../lib/jobs/worker.ts';
 import { queueMomentumPushes } from '../lib/notify/index.ts';
 import { setPushSender } from '../lib/notify/push.ts';
 import { newId } from '../lib/util.ts';
 
-let app; let host; let friend; let shared; let roomId;
+let app: App; let host: Client; let friend: Client; let shared: string; let roomId: string;
 const runOf = async (id = roomId) => (await app.db.query('SELECT match_id FROM rooms WHERE id = $1', [id])).rows[0].match_id;
-const matchRow = async (id) => (await app.db.query('SELECT * FROM matches WHERE id = $1', [id])).rows[0];
-const eventCount = async (id) => (await app.db.query('SELECT count(*)::int AS n FROM match_events WHERE match_id = $1', [id])).rows[0].n;
-const control = (c, body, id = roomId) => c.post(`/api/rooms/${id}/replay`, body);
+const matchRow = async (id: string) => (await app.db.query('SELECT * FROM matches WHERE id = $1', [id])).rows[0];
+const eventCount = async (id: string) => (await app.db.query('SELECT count(*)::int AS n FROM match_events WHERE match_id = $1', [id])).rows[0].n;
+const control = (c: Client, body: unknown, id: string = roomId) => c.post(`/api/rooms/${id}/replay`, body);
 
 before(async () => {
   app = await startApp();
@@ -22,7 +22,7 @@ before(async () => {
   const r = await host.post('/api/rooms', { name: 'Our replay', match_id: shared, own_replay: true, invitee_ids: [friend.user.id] });
   assert.equal(r.status, 201);
   roomId = r.body.room_id;
-  const inv = (await friend.get('/api/me/invitations')).body.invitations.find((i) => i.room_id === roomId);
+  const inv = (await friend.get('/api/me/invitations')).body.invitations.find((i: ApiInvitation) => i.room_id === roomId);
   assert.equal((await friend.post(`/api/invitations/${inv.id}/accept`)).status, 200);
 });
 after(async () => { await app.close(); });
@@ -36,11 +36,11 @@ test('a private room can run its own replay, separate from the shared one', asyn
   const snap = (await host.get(`/api/rooms/${roomId}/match`)).body;
   assert.equal(snap.match.source, 'demo_fixture');
   assert.deepEqual([snap.replay.own, snap.replay.can_control, snap.replay.paused, snap.replay.speed], [true, true, false, 1]);
-  assert.deepEqual(snap.replay.moments.map((x) => x.id), ['bowling-change', 'drs', 'drop', 'last-over']);
+  assert.deepEqual(snap.replay.moments.map((x: { id: string }) => x.id), ['bowling-change', 'drs', 'drop', 'last-over']);
   assert.equal((await friend.get(`/api/rooms/${roomId}/match`)).body.replay.can_control, false);
   // The shared replay stays the one the public watch party and the home screen use.
   assert.equal(await ensureDemoMatch(app.db), shared);
-  assert.ok((await host.get('/api/rooms')).body.matches.every((x) => x.id !== run));
+  assert.ok((await host.get('/api/rooms')).body.matches.every((x: { id: string }) => x.id !== run));
   assert.equal((await host.post('/api/rooms', { name: 'No match', own_replay: true })).status, 400);
   assert.equal((await host.post('/api/rooms', { name: 'Bad flag', match_id: shared, own_replay: 'yes' })).status, 400);
   assert.equal((await host.post('/api/rooms', { name: 'Run of a run', match_id: run, own_replay: true })).status, 400);
@@ -150,7 +150,7 @@ test('restarting the replay does not reset the per-match alert cap', async () =>
     await ingestDue(app.db, run);
     return run;
   };
-  const signal = async (run, trigger = 'wicket_fallen') => {
+  const signal = async (run: string, trigger = 'wicket_fallen') => {
     const ev = (await app.db.query('SELECT id FROM match_events WHERE match_id = $1 ORDER BY seq LIMIT 1', [run])).rows[0].id;
     const s = { id: newId('sig'), match_id: run, priority: 'high', trigger };
     await app.db.query(

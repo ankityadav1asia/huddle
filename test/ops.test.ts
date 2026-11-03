@@ -1,8 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, signUp, client, makePrivateRoom } from './helpers.ts';
+import { startApp, signUp, client, makePrivateRoom, type App, type Client } from './helpers.ts';
 
-let app; let mod; let fan; let roomId; let matchId;
+let app: App; let mod: Client; let fan: Client; let roomId: string; let matchId: string;
 before(async () => {
   app = await startApp((cfg) => { cfg.cronSecret = 'cron-test-secret'; });
   mod = await signUp(app.base, 'ops_mod');

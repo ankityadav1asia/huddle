@@ -18,7 +18,7 @@ const { aiStatus } = await import('./lib/ai/index.ts');
 const { log } = await import('./lib/log.ts');
 
 const publicDir = path.join(ROOT, 'public');
-const TYPES = {
+const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json',
 };
@@ -29,9 +29,9 @@ const SECURITY = {
   'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-src 'none'; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   'strict-transport-security': 'max-age=31536000',
 };
-const PAGES = { '/': 'index.html', '/mod': 'mod.html' };
+const PAGES: Record<string, string> = { '/': 'index.html', '/mod': 'mod.html' };
 // The old single-viewer replay page is gone; its simulated replay now runs inside the watch party itself.
-const REDIRECTS = { '/replay': '/', '/replay.html': '/' };
+const REDIRECTS: Record<string, string> = { '/replay': '/', '/replay.html': '/' };
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');

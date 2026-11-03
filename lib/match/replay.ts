@@ -3,14 +3,17 @@
 // checks who may). Moving it never moves the shared replay that the public watch party follows. Demo data,
 // labelled as a simulated replay wherever it appears.
 import { config } from '../config.ts';
-import { one } from '../db/index.ts';
+import { one, type Db, type Queryable } from '../db/index.ts';
+import type { MatchRow, RoomRow } from '../db/rows.ts';
 import { HttpError, conflict, newId } from '../util.ts';
 import { FIXTURES, DEMO_FIXTURE, fixtureFor, schedule } from './fixture.ts';
 import { matchState, ingestDue, jumpToMoment, intervalFor } from './feed.ts';
 
 export const SPEEDS = [0.5, 1, 2];
 
-export async function createRoomReplay(q, roomId, fixtureKey, { start = false, intervalMs = intervalFor(config().match.defaultSpeed) } = {}) {
+interface ReplayOptions { start?: boolean; intervalMs?: number }
+
+export async function createRoomReplay(q: Queryable, roomId: string, fixtureKey: string, { start = false, intervalMs = intervalFor(config().match.defaultSpeed) }: ReplayOptions = {}): Promise<string> {
   const f = FIXTURES[fixtureKey] || DEMO_FIXTURE;
   const id = newId('mat');
   await q.query(
@@ -21,24 +24,24 @@ export async function createRoomReplay(q, roomId, fixtureKey, { start = false, i
   return id;
 }
 
-const stateError = (message) => conflict(message, 'replay_state');
+const stateError = (message: string) => conflict(message, 'replay_state');
 
-export async function startReplay(db, m) {
-  const ok = await one(db,
+export async function startReplay(db: Db, m: MatchRow) {
+  const ok = await one<Pick<MatchRow, 'id'>>(db,
     `UPDATE matches SET status = 'live', feed_started_at = now(), paused_at = NULL WHERE id = $1 AND status = 'scheduled' RETURNING id`, [m.id]);
   if (!ok) throw stateError(m.status === 'completed' ? 'The replay has finished. Restart it to watch again.' : 'The replay is already running.');
   await ingestDue(db, m.id);
 }
 
-export async function pauseReplay(db, m) {
-  const ok = await one(db,
+export async function pauseReplay(db: Queryable, m: MatchRow) {
+  const ok = await one<Pick<MatchRow, 'id'>>(db,
     `UPDATE matches SET paused_at = now() WHERE id = $1 AND status = 'live' AND paused_at IS NULL RETURNING id`, [m.id]);
   if (!ok) throw stateError('The replay is not playing.');
 }
 
 // The clock moves on by however long the replay was paused, so nothing is skipped.
-export async function resumeReplay(db, m) {
-  const ok = await one(db,
+export async function resumeReplay(db: Db, m: MatchRow) {
+  const ok = await one<Pick<MatchRow, 'id'>>(db,
     `UPDATE matches SET feed_started_at = feed_started_at + (now() - paused_at), paused_at = NULL
       WHERE id = $1 AND status = 'live' AND paused_at IS NOT NULL RETURNING id`, [m.id]);
   if (!ok) throw stateError('The replay is not paused.');
@@ -46,9 +49,10 @@ export async function resumeReplay(db, m) {
 }
 
 // Keeps the replay where it is: the next ball arrives one gap (at the new pace) after the last one.
-export async function setReplaySpeed(db, matchId, speed) {
+export async function setReplaySpeed(db: Db, matchId: string, speed: number) {
   await db.tx(async (q) => {
-    const m = await one(q, 'SELECT * FROM matches WHERE id = $1 FOR UPDATE', [matchId]);
+    // The caller has just read this match, and matches are never deleted.
+    const m = (await one<MatchRow>(q, 'SELECT * FROM matches WHERE id = $1 FOR UPDATE', [matchId]))!;
     const intervalMs = intervalFor(speed);
     if (m.status !== 'live') {
       await q.query('UPDATE matches SET ball_interval_ms = $2 WHERE id = $1', [m.id, intervalMs]);
@@ -65,9 +69,9 @@ export async function setReplaySpeed(db, matchId, speed) {
 
 // A fresh run from the first ball, at the same pace. The room moves to it in the same transaction and the
 // old run is closed, so its alert history still counts towards the per-match cap (lib/notify).
-export async function restartReplay(db, roomId, m) {
+export async function restartReplay(db: Db, roomId: string, m: MatchRow): Promise<string> {
   return db.tx(async (q) => {
-    const room = await one(q, 'SELECT match_id FROM rooms WHERE id = $1 FOR UPDATE', [roomId]);
+    const room = await one<Pick<RoomRow, 'match_id'>>(q, 'SELECT match_id FROM rooms WHERE id = $1 FOR UPDATE', [roomId]);
     if (!room || room.match_id !== m.id) throw stateError('The replay just changed. Try again.');
     const id = await createRoomReplay(q, roomId, m.fixture_key, { start: true, intervalMs: m.ball_interval_ms });
     await q.query('UPDATE rooms SET match_id = $2 WHERE id = $1', [roomId, id]);
@@ -77,13 +81,13 @@ export async function restartReplay(db, roomId, m) {
 }
 
 // Jumping to a moment the replay has already passed starts a fresh run and jumps that one instead.
-export async function momentNeedsRestart(db, m, momentId) {
+export async function momentNeedsRestart(db: Queryable, m: MatchRow, momentId: string): Promise<boolean> {
   const moment = fixtureFor(m).moments.find((x) => x.id === momentId);
   if (!moment) throw new HttpError(400, 'invalid_moment', 'Unknown moment.');
   return m.status === 'completed' || moment.index <= (await matchState(db, m)).last_seq;
 }
 
-export async function jumpReplay(db, roomId, m, momentId) {
+export async function jumpReplay(db: Db, roomId: string, m: MatchRow, momentId: string) {
   const matchId = (await momentNeedsRestart(db, m, momentId)) ? await restartReplay(db, roomId, m) : m.id;
   return jumpToMoment(db, matchId, momentId);
 }

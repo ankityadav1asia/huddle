@@ -2,6 +2,55 @@
 // into timestamped ball-by-ball events. The match is fictional (real players, made-up game) and is labelled as a
 // simulated replay wherever it appears. The crowd lines date from the original single-viewer demo; the
 // moderation tests use them as a corpus of ordinary cricket banter.
+import type { CrowdCue } from './fixture.ts';
+
+export interface BatterLine { r: number; b: number } // runs, balls faced
+export interface BowlerLine { b: number; r: number; w: number } // balls, runs conceded, wickets
+
+// The scorecard when the replay starts; lib/match/scorecard.ts builds its state from it.
+export interface CricketStart {
+  batting: string;
+  bowling: string;
+  target: number;
+  firstInnings: string;
+  runs: number;
+  wkts: number;
+  balls: number;
+  striker: string;
+  bowler: string;
+  batters: Record<string, BatterLine>;
+  bowlers: Record<string, BowlerLine>;
+  outs: { name: string; r: number; b: number; how: string }[];
+}
+
+export interface Wicket { out: string; how: string; next: string }
+// What a ball or event may carry for the crowd, the old demo's host and the replay's pace (see SCRIPT).
+interface Cues { crowd?: CrowdCue; host?: string; pause?: number; moment?: string; urgent?: boolean; hold?: 'poll' }
+export interface BallItem extends Cues {
+  kind: 'ball';
+  bowler: string;
+  bat: string;
+  runs: number;
+  text: string;
+  extra?: 'wd';
+  wicket?: Wicket;
+  drop?: { by: string };
+}
+// `bowler`: the bowler an event brings on.
+export interface EventItem extends Cues {
+  kind: 'event';
+  type: string;
+  label: string;
+  text: string;
+  bowler?: string;
+  wicket?: undefined;
+  drop?: undefined;
+}
+export interface OverEndItem { kind: 'overend'; crowd?: undefined; moment?: undefined; wicket?: undefined; drop?: undefined }
+// Only balls take wickets or see drops; the undefined fields let code test any item for them.
+export type CricketItem = BallItem | EventItem | OverEndItem;
+type BallExtra = Omit<BallItem, 'kind' | 'bowler' | 'bat' | 'runs' | 'text'>;
+type EventExtra = Omit<EventItem, 'kind' | 'type' | 'label' | 'text'>;
 
 export const TEAMS = {
   MI: { code: 'MI', name: 'Mumbai Indians', logo: 'assets/mi.png' },
@@ -11,19 +60,19 @@ export const TEAM_CODES = Object.keys(TEAMS);
 export const otherTeam = (code: string): string => TEAM_CODES.find((c) => c !== code) ?? code;
 
 // Players fans can pick for their social contest team.
-export const SQUADS = {
+export const SQUADS: Record<string, string[]> = {
   MI: ['Jasprit Bumrah', 'Hardik Pandya', 'Rohit Sharma', 'Suryakumar Yadav', 'Tilak Varma', 'Trent Boult'],
   CSK: ['MS Dhoni', 'Ruturaj Gaikwad', 'Shivam Dube', 'Sanju Samson', 'Dewald Brevis'],
 };
 
 // What fans actually call them in chat.
-const CALLED = { 'Tilak Varma': 'Tilak', 'Hardik Pandya': 'Hardik', 'Rohit Sharma': 'Rohit', 'Suryakumar Yadav': 'Surya', 'Ruturaj Gaikwad': 'Ruturaj', 'Sanju Samson': 'Sanju' };
-export const shortName = (name) => CALLED[name] || name.split(' ').slice(-1)[0];
+const CALLED: Record<string, string> = { 'Tilak Varma': 'Tilak', 'Hardik Pandya': 'Hardik', 'Rohit Sharma': 'Rohit', 'Suryakumar Yadav': 'Surya', 'Ruturaj Gaikwad': 'Ruturaj', 'Sanju Samson': 'Sanju' };
+export const shortName = (name: string) => CALLED[name] || name.split(' ').slice(-1)[0];
 
 export const CREATOR = { handle: 'BoundaryBhaiya' };
 
 // The replay starts after 14 overs of the chase.
-export const START = {
+export const START: CricketStart = {
   batting: 'CSK',
   bowling: 'MI',
   target: 187,
@@ -51,12 +100,12 @@ export const START = {
   ],
 };
 
-const B = (bowler, bat, runs, text, more = {}) => ({ kind: 'ball', bowler, bat, runs, text, ...more });
-const E = (type, label, text, more = {}) => ({ kind: 'event', type, label, text, ...more });
+const B = (bowler: string, bat: string, runs: number, text: string, more: BallExtra = {}): BallItem => ({ kind: 'ball', bowler, bat, runs, text, ...more });
+const E = (type: string, label: string, text: string, more: EventExtra = {}): EventItem => ({ kind: 'event', type, label, text, ...more });
 
 // `crowd` = burst of simulated chat (`mi` = share of MI fans). `urgent` = ask the AI for an update right after.
 // `hold: 'poll'` pauses the replay while a poll is still running, so the story lands in order.
-export const SCRIPT: any[] = [
+export const SCRIPT: CricketItem[] = [
   E('start', 'Strategic timeout over', 'CSK need 59 off 36. Shivam Dube is set on 41.', {
     crowd: { key: 'start', n: 8, spread: 6000 }, host: 'start', pause: 4000, moment: 'start',
   }),
@@ -259,12 +308,12 @@ const HANDLES = {
     'ishaan.in', 'sana_slower_ball', 'neha_nets', 'ojas_ultras', 'divya_dotball', 'adi_bluearmy', 'jay_yorkers', 'sky_ka_fan'],
 };
 
-const POPULARITY = {
+const POPULARITY: Record<string, number> = {
   'Jasprit Bumrah': 5, 'MS Dhoni': 5, 'Shivam Dube': 4, 'Suryakumar Yadav': 4, 'Ruturaj Gaikwad': 3, 'Hardik Pandya': 3,
   'Rohit Sharma': 3, 'Sanju Samson': 3, 'Tilak Varma': 2, 'Trent Boult': 2, 'Dewald Brevis': 2,
 };
 
-function seeded(seed) {
+function seeded(seed: number) {
   return () => {
     seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -273,7 +322,7 @@ function seeded(seed) {
   };
 }
 
-function weightedPick(rand, players, taken) {
+function weightedPick(rand: () => number, players: string[], taken: string[]) {
   const pool = players.filter((p) => !taken.includes(p));
   const total = pool.reduce((s, p) => s + POPULARITY[p], 0);
   let x = rand() * total;

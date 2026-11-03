@@ -1,6 +1,9 @@
 // Cookie sessions. The browser holds a random token in an HttpOnly cookie; the database keeps only its hash.
+import type { IncomingMessage } from 'node:http';
 import { config } from '../config.ts';
 import { newId, newToken, sha256 } from '../util.ts';
+import type { Queryable } from '../db/index.ts';
+import type { Sports } from '../db/rows.ts';
 
 // Over HTTPS the cookie uses the __Host- prefix: Secure, host-only, path "/", so no other subdomain can set it.
 const PLAIN = 'huddle_session';
@@ -8,7 +11,7 @@ const HOST = '__Host-huddle_session';
 export const cookieName = () => (config().cookieSecure ? HOST : PLAIN);
 export const COOKIE = PLAIN;
 
-function readCookie(req, name) {
+function readCookie(req: IncomingMessage, name: string) {
   const header = req.headers.cookie || '';
   for (const part of header.split(';')) {
     const i = part.indexOf('=');
@@ -17,7 +20,7 @@ function readCookie(req, name) {
   return '';
 }
 
-export async function createSession(q, userId) {
+export async function createSession(q: Queryable, userId: string): Promise<{ token: string; expiresAt: Date }> {
   const token = newToken();
   const days = config().sessionDays;
   const { rows } = await q.query(
@@ -28,7 +31,7 @@ export async function createSession(q, userId) {
   return { token, expiresAt: rows[0].expires_at };
 }
 
-export function sessionCookie(token, expiresAt) {
+export function sessionCookie(token: string, expiresAt: Date | string | number) {
   const secure = config().cookieSecure ? '; Secure' : '';
   return `${cookieName()}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Expires=${new Date(expiresAt).toUTCString()}${secure}`;
 }
@@ -40,7 +43,7 @@ export function clearSessionCookie() {
 
 // Platform moderators are listed by account id (MODERATOR_USER_IDS): ids are random and server-generated, so
 // nobody can claim moderator rights by picking a name or handle.
-export function isModerator(user) {
+export function isModerator(user: { id: string }) {
   return config().moderatorUserIds.includes(user.id);
 }
 
@@ -49,12 +52,27 @@ export interface SessionUser {
   id: string;
   handle: string | null;
   display_name: string | null;
-  sports: Record<string, { team: string | null; picks: string[] }>;
+  sports: Sports;
   is_moderator: boolean;
 }
 
+export interface Session { id: string }
+
+// What the router learns from a valid session cookie.
+export interface SessionAuth { user: SessionUser; session: Session }
+
+// sessions joined with users, as sessionUser reads them.
+interface SessionLookupRow {
+  session_id: string;
+  last_used_at: Date;
+  id: string;
+  handle: string | null;
+  display_name: string | null;
+  sports: Sports | null;
+}
+
 // Resolves the signed-in user from the cookie, or null. Never trusts any user id sent by the client.
-export async function sessionUser(db, req) {
+export async function sessionUser(db: Queryable, req: IncomingMessage): Promise<SessionAuth | null> {
   const token = readCookie(req, cookieName());
   if (!token || token.length > 100) return null;
   const { rows } = await db.query(
@@ -63,7 +81,7 @@ export async function sessionUser(db, req) {
       WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`,
     [sha256(token)],
   );
-  const row = rows[0];
+  const row: SessionLookupRow | undefined = rows[0];
   if (!row) return null;
   if (Date.now() - new Date(row.last_used_at).getTime() > 5 * 60 * 1000) {
     await db.query('UPDATE sessions SET last_used_at = now() WHERE id = $1', [row.session_id]);
@@ -73,11 +91,11 @@ export async function sessionUser(db, req) {
   return { user, session: { id: row.session_id } };
 }
 
-export async function revokeSession(q, sessionId) {
+export async function revokeSession(q: Queryable, sessionId: string) {
   await q.query('UPDATE sessions SET revoked_at = now() WHERE id = $1', [sessionId]);
 }
 
 // "Sign out on all devices": every session of this user stops working on its next request.
-export async function revokeAllSessions(q, userId) {
+export async function revokeAllSessions(q: Queryable, userId: string) {
   await q.query('UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
 }
