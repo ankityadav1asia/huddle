@@ -63,9 +63,36 @@ const sheetOpen = () => document.getElementById('sheet-layer')?.hidden === false
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // The floating orb the room puts in its chat panel, just above the message box.
+// Opening Dream AI throws three balls, white, red and blue (0.3 cm each), out of the red ball: up and to the left at
+// 20, 40 and 60 degrees, 2 cm into the chat, above the window as it rises. Real centimetres, as designed.
+const BURST = [{ colour: 'white', angle: 20 }, { colour: 'red', angle: 40 }, { colour: 'blue', angle: 60 }];
+function burst(from: HTMLElement) {
+  const app = document.getElementById('app');
+  if (!app || reducedMotion()) return;
+  const box = app.getBoundingClientRect();
+  const orb = from.getBoundingClientRect();
+  const x = orb.left + orb.width / 2 - box.left;
+  const y = orb.top + orb.height / 2 - box.top;
+  BURST.forEach(({ colour, angle }, i) => {
+    const ball = el('span', { class: `db-burst ${colour}`, 'aria-hidden': 'true' });
+    ball.style.left = `${x}px`; // set through the CSSOM: the page's CSP forbids inline style attributes
+    ball.style.top = `${y}px`;
+    app.append(ball);
+    const rad = (angle * Math.PI) / 180;
+    const to = `translate(${(-2 * Math.cos(rad)).toFixed(3)}cm, ${(-2 * Math.sin(rad)).toFixed(3)}cm)`;
+    ball.animate([
+      { transform: 'translate(0, 0) scale(0.3)', opacity: 0 },
+      { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: 0.12 },
+      { transform: `${to} scale(1)`, opacity: 1, offset: 0.7 },
+      { transform: `${to} scale(0.85)`, opacity: 0 },
+    ], { duration: 1000, delay: i * 70, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)', fill: 'backwards' }).finished
+      .then(() => ball.remove(), () => ball.remove());
+  });
+}
+
 export function dreamBotLauncher(opts: BotOptions): HTMLElement {
   const nudge = el('div', { class: 'db-nudge', 'aria-hidden': 'true', hidden: true, text: 'Ask me anything about this match', onclick: () => launch() });
-  const orb = el('button', { type: 'button', class: 'db-orb', 'aria-label': 'Dream AI: ask the AI about the game', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => launch() }, icon('ai'));
+  const orb = el('button', { type: 'button', class: 'db-orb', 'aria-label': 'Dream AI: ask the AI about the game', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => launch() }, icon('seam'));
   const wrap = el('div', { class: 'db-launch' }, orb, el('span', { class: 'db-tip', 'aria-hidden': 'true', text: 'Ask Dream AI' }), nudge);
   launchers.set(opts.roomId, orb);
   const hideNudge = () => {
@@ -75,6 +102,7 @@ export function dreamBotLauncher(opts: BotOptions): HTMLElement {
   };
   function launch() {
     hideNudge();
+    burst(orb);
     openDreamBot(opts);
   }
   if (!nudged && canAsk(opts)) {
@@ -312,7 +340,7 @@ function trapTab(panel: HTMLElement, e: KeyboardEvent) {
   }
 }
 
-const avatar = (size = '') => el('span', { class: `db-avatar${size ? ` ${size}` : ''}`, 'aria-hidden': 'true' }, icon('ai'));
+const avatar = (size = '') => el('span', { class: `db-avatar${size ? ` ${size}` : ''}`, 'aria-hidden': 'true' }, icon('seam'));
 
 function refresh(chat: Chat) {
   if (view?.chat === chat) view.render();

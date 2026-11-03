@@ -11,19 +11,27 @@
 
 /* Launcher: a glowing orb, bottom right of the chat panel, clear of the message box and its send button */
 .db-launch { position: absolute; right: 12px; bottom: 76px; z-index: 3; width: 52px; height: 52px; pointer-events: none; }
+/* Dream AI's mark: a red cricket ball. Its seam spins and the ball bounces gently. */
 .db-orb {
   position: relative; display: grid; place-items: center; width: 52px; height: 52px; padding: 0;
-  border: 0; border-radius: 50%; color: #fff; pointer-events: auto;
-  background: radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 44%), var(--db-grad);
-  box-shadow: 0 8px 22px rgba(124, 58, 237, 0.36), 0 2px 6px rgba(236, 72, 153, 0.3), inset 0 -4px 10px rgba(46, 16, 101, 0.28);
+  border: 0; border-radius: 50%; color: #fff; pointer-events: auto; overflow: hidden;
+  background: radial-gradient(circle at 33% 27%, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0) 38%),
+    radial-gradient(circle at 50% 50%, #e5383b 0%, #c1121f 58%, #6e0a0e 100%);
+  box-shadow: 0 8px 22px rgba(193, 18, 31, 0.42), inset 0 -5px 10px rgba(60, 4, 8, 0.35);
   transition: transform 0.18s ease, box-shadow 0.18s ease;
-  animation: db-glow 3.2s ease-in-out infinite;
+  animation: db-bounce 2.8s ease-in-out infinite;
 }
-.db-orb .ico { width: 22px; height: 22px; filter: drop-shadow(0 1px 2px rgba(46, 16, 101, 0.4)); animation: db-twinkle 3.2s ease-in-out infinite; }
+.db-orb .ico { width: 46px; height: 46px; animation: db-spin 2.6s linear infinite; }
 .db-orb::before {
-  content: ''; position: absolute; inset: -1px; border-radius: 50%; pointer-events: none;
-  border: 2px solid rgba(236, 72, 153, 0.6); animation: db-ring 2.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+  content: ''; position: absolute; inset: -1px; border-radius: 50%; pointer-events: none; z-index: -1;
+  border: 2px solid rgba(229, 56, 59, 0.55); animation: db-ring 2.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
 }
+.db-launch .db-orb { overflow: visible; }
+/* The burst on opening: white, red and blue balls of 0.3 cm, each flying 2 cm (bot.ts sets the paths). */
+.db-burst { position: absolute; z-index: 12; width: 0.3cm; height: 0.3cm; margin: -0.15cm 0 0 -0.15cm; border-radius: 50%; pointer-events: none; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.28); }
+.db-burst.white { background: radial-gradient(circle at 35% 30%, #fff, #ececf2 65%, #c5c7d0); }
+.db-burst.red { background: radial-gradient(circle at 35% 30%, #ff8a8a, #d62828 60%, #7a0b10); }
+.db-burst.blue { background: radial-gradient(circle at 35% 30%, #9cc8ff, #1d4ed8 60%, #0f2a78); }
 .db-orb:hover { transform: translateY(-2px) scale(1.04); }
 .db-orb:active { transform: scale(0.94); }
 .db-orb:focus-visible { outline: 3px solid var(--db-violet); outline-offset: 3px; }
@@ -91,15 +99,16 @@
 
 /* The orb as an avatar */
 .db-avatar {
-  flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: #fff;
-  background: radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 46%), var(--db-grad);
-  box-shadow: 0 3px 10px rgba(139, 92, 246, 0.28);
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: #fff; overflow: hidden;
+  background: radial-gradient(circle at 33% 27%, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0) 38%),
+    radial-gradient(circle at 50% 50%, #e5383b 0%, #c1121f 58%, #6e0a0e 100%);
+  box-shadow: 0 3px 10px rgba(193, 18, 31, 0.3);
 }
-.db-avatar .ico { width: 13px; height: 13px; }
+.db-avatar .ico { width: 26px; height: 26px; }
 .db-avatar.lg { width: 44px; height: 44px; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1), 0 0 22px rgba(236, 72, 153, 0.5); }
-.db-avatar.lg .ico { width: 19px; height: 19px; }
+.db-avatar.lg .ico { width: 42px; height: 42px; }
 .db-avatar.xl { width: 64px; height: 64px; box-shadow: 0 0 0 6px rgba(139, 92, 246, 0.08), 0 12px 30px rgba(124, 58, 237, 0.32); animation: db-glow 3.2s ease-in-out infinite; }
-.db-avatar.xl .ico { width: 27px; height: 27px; }
+.db-avatar.xl .ico { width: 60px; height: 60px; animation: db-spin 6s linear infinite; }
 
 /* Body: the conversation, or the welcome before it */
 .db-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -234,6 +243,8 @@
   50% { box-shadow: 0 8px 30px rgba(124, 58, 237, 0.5), 0 0 18px rgba(236, 72, 153, 0.45), inset 0 -4px 10px rgba(46, 16, 101, 0.28); }
 }
 @keyframes db-ring { 0% { transform: scale(1); opacity: 0.75; } 100% { transform: scale(1.55); opacity: 0; } }
+@keyframes db-spin { to { transform: rotate(360deg); } }
+@keyframes db-bounce { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-4px); } 60% { transform: translateY(0); } 72% { transform: translateY(-1.5px); } }
 @keyframes db-twinkle { 0%, 100% { transform: scale(1) rotate(0deg); } 50% { transform: scale(1.12) rotate(45deg); } }
 @keyframes db-nudge-in { from { opacity: 0; transform: translateX(8px) scale(0.9); } }
 @keyframes db-nudge-out { to { opacity: 0; transform: translateX(8px) scale(0.92); } }
@@ -248,7 +259,7 @@
 @keyframes db-think { 0%, 100% { box-shadow: 0 3px 10px rgba(139, 92, 246, 0.28); } 50% { box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.14), 0 0 16px rgba(236, 72, 153, 0.55); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .db-orb, .db-orb .ico, .db-avatar, .db-live, .db-dots i, .db-shimmer, .db-chip-wait { animation: none !important; }
+  .db-orb, .db-orb .ico, .db-avatar, .db-avatar .ico, .db-live, .db-dots i, .db-shimmer, .db-chip-wait { animation: none !important; }
   .db-orb::before { display: none; }
   .db-shimmer { background: none; color: var(--muted); }
   .db-orb, .db-chip, .db-tip, .db-send { transition: none; }

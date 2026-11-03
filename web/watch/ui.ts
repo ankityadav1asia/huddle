@@ -47,6 +47,8 @@ const ICONS = {
   bat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.6 2.3l2.1 2.1-3.1 3.1.7.7-9.6 9.6a2.2 2.2 0 0 1-3.1 0l-.9-.9a2.2 2.2 0 0 1 0-3.1l9.6-9.6.7.7z"/><circle cx="5" cy="19" r="2.2"/></svg>',
   ball: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 5.5c2 3.6 2 9.4 0 13M16 5.5c-2 3.6-2 9.4 0 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2 1.6"/></svg>',
   dot: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/></svg>',
+  // The seam of a cricket ball: two stitched curves, drawn white over the red ball (Dream AI's mark).
+  seam: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 3.2c3.1 4.6 3.1 13 0 17.6M16.8 3.2c-3.1 4.6-3.1 13 0 17.6" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="1.4 1.5"/><path d="M8.6 3.6c2.4 4.3 2.4 12.5 0 16.8M15.4 3.6c-2.4 4.3-2.4 12.5 0 16.8" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.8"/></svg>',
   // Dream AI: a chat bubble with an AI sparkle cut out of it.
   ai: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M7.5 2h9A3.5 3.5 0 0 1 20 5.5v7a3.5 3.5 0 0 1-3.5 3.5h-5.3l-4.5 3.6c-.6.5-1.5.1-1.5-.7V16A3.5 3.5 0 0 1 4 12.5v-7A3.5 3.5 0 0 1 7.5 2zM12 4.6l1.25 3.15L16.4 9l-3.15 1.25L12 13.4l-1.25-3.15L7.6 9l3.15-1.25z"/></svg>',
 };
