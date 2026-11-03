@@ -119,7 +119,11 @@ export async function sendMessage(db: Db, user: SessionUser, roomId: string, bod
     }
     await appendEvent(q, roomId, 'message', id, seq);
     if (threadId) await touchThread(q, threadId);
-    else await maybeOpenDiscussion(q, roomId, text, fixture?.topics);
+    else {
+      const opened = await maybeOpenDiscussion(q, roomId, text, fixture?.topics);
+      // Members started arguing about a topic: the AI Co-host may turn the argument into a poll.
+      if (opened) await enqueue(q, { type: 'debate_poll', roomId, dedupeKey: `debate:${roomId}:${opened}`, payload: { since_seq: null }, delaySeconds: 5, priority: 7, expiresInSeconds: 180 });
+    }
     if (decision.action === 'flag') {
       await recordModeration(q, { roomId, targetUserId: user.id, messageId: id, eventType: 'message_flagged', severity: decision.risk, categories: decision.categories, level: policy.level, action: 'flagged' });
     }

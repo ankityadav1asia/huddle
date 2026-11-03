@@ -134,6 +134,7 @@ interface RunRequest<T = unknown> {
   validate?: (content: unknown) => Validation<T>;
   isCancelled?: () => boolean | Promise<boolean>;
   deadline?: number;
+  timeoutMs?: number; // per provider call: shorter than the deadline leaves the fallback provider time to answer
 }
 
 // Each shape declares the other's fields as undefined, so a caller can read result.provider before checking ok.
@@ -189,7 +190,8 @@ export function createOrchestrator({
     breakerState: (name: string) => breakers.get(name)?.state,
 
     // isCancelled() lets a room closure or a human reply stop the run before another provider call starts.
-    async run<T>({ task, system, user, schema, maxTokens = 16000, roomId = null, userId = null, validate, isCancelled, deadline: ownDeadline }: RunRequest<T>): Promise<RunResult<T>> {
+    // Replies are a few hundred tokens; a low cap stops a runaway reply early instead of at the timeout.
+    async run<T>({ task, system, user, schema, maxTokens = 2048, roomId = null, userId = null, validate, isCancelled, deadline: ownDeadline, timeoutMs: callTimeout }: RunRequest<T>): Promise<RunResult<T>> {
       const correlationId = newId('aic');
       const started = now();
       const deadline = started + (ownDeadline ?? deadlineMs);
@@ -213,7 +215,7 @@ export function createOrchestrator({
             if (isCancelled && (await isCancelled())) return { ok: false, category: 'cancelled', correlationId };
             const t0 = now();
             try {
-              const res = await p.generate({ system, user, schema, name: task, maxTokens, timeoutMs: Math.min(timeoutMs, remaining - 500) });
+              const res = await p.generate({ system, user, schema, name: task, maxTokens, timeoutMs: Math.min(callTimeout ?? timeoutMs, remaining - 500) });
               br.success();
               const checked: Validation<T> = validate ? validate(res.content) : { ok: true, value: res.content };
               await record({
@@ -234,8 +236,13 @@ export function createOrchestrator({
               // The vendor's own error text (never the key) is what tells a bad model name from a bad key or schema.
               log.warn('ai.provider_error', { task, provider: p.name, model: p.model, attempt, category, status: failure?.status ?? null, message: failure?.message ?? errorMessage(err), ms: now() - t0, correlationId });
               await record({ correlationId, task, roomId, userId, provider: p.name, model: p.model, attempt, outcome: 'error', error_category: category, fallback_reason: fallbackReason, latency_ms: now() - t0 });
+              // A cut-off or malformed reply is this provider misbehaving, not a refusal: the other one may do better.
+              if (category === 'bad_response') {
+                fallbackReason ||= category;
+                break;
+              }
               if (!RETRYABLE.has(category)) {
-                // Refusals, bad requests, auth failures and malformed output stop here: no provider switch.
+                // Refusals, bad requests and auth failures stop here: no provider switch.
                 return { ok: false, category, correlationId, provider: p.name };
               }
               br.failure();

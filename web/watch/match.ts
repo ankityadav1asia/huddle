@@ -684,7 +684,9 @@ const ballWord = (sym: string) => BALL_WORDS[sym] ?? (/^\d+$/.test(sym) ? plural
 const ballClass = (sym: string) => (sym === 'W' ? 'b-w' : sym === '4' ? 'b-4' : sym === '6' ? 'b-6' : sym === '0' ? 'b-0' : /^\d+$/.test(sym) ? 'b-run' : 'b-x');
 
 function ball(sym: string) {
-  return [el('span', { class: `mc-ball ${ballClass(sym)}`, 'aria-hidden': 'true', text: sym }), sr(ballWord(sym))];
+  const face = sym === '0' ? el('span', { class: 'mc-ball b-0', 'aria-hidden': 'true' }, icon('dot'))
+    : el('span', { class: `mc-ball ${ballClass(sym)}`, 'aria-hidden': 'true', text: sym });
+  return [face, sr(ballWord(sym))];
 }
 
 const lineKey = (c: Line) => c.event_id || `${c.over ?? ''}|${c.text.slice(0, 48)}`;

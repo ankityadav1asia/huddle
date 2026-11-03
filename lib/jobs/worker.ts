@@ -7,7 +7,7 @@ import type { RoomRow } from '../db/rows.ts';
 import { log } from '../log.ts';
 import { claimJobs, completeJob, failJob, cancelJob, failureTags, type ClaimedJob } from './queue.ts';
 import { advanceFeeds } from '../match/feed.ts';
-import { handleAnswerJob, handleContinuityJob, handleMomentumJob } from '../cohost/index.ts';
+import { handleAnswerJob, handleContinuityJob, handleDebatePollJob, handleMomentumJob } from '../cohost/index.ts';
 import { closePoll } from '../chat/polls.ts';
 import { endRoom, purgeRoom } from '../rooms/lifecycle.ts';
 import { RoomEndedError } from '../rooms/events.ts';
@@ -21,6 +21,7 @@ type JobHandler = (db: Db, job: ClaimedJob) => Promise<string>;
 export const HANDLERS = {
   ai_answer: handleAnswerJob,
   continuity_check: handleContinuityJob,
+  debate_poll: handleDebatePollJob,
   momentum_signal: handleMomentumJob,
   poll_close: async (db: Db, job: { payload: { poll_id: string } }) => ((await closePoll(db, job.payload.poll_id)) ? 'closed' : 'done'),
   room_auto_end: async (db: Db, job: { payload: { room_id: string; match_id?: string } }) => {

@@ -19,17 +19,21 @@ import { matchState } from '../match/feed.ts';
 import { fixtureFor } from '../match/fixture.ts';
 import { recordModeration } from '../moderation/audit.ts';
 import { cached } from '../ai/context-cache.ts';
+import { enqueue } from '../jobs/queue.ts';
+import { crowdLines } from '../match/crowd.ts';
 
 const AI_LABEL = 'AI Co-host';
 
 // Jobs as the handlers read them (payloads hold ids only; lib/chat/messages.ts and lib/match/feed.ts queue them).
 type AnswerJob = Pick<JobRow, 'room_id'> & { payload: { message_id: string } };
 type MomentumJob = { payload: { signal_id: string } };
+// since_seq: the room's chat from this point is what the room argued about (null: its latest messages).
+type DebateJob = Pick<JobRow, 'room_id'> & { payload: { since_seq?: number | null } };
 // The claimed question: a member's message, so it always has a sender and text.
 type Question = Pick<MessageRow, 'id' | 'room_id' | 'seq' | 'thread_id' | 'match_seq'> & { sender_id: string; body: string };
 // A poll as Catch Me Up summarises it: counts maps option index to votes, null before the first vote.
 type PollSummary = Pick<PollRow, 'question' | 'options' | 'status'> & { counts: Record<string, number> | null };
-// A fresh poll for a quiet room: AI-written, or the sport's template when the AI is off or fails.
+// A fresh poll: AI-written from what the room is saying, or the sport's template when the AI is off or fails.
 interface PollIdea { question: string; options: string[]; source: string }
 
 // The AI budgets: AI_ROOM_REQUESTS_PER_10_MIN per room and AI_USER_REQUESTS_PER_5_MIN per person.
@@ -117,7 +121,18 @@ export async function recordBlockedOutput(db: Db, roomId: string, reason: string
   }
 }
 
-async function generatePoll(db: Db, room: Pick<RoomRow, 'id' | 'match_id' | 'ai_enabled'>, userId: string | null): Promise<PollIdea | null> {
+type PollRoom = Pick<RoomRow, 'id' | 'match_id' | 'ai_enabled' | 'room_type'>;
+
+// What the room is saying: members' recent messages (pseudonymised) and, in a public room, the crowd's lines on screen.
+async function roomChat(db: Db, room: PollRoom, sinceSeq: number | null) {
+  const members = (await roomMessages(db, room.id, { limit: 20, sinceSeq })).map(({ from, text }) => ({ from, text }));
+  const crowd = room.room_type === 'public' && room.match_id
+    ? (await crowdLines(db, { roomId: room.id, matchId: room.match_id })).slice(-25).map((l) => ({ side: l.team, text: l.text }))
+    : [];
+  return { members, crowd };
+}
+
+async function generatePoll(db: Db, room: PollRoom, userId: string | null, { sinceSeq = null }: { sinceSeq?: number | null } = {}): Promise<PollIdea | null> {
   const m = room.match_id ? await one<MatchRow>(db, 'SELECT * FROM matches WHERE id = $1', [room.match_id]) : null;
   if (!m) return null;
   const fixture = fixtureFor(m);
@@ -126,12 +141,46 @@ async function generatePoll(db: Db, room: Pick<RoomRow, 'id' | 'match_id' | 'ai_
   const orchestrator = await ai();
   if (!orchestrator.available || !room.ai_enabled || !(await aiBudget(db, room, userId))) return fallback;
   const mc = await matchContext(db, room);
+  const chat = await roomChat(db, room, sinceSeq);
   const res = await orchestrator.run({
-    task: 'poll', system: SYSTEM, schema: SCHEMAS.poll, roomId: room.id, userId, deadline: 10000,
-    user: buildPrompt('poll', { SPORT: fixture.sportName, VERIFIED_MATCH_DATA: mc.facts, COMMENTARY: mc.commentary.slice(0, 5) }),
+    task: 'poll', system: SYSTEM, schema: SCHEMAS.poll, roomId: room.id, userId, deadline: 10000, timeoutMs: 4500,
+    user: buildPrompt('poll', {
+      SPORT: fixture.sportName, VERIFIED_MATCH_DATA: mc.facts, COMMENTARY: mc.commentary.slice(0, 5),
+      ROOM_CHAT_UNTRUSTED: chat.members.length ? chat.members : undefined,
+      CROWD_CHAT_UNTRUSTED: chat.crowd.length ? chat.crowd : undefined,
+    }),
     validate: (v) => validateOutput('poll', v, mc),
   });
   return res.ok ? { question: res.value.question, options: res.value.options, source: 'ai' } : fallback;
+}
+
+// The room is arguing (a big moment just happened, or members started a #thread): the AI Co-host reads the chat and
+// asks the room what it is arguing about, at most one poll every DEBATE_POLL_COOLDOWN_MINUTES and never over an open one.
+export async function handleDebatePollJob(db: Db, job: DebateJob) {
+  const c = config().cohost;
+  const room = await one<RoomRow>(db, 'SELECT * FROM rooms WHERE id = $1', [job.room_id]);
+  if (!room || room.status !== 'active' || !room.ai_enabled || !room.match_id) return 'skipped';
+  const match = await one<Pick<MatchRow, 'status'>>(db, 'SELECT status FROM matches WHERE id = $1', [room.match_id]);
+  if (match?.status !== 'live') return 'skipped';
+  const online = (await one<{ n: number }>(db, `SELECT count(*)::int AS n FROM room_presence WHERE room_id = $1 AND last_seen_at > now() - interval '45 seconds'`, [room.id]))!;
+  if (online.n < 1) return 'nobody_here';
+  const busy = (await one<{ n: number }>(db,
+    `SELECT count(*)::int AS n FROM polls WHERE room_id = $1 AND ((status = 'open' AND closes_at > now()) OR created_at > now() - make_interval(mins => $2))`,
+    [room.id, c.debatePollCooldownMinutes]))!;
+  if (busy.n > 0) return 'cooldown';
+  const sinceSeq = Number.isInteger(job.payload.since_seq) ? job.payload.since_seq! : null;
+  // A poll needs a real argument: members talking, or (in a public room) the stands reacting.
+  const chat = await roomChat(db, room, sinceSeq);
+  if (chat.members.length < 2 && chat.crowd.length < 6) return 'quiet';
+  const poll = await generatePoll(db, room, null, { sinceSeq });
+  if (!poll) return 'skipped';
+  try {
+    await createPoll(db, room.id, { ...poll, idempotencyKey: `debate:${room.id}:${sinceSeq ?? 'latest'}` });
+  } catch (err) {
+    if (err instanceof RoomEndedError || errorCode(err) === 'poll_open') return 'skipped';
+    throw err;
+  }
+  return 'published';
 }
 
 export async function handleContinuityJob(db: Db, job: Pick<JobRow, 'room_id'>) {
@@ -195,7 +244,7 @@ export async function handleMomentumJob(db: Db, job: MomentumJob) {
     const allowedEventIds = new Set<string>([...mc.allowedEventIds, signal.event_id]);
     const allowedNumbers = new Set<string>([...mc.allowedNumbers, ...allowedNumbersFrom(signal.evidence, signal.fact_text)]);
     const res = await orchestrator.run({
-      task: 'momentum', system: SYSTEM, schema: SCHEMAS.momentum, deadline: 8000,
+      task: 'momentum', system: SYSTEM, schema: SCHEMAS.momentum, deadline: 10000, timeoutMs: 4500,
       user: buildPrompt('momentum', {
         SIGNAL: { event_id: signal.event_id, trigger: signal.trigger, label: signal.label, verified_fact: signal.fact_text, evidence: signal.evidence },
         VERIFIED_MATCH_DATA: mc.facts,
@@ -209,11 +258,17 @@ export async function handleMomentumJob(db: Db, job: MomentumJob) {
       WHERE id = $1 AND status = 'pending' AND expires_at > now() RETURNING id`, [signal.id, aiText, provider, model]);
   if (!published) return 'done';
   // Fan-out: one in-app insight per active room following this match (deduped per room + signal).
-  const rooms = await many<Pick<RoomRow, 'id'>>(db, `SELECT id FROM rooms WHERE match_id = $1 AND status = 'active'`, [signal.match_id]);
+  const rooms = await many<Pick<RoomRow, 'id' | 'ai_enabled'>>(db, `SELECT id, ai_enabled FROM rooms WHERE match_id = $1 AND status = 'active'`, [signal.match_id]);
+  const c = config().cohost;
   for (const r of rooms) {
     try {
       const added = await db.tx(async (t) => {
         const seq = await nextSeq(t, r.id);
+        // A big moment gets the room arguing: once it has had its say, the Co-host may poll it on what it argued about.
+        if (r.ai_enabled && signal.priority !== 'low') {
+          await enqueue(t, { type: 'debate_poll', roomId: r.id, dedupeKey: `debate:${r.id}:${signal.id}`, payload: { since_seq: seq },
+            delaySeconds: c.debatePollDelaySeconds, priority: 7, expiresInSeconds: c.debatePollDelaySeconds + 120 });
+        }
         const row = await one<{ id: string }>(t,
           `INSERT INTO room_insights (id, room_id, signal_id, seq) VALUES ($1, $2, $3, $4)
            ON CONFLICT (room_id, signal_id) DO NOTHING RETURNING id`,

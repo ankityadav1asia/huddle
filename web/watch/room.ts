@@ -17,7 +17,6 @@ const REPORT_REASONS = [
 ];
 const SAFETY_NOTE = 'Mandatory safety protections stay on at every level: threats, hate, sexual harassment and sharing personal details are always blocked.';
 const MAX_ITEMS = 300;
-const FACES = 5; // avatars in the watching strip before +N
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Server payloads: only the fields this view reads (lib/rooms/realtime.ts, lib/chat/hydrate.ts, lib/match/feed.ts).
@@ -350,18 +349,20 @@ async function bootstrap(state: RoomState) {
   loop(state, state.loopToken);
 }
 
-// Top to bottom: the header and the live scorecard, the watching strip, then the chat (thread chips, messages and
+// A public watch party goes by its game ("MI v CSK"); a private room keeps the name its owner gave it.
+const roomTitle = (room: Room) => (room.room_type === 'public' && room.match?.title) || room.name || 'Watch party';
+
+// Top to bottom: the header and the live scorecard, the invite button, then the chat (thread chips, messages and
 // the composer) filling the rest of the screen.
 function buildRoom(state: RoomState) {
   const room = state.room;
   const els = state.els;
-  els.title = el('b', { class: 'room-title', text: room.name || 'Watch party' });
+  els.title = el('b', { class: 'room-title', text: roomTitle(room) });
   els.sub = el('span', { class: 'room-sub' });
   els.reconnect = el('span', { class: 'reconnect-pill', hidden: true, text: 'Reconnecting…' });
   const menu = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Room menu', onclick: () => openRoomMenu(state) }, icon('dots'));
   els.score = el('button', { type: 'button', class: 'score score-btn', 'aria-label': 'Open the Match Centre', hidden: !room.match, onclick: () => openCentre(state) },
     el('div', { class: 'skeleton' }));
-  els.watchers = el('button', { type: 'button', class: 'watchers', onclick: () => openMembers(state) });
   els.add = el('button', { type: 'button', class: 'add-btn', onclick: () => addFriends(state) },
     el('span', { text: 'Invite friends' }), el('span', { class: 'plus', 'aria-hidden': 'true' }, icon('plus')));
 
@@ -401,7 +402,7 @@ function buildRoom(state: RoomState) {
         el('div', { class: 'top-title' }, els.title, el('span', { class: 'top-sub' }, els.sub, els.reconnect)),
         menu),
       els.score,
-      el('div', { class: 'watch-strip' }, els.watchers, els.add)),
+      el('div', { class: 'watch-strip' }, els.add)),
     el('section', { class: 'room-panel', 'aria-label': 'Chat' },
       els.threadBar,
       el('div', { class: 'chat' }, els.scroll, els.banner, els.newPill),
@@ -415,7 +416,7 @@ function buildRoom(state: RoomState) {
 function applyRoomInfo(state: RoomState) {
   const room = state.room;
   const els = state.els;
-  els.title.textContent = room.name || 'Watch party';
+  els.title.textContent = roomTitle(room);
   // The +: a private room's owner and admins invite friends; in a public room anyone can start a private room on
   // the same game with friends.
   const pub = room.room_type === 'public';
@@ -452,25 +453,7 @@ function updatePresence(state: RoomState, presence?: Presence) {
   state.presence = presence || state.presence;
   const watching = state.presence.online.length + visibleCrowd(state).length;
   state.els.sub.textContent = `${state.room.room_type === 'public' ? 'Public' : 'Private'} · ${watching} watching`;
-  renderWatchers(state, watching);
   state.membersSheet?.refresh();
-}
-
-// You first, then whoever else is online (a private room also shows its members who are away), then the crowd.
-function renderWatchers(state: RoomState, watching: number) {
-  const online = new Set(state.presence.online);
-  const me = state.ctx.me.id;
-  const isOn = (m: Member) => m.id === me || online.has(m.id);
-  const people = [...state.members.values()]
-    .filter((m) => state.room.room_type === 'private' || isOn(m))
-    .sort((a, b) => Number(b.id === me) - Number(a.id === me) || Number(isOn(b)) - Number(isOn(a)));
-  const crowd = visibleCrowd(state);
-  const faces = [...people.slice(0, FACES).map((m) => avatar(m, isOn(m) ? '' : 'away')), ...crowd.slice(0, FACES).map((f) => avatar(f))].slice(0, FACES);
-  const more = people.length + crowd.length - faces.length;
-  state.els.watchers.replaceChildren(el('span', { class: 'faces' }, faces), ...(more > 0 ? [el('span', { class: 'more-faces', text: `+${more}` })] : []));
-  state.els.watchers.setAttribute('aria-label', state.room.room_type === 'private'
-    ? `${plural(state.members.size, 'member')}, ${watching} watching. Show members`
-    : `${watching} watching. Show who is here`);
 }
 
 function setReconnecting(state: RoomState, on: boolean) {
@@ -745,8 +728,7 @@ function renderInsight(state: RoomState, i: Insight) {
     el('div', { class: 'msg-body' },
       el('div', { class: 'msg-meta' }, who.name, timeTag(i.occurred_at)),
       el('p', { class: 'alert-fact' }, el('span', { class: 'alert-tag', text: i.label }), factText(i)),
-      i.explanation ? el('p', { class: 'msg-text', text: i.explanation }) : null,
-      el('p', { class: 'msg-foot', text: 'Big moment · verified from the match feed' })));
+      i.explanation ? el('p', { class: 'msg-text', text: i.explanation }) : null));
 }
 
 function renderPending(state: RoomState, p: PendingMessage) {
@@ -1164,14 +1146,16 @@ function freshnessText(state: RoomState) {
   if (m.match.status === 'completed') return 'Match finished';
   const age = liveAge(state);
   if (age == null) return m.match.sport === 'cricket' ? 'Waiting for the first ball' : 'Waiting for the start';
-  return `Updated ${ago(age)}${m.freshness.stale ? ' · data may be stale' : ''}`;
+  return m.freshness.stale ? `Last update ${ago(age)}` : '';
 }
 
 function renderFreshness(state: RoomState) {
   for (const n of document.querySelectorAll('[data-freshness]')) n.textContent = freshnessText(state);
 }
 
-const ballDot = (s: string) => el('span', { class: `ball-dot r${s}`, text: s === '0' ? '•' : s });
+const ballDot = (s: string) => (s === '0'
+  ? el('span', { class: 'ball-dot r0', title: 'Dot ball' }, icon('dot'), el('span', { class: 'sr-only', text: 'dot ball' }))
+  : el('span', { class: `ball-dot r${s}`, text: s }));
 
 function needBlock(s: CricketScore) {
   const need = el('span', { class: 'score-need' });
@@ -1200,8 +1184,10 @@ function cricketScore(snap: MatchSnapshot) {
     el('span', { class: 'score-overs', text: `(${s.overs})` }),
     needBlock(s));
   const batters = s.batters.map((b) => `${b.short}${b.on_strike ? '*' : ''} ${b.runs} (${b.balls})`).join('  ·  ');
-  const row1 = el('div', { class: 'score-row' }, el('span', { class: 'score-batters', text: batters }), el('span', { class: 'this-over' }, s.this_over.map(ballDot)));
-  return [line, row1, el('span', {}, s.bowler ? ['Bowling ', el('b', { text: s.bowler.short }), ` ${s.bowler.figures}`] : '')];
+  const row1 = el('div', { class: 'score-row' },
+    el('span', { class: 'score-batters' }, icon('bat'), el('span', { class: 'sr-only', text: 'Batting: ' }), batters),
+    el('span', { class: 'this-over' }, s.this_over.map(ballDot)));
+  return [line, row1, el('span', { class: 'score-bowler' }, ...(s.bowler ? [icon('ball'), el('span', { class: 'sr-only', text: 'Bowling: ' }), el('b', { text: s.bowler.short }), ` ${s.bowler.figures}`] : []))];
 }
 
 function f1Score(snap: MatchSnapshot) {

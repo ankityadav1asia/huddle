@@ -87,6 +87,10 @@ export function readConfig() {
       unansweredDelaySeconds: int('UNANSWERED_QUESTION_DELAY_SECONDS', 25),
       quietMinutes: int('CONTINUITY_QUIET_MINUTES', 3),
       promptCooldownMinutes: int('CONTINUITY_COOLDOWN_MINUTES', 10),
+      // After a big moment or a new discussion #thread: how long the room argues before the Co-host polls it, and the
+      // shortest gap between two such polls.
+      debatePollDelaySeconds: int('DEBATE_POLL_DELAY_SECONDS', 30),
+      debatePollCooldownMinutes: int('DEBATE_POLL_COOLDOWN_MINUTES', 6),
       userAiPer5Min: int('AI_USER_REQUESTS_PER_5_MIN', 6),
       roomAiPer10Min: int('AI_ROOM_REQUESTS_PER_10_MIN', 30),
       pollSeconds: 90,

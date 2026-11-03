@@ -26,13 +26,7 @@
 
 /* Room: the masthead (header, scorecard, watching strip) and the chat panel tucked under its rounded top */
 .room-head { padding-bottom: 24px; }
-.watch-strip { display: flex; align-items: center; gap: 10px; margin: 12px 14px 0; }
-.watchers { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: #fff; text-align: left; }
-.faces { display: flex; }
-.faces .avatar { width: 30px; height: 30px; margin-left: -4px; box-shadow: 0 0 0 2px var(--brand-deep); font-size: 10px; letter-spacing: -0.02em; }
-.faces .avatar:first-child { margin-left: 0; }
-.faces .avatar.away { opacity: 0.6; }
-.more-faces { color: rgba(255, 255, 255, 0.92); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.watch-strip { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin: 10px 14px 0; }
 .add-btn { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: #fff; font-size: 13px; font-weight: 700; }
 .add-btn .plus { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #fff; color: var(--brand); box-shadow: 0 2px 8px rgba(80, 8, 12, 0.3); }
 .add-btn .plus .ico { width: 16px; height: 16px; }

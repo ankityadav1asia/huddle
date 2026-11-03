@@ -20,7 +20,7 @@ live feed), **Planned** (not built).
 | Crowd personas: 200 per sport, chatting in that sport's public watch party only | **Fixture data** (derived on request, never stored, not sent to the AI) |
 | Rules and players help: a checked rules sheet and roster per sport; questions answered from the game as it stood when they were asked | Implemented; live answers need an AI key |
 | Match Momentum Engine (deterministic rules, dedup, fan-out) | Implemented; alerts show in the room (in-app only) |
-| AI Co-host in the chat: unanswered questions, quiet-room polls, momentum explanations; Catch Me Up | Implemented; live AI needs an API key (provider calls are tested with mocked HTTP) |
+| AI Co-host in the chat: unanswered questions, polls on what the room is arguing about, momentum explanations; Catch Me Up | Implemented; live AI needs an API key (provider calls are tested with mocked HTTP) |
 | Dream Bot: private Q&A about the room's game | Implemented; live answers need an AI key |
 | Primary/fallback AI providers, circuit breaker | Implemented (Anthropic, OpenRouter, Gemini and xAI Grok adapters; OpenRouter and Grok share one chat-completions adapter) |
 | Moderation levels, public policy, mandatory baseline, reports, review queue, appeals | Implemented |
@@ -59,7 +59,7 @@ flowchart LR
   W --> FEED
   W --> CO
   CO --> P1
-  CO -. "only on timeout / 5xx / overload / 429" .-> P2
+  CO -. "only on timeout / 5xx / overload / 429 / a cut-off reply" .-> P2
 ```
 
 - **One backend.** `server.ts` serves the static UI, the API and runs the worker loop in-process. On Vercel the same
@@ -292,10 +292,20 @@ moderators until reviewed. AI work is only queued here: no LLM call ever sits on
 point (max 40), the match events and key moments since then, and polls. It returns either an AI summary (validated) or a
 deterministic summary from verified data. It goes to the requester only; nothing is written to the chat.
 
-### 4.8 Quiet rooms
-Each human message reschedules a `continuity_check` job for the room 3 minutes later. If the room is still quiet,
-someone is online, the match is live and no poll was posted in the last 10 minutes, the Co-host posts one light poll
-(AI, or a deterministic "Who wins from here?" template when no AI is configured).
+### 4.8 Polls from the room's chat
+Every Co-host poll reads what the room is saying: up to 20 recent member messages (pseudonymised, labelled
+untrusted) and, in a public room, the crowd's lines on screen. The AI asks about what the room is arguing or excited
+about, stays consistent with the verified match data, and falls back to the match situation when the chat gives it
+nothing. Without AI, or when its output fails validation, a deterministic template ("Who wins from here?") is used.
+- After a big moment (a high or medium momentum signal), each AI-enabled room gets a `debate_poll` job
+  `DEBATE_POLL_DELAY_SECONDS` (30) later. It reads the chat since the moment and polls only if the room argued:
+  2+ member messages, or 6+ crowd lines in a public room.
+- When members start a discussion #thread (3 messages from 2 people on one topic), the same job runs 5 s later.
+- Debate polls need someone online and a live game, never cover an open poll, and keep
+  `DEBATE_POLL_COOLDOWN_MINUTES` (6) between them.
+- Each human message still reschedules a `continuity_check` 3 minutes later: if the room is still quiet, someone is
+  online, the match is live and no poll was posted in the last 10 minutes, the Co-host posts one light poll.
+- **Suggest a poll** in the room menu does the same on request.
 
 ### 4.9 Room end and purge
 ```mermaid
@@ -345,7 +355,8 @@ gets a different crowd, and a faster pace shortens the gaps. Each line carries `
 burst) and the client shows it then; overdue lines (opening the room late) are skipped. The app does not badge them;
 the Match Centre's one note says that the match data and crowd chat in this prototype are illustrative. Lines the
 room's moderation level would not allow are dropped, and nothing is written to `messages`, so the crowd never reaches
-the AI, the message rate limit, reports or retention. Each viewer can hide it on their device.
+the message rate limit, reports or retention. The only AI task that sees it is the poll (as untrusted
+CROWD_CHAT, section 4.8). Each viewer can hide it on their device.
 
 ### 4.13 Moment threads
 A room splits its chat into #threads without anyone managing them (`lib/rooms/threads.ts`):
@@ -413,6 +424,9 @@ A room splits its chat into #threads without anyone managing them (`lib/rooms/th
 - On serverless hosting, background jobs run while some member is connected (long-poll requests drive them), plus
   a daily Vercel Cron sweep. A dedicated worker process would remove that dependency.
 - Circuit-breaker state, the AI concurrency cap and Dream Bot's repeat cache are per server instance.
+- Provider calls have per-task timeouts (Dream Bot 6 s within a 14 s deadline, momentum and polls 4.5 s within 10 s),
+  so a slow primary leaves the fallback time to answer. A failed call logs `ai.provider_error` with the vendor's
+  status and error text (never the key).
 - Live AI providers were not exercised end to end in this environment (no API keys); adapters are tested with mocked
   HTTP and the SDK's typed errors.
 - Types are checked at compile time only: query results are trusted to match the row types in `lib/db/rows.ts`

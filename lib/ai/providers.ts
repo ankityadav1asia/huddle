@@ -221,7 +221,8 @@ function geminiAdapter({ apiKey, model }: ProviderSettings, { fetchImpl = fetch 
           generationConfig: {
             responseMimeType: 'application/json',
             maxOutputTokens: req.maxTokens,
-            ...(strict && { responseJsonSchema: req.schema, thinkingConfig: { thinkingLevel: 'low' } }),
+            // Minimal thinking: these are short, data-bound replies, and every second counts in a live chat.
+            ...(strict && { responseJsonSchema: req.schema, thinkingConfig: { thinkingLevel: 'minimal' } }),
           },
         },
       });

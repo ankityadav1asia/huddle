@@ -74,8 +74,17 @@ test('both providers down: a safe failure, no fabricated answer', async () => {
   assert.equal(r.value, undefined);
 });
 
+test('a cut-off or malformed reply goes to the fallback provider', async () => {
+  const a = fake('primary', [err('bad_response')]); const b = fake('fallback', [ok]);
+  const r = await createOrchestrator({ providers: [a, b], sleep: noSleep }).run({ task: 't', system: 's', user: 'u', schema: {} });
+  assert.equal(r.ok, true);
+  assert.equal(a.calls, 1);
+  assert.equal(b.calls, 1);
+  assert.equal(r.fallbackReason, 'bad_response');
+});
+
 test('safety refusals, bad requests and invalid output never switch providers', async () => {
-  for (const category of ['safety_refusal', 'invalid_request', 'authentication_error', 'bad_response']) {
+  for (const category of ['safety_refusal', 'invalid_request', 'authentication_error']) {
     const a = fake('primary', [err(category)]); const b = fake('fallback', [ok]);
     const r = await createOrchestrator({ providers: [a, b], sleep: noSleep }).run({ task: 't', system: 's', user: 'u', schema: {} });
     assert.equal(r.ok, false);
@@ -337,4 +346,24 @@ test('numbers in ids and timestamps never ground an AI answer', () => {
   for (const n of ['116', '115', '42', '18.4', '15', '21']) assert.ok(allowed.has(n), n);
   for (const n of ['35', '12', '2026', '77']) assert.ok(!allowed.has(n), n);
   assert.deepEqual(ungroundedNumbers('The shot clock is 35 seconds; Curry has 42.', allowed), ['35']);
+});
+
+test('the Co-host polls the room on what its members are arguing about, at most once per cooldown', async () => {
+  const { handleDebatePollJob } = await import('../lib/cohost/index.ts');
+  const p = fake('primary', [{ question: 'Tilak bowling now: right call?', options: ['Smart move', 'Big mistake'] }]);
+  setAi(createOrchestrator({ providers: [p], sleep: noSleep }));
+  await app.db.exec('DELETE FROM polls; DELETE FROM rate_events');
+  await app.db.query(`UPDATE matches SET status = 'live' WHERE id = (SELECT match_id FROM rooms WHERE id = $1)`, [roomA]);
+  await app.db.query(`INSERT INTO room_presence (room_id, user_id, state) VALUES ($1, $2, 'active')
+    ON CONFLICT (room_id, user_id) DO UPDATE SET last_seen_at = now()`, [roomA, a.user.id]);
+  const job = { room_id: roomA, payload: { since_seq: (await say(a, roomA, 'warming up')).seq } };
+  assert.equal(await handleDebatePollJob(app.db, job), 'quiet'); // nobody has argued since
+  await say(a, roomA, 'Tilak bowling now, DEBATE-CANARY bad call');
+  await say(b, roomA, 'nah smart move, saving Bumrah for the death');
+  assert.equal(await handleDebatePollJob(app.db, job), 'published');
+  assert.ok(p.requests[0].user.includes('DEBATE-CANARY'));
+  assert.ok(!p.requests[0].user.includes('ai_a'), 'members are pseudonymised');
+  const polls = (await app.db.query('SELECT question FROM polls WHERE room_id = $1', [roomA])).rows;
+  assert.deepEqual(polls.map((r) => r.question), ['Tilak bowling now: right call?']);
+  assert.equal(await handleDebatePollJob(app.db, { ...job, payload: { since_seq: null } }), 'cooldown');
 });

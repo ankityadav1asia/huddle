@@ -19,7 +19,7 @@ feed. Product rules: [CLAUDE.md](CLAUDE.md). Design: [docs/architecture.md](docs
 | The live scorecard above the chat, and the Match Centre with swipeable tabs: Scorecard, Graphs (Manhattan and worm for cricket, score progression, F1 gaps to the leader), Commentary, and Overs or Play by play | Implemented on fixture data |
 | Big moments posted in the chat by the AI Co-host (deduplicated), each with its own #thread, plus a #thread for each topic the room argues about | Implemented on fixture data |
 | A crowd of 200 scripted fans chatting in each public watch party, never stored; room settings can hide it | Fixture data |
-| AI Co-host and Dream Bot: answers in the chat to questions nobody answered, polls for quiet rooms, and private answers and catch-ups in the Dream Bot window. Every number must come from verified match data, the rules sheet or the roster. A primary and a fallback provider sit behind a circuit breaker (Gemini, xAI Grok, Anthropic, OpenRouter) | Implemented; needs an API key (without one, the Dream Bot gives the latest score instead of an answer, and catch-ups come straight from match data) |
+| AI Co-host and Dream Bot: answers in the chat to questions nobody answered, polls on what the room is arguing about, and private answers and catch-ups in the Dream Bot window. Every number must come from verified match data, the rules sheet or the roster. A primary and a fallback provider sit behind a circuit breaker (Gemini, xAI Grok, Anthropic, OpenRouter) | Implemented; needs an API key (without one, the Dream Bot gives the latest score instead of an answer, and catch-ups come straight from match data) |
 | A safety baseline at every moderation level, reports, a human review queue and appeals | Implemented |
 | Messages disappear when a room ends and are deleted from the server after 24 h | Implemented |
 | Real sports data feeds, account recovery, blocking | Planned |
@@ -53,7 +53,7 @@ review queue at `/mod`, are listed by account id in `MODERATOR_USER_IDS`; your i
 ## Test
 
 ```bash
-npm test            # 121 tests against the real API and an in-memory database
+npm test            # 123 tests against the real API and an in-memory database
 npm run typecheck   # strict TypeScript: server, tests and browser app
 ```
 
