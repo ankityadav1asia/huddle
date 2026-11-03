@@ -6,7 +6,6 @@ export type Sports = Record<string, { team: string | null; picks: string[] }>;
 export interface UserRow {
   id: string;
   handle: string | null;
-  display_name: string | null;
   sports: Sports;
   is_demo: boolean;
   created_at: Date;

@@ -118,7 +118,7 @@ erDiagram
 ### Identity and access
 | Table | Purpose | Key columns |
 |---|---|---|
-| `users` | One row per profile | `handle` (the username: unique, public), `display_name` (no longer written or read), `sports` (per sport: the team backed or null, and up to 3 players, migration `010`); `is_demo` (the labelled demo friends, migration `005`). Migration `011` dropped the old `team`, `picks` and `phone_e164` columns |
+| `users` | One row per profile | `handle` (the username: unique, public), `sports` (per sport: the team backed or null, and up to 3 players, migration `010`); `is_demo` (the labelled demo friends, migration `005`). Migrations `011` and `012` dropped the old `team`, `picks`, `phone_e164` and `display_name` columns |
 | `sessions` | Server-side sessions | `token_hash` (SHA-256 of the cookie token), `expires_at`, `revoked_at` |
 
 ### Match Intelligence (shared across rooms; never per room)
