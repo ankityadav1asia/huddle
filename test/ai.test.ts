@@ -166,7 +166,7 @@ test('Grok: a strict schema it rejects is asked again without one; refusals and 
 test('with Gemini and Grok keys, Gemini answers first and Grok backs it up; AI_PRIMARY swaps them', () => {
   const ai = (extra = {}) => ({
     primary: '', fallback: '', ...extra,
-    providers: { anthropic: {}, openrouter: {}, gemini: { apiKey: 'g', model: 'gemini-3.5-flash-lite' }, xai: { apiKey: 'x', model: 'grok-4.20-0309-non-reasoning' } },
+    providers: { anthropic: {}, openrouter: {}, groq: {}, gemini: { apiKey: 'g', model: 'gemini-3.5-flash-lite' }, xai: { apiKey: 'x', model: 'grok-4.20-0309-non-reasoning' } },
   });
   assert.deepEqual(configuredProviders(ai()).map((p) => p.name), ['gemini', 'xai']);
   assert.deepEqual(configuredProviders(ai({ primary: 'xai' })).map((p) => p.name), ['xai', 'gemini']);

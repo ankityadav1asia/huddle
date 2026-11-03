@@ -48,6 +48,7 @@ function serverSecret(dataDir: string) {
 
 export function readConfig() {
   const dataDir = path.resolve(ROOT, env('HUDDLE_DATA_DIR', '.data'));
+  const grokKey = env('XAI_API_KEY') || env('GROK_API_KEY');
   return {
     port: int('PORT', 3000),
     hosted: HOSTED,
@@ -109,8 +110,10 @@ export function readConfig() {
         anthropic: { apiKey: env('ANTHROPIC_API_KEY'), model: env('ANTHROPIC_MODEL', 'claude-opus-5-5'), effort: env('ANTHROPIC_EFFORT', 'low') },
         openrouter: { apiKey: env('OPENROUTER_API_KEY'), model: env('OPENROUTER_MODEL', 'google/gemini-3.5-flash-lite'), appUrl: env('APP_URL', 'http://localhost:3000') },
         gemini: { apiKey: env('GEMINI_API_KEY'), model: env('GEMINI_MODEL', 'gemini-3.5-flash-lite') },
+        // Groq. A Groq key (gsk_…) saved as GROK_API_KEY, an easy mix-up, is used here rather than sent to xAI.
+        groq: { apiKey: env('GROQ_API_KEY') || (grokKey.startsWith('gsk_') ? grokKey : ''), model: env('GROQ_MODEL', 'openai/gpt-oss-120b') },
         // Grok. The default is xAI's non-reasoning model, for quick answers.
-        xai: { apiKey: env('XAI_API_KEY') || env('GROK_API_KEY'), model: env('XAI_MODEL', 'grok-4.20-0309-non-reasoning') },
+        xai: { apiKey: grokKey.startsWith('gsk_') ? '' : grokKey, model: env('XAI_MODEL', 'grok-4.20-0309-non-reasoning') },
       },
     },
 

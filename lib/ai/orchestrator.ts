@@ -227,6 +227,7 @@ export function createOrchestrator({
                 log.warn('ai.rejected', { task, provider: res.provider, reason: checked.reason, correlationId });
                 return { ok: false, category: 'validation_failed', reason: checked.reason, correlationId, provider: res.provider };
               }
+              log.info('ai.answered', { task, provider: res.provider, model: res.model, fallback: i > 0, ms: now() - t0, correlationId });
               return { ok: true, value: checked.value, provider: res.provider, model: res.model, fallbackUsed: i > 0, fallbackReason, correlationId, latencyMs: now() - started };
             } catch (err) {
               // Adapters throw AIError; anything else (a bug) counts as the provider being unavailable.

@@ -46,8 +46,10 @@ GEMINI_API_KEY=...   # GEMINI_MODEL to change the model
 XAI_API_KEY=...      # xAI Grok; XAI_MODEL to change the model (GROK_API_KEY also works)
 ```
 
-With both, Gemini answers first and Grok takes over when Gemini fails. `AI_PRIMARY` and `AI_FALLBACK` choose among
-`gemini`, `xai`, `anthropic` (`ANTHROPIC_API_KEY`) and `openrouter` (`OPENROUTER_API_KEY`). Moderators, who see the
+With both, Gemini answers first and Grok takes over when Gemini fails. A Groq key (`GROQ_API_KEY`, `gsk_…`;
+`GROQ_MODEL`, default `openai/gpt-oss-120b`) answers ahead of Gemini; one saved as `GROK_API_KEY` is used as Groq.
+`AI_PRIMARY` and `AI_FALLBACK` choose among `groq`, `gemini`, `xai`, `anthropic` (`ANTHROPIC_API_KEY`) and
+`openrouter` (`OPENROUTER_API_KEY`). Moderators, who see the
 review queue at `/mod`, are listed by account id in `MODERATOR_USER_IDS`; your id is in the app menu.
 
 ## Test

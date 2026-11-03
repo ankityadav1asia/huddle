@@ -101,7 +101,7 @@ function httpFailure(res: Response, json: any, provider: string): AIError {
 
 // What a rejected key looks like, without the key: enough to tell a truncated or masked paste from a wrong key.
 function keyShape(key: string): string {
-  const prefix = /^(xai-|sk-or-|sk-|AIza)/.exec(key)?.[1];
+  const prefix = /^(xai-|gsk_|sk-or-|sk-|AIza)/.exec(key)?.[1];
   return `key sent: ${key.length} characters, ${prefix ? `starts "${prefix}"` : 'no known prefix'}${/[\s"'*…]/.test(key) ? ', has spaces, quotes or masking' : ''}`;
 }
 
@@ -217,6 +217,14 @@ export function xaiAdapter({ apiKey, model }: ProviderSettings, { fetchImpl = fe
   return chatCompletionsAdapter({ name: 'xai', label: 'xAI', url: 'https://api.x.ai/v1/chat/completions' }, { apiKey, model }, fetchImpl);
 }
 
+// Groq (not xAI's Grok): open models on fast hardware. gpt-oss takes a reasoning effort; other models reject it.
+export function groqAdapter({ apiKey, model }: ProviderSettings, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): Provider {
+  return chatCompletionsAdapter({
+    name: 'groq', label: 'Groq', url: 'https://api.groq.com/openai/v1/chat/completions',
+    extraBody: /gpt-oss/.test(model) ? { reasoning_effort: 'low' } : {},
+  }, { apiKey, model }, fetchImpl);
+}
+
 // A part of Gemini's reply: thought summaries are flagged, answer text is not.
 interface GeminiPart { text?: string; thought?: boolean }
 
@@ -257,11 +265,12 @@ function geminiAdapter({ apiKey, model }: ProviderSettings, { fetchImpl = fetch 
   };
 }
 
-interface SettingsByProvider { anthropic: AnthropicSettings; openrouter: OpenRouterSettings; gemini: ProviderSettings; xai: ProviderSettings }
+interface SettingsByProvider { anthropic: AnthropicSettings; openrouter: OpenRouterSettings; groq: ProviderSettings; gemini: ProviderSettings; xai: ProviderSettings }
 type ProviderName = keyof SettingsByProvider;
 
-const FACTORIES: { [K in ProviderName]: (settings: SettingsByProvider[K]) => Provider } = { anthropic: anthropicAdapter, openrouter: openRouterAdapter, gemini: geminiAdapter, xai: xaiAdapter };
-const DEFAULT_ORDER: ProviderName[] = ['anthropic', 'openrouter', 'gemini', 'xai'];
+const FACTORIES: { [K in ProviderName]: (settings: SettingsByProvider[K]) => Provider } = { anthropic: anthropicAdapter, openrouter: openRouterAdapter, groq: groqAdapter, gemini: geminiAdapter, xai: xaiAdapter };
+// Groq before Gemini: it answers in a second or two, where Gemini's lite model often times out under load.
+const DEFAULT_ORDER: ProviderName[] = ['anthropic', 'openrouter', 'groq', 'gemini', 'xai'];
 
 // config().ai, or the part of it that picks providers. A vendor without an apiKey is skipped, so its settings may be empty.
 interface ProviderChoice {
