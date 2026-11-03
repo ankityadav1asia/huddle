@@ -148,7 +148,8 @@ function renderLive(ctx: ReadyCtx, section: HTMLElement, rooms: RoomLists) {
           el('span', { class: 'card-sport', text: SPORT_LABEL[room.sport] || 'Cricket' })),
         el('span', { class: `status-pill${live ? ' live' : ''}`, text: live ? '● Live' : 'Not started' })),
       logos
-        ? el('h3', { class: 'card-h pub-logos' }, el('span', { class: 'sr-only', text: room.match_title || 'Match' }), teamLogo('MI'), teamLogo('CSK'))
+        ? el('h3', { class: 'card-h pub-logos' }, el('span', { class: 'sr-only', text: room.match_title || 'Match' }),
+          teamLogo('MI'), el('span', { class: 'pub-v', 'aria-hidden': 'true', text: 'v' }), teamLogo('CSK'))
         : el('h3', { class: 'card-h', text: room.match_title || 'Match' }),
       s ? el('p', { class: 'pub-score' }, el('b', { text: s.line }), s.sub ? el('span', { text: s.sub }) : null, s.note ? el('em', { text: s.note }) : null) : null,
       el('div', { class: 'pub-foot' },

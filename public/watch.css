@@ -191,7 +191,8 @@ button.thread-tag { padding: 0; border: 0; background: none; cursor: pointer; }
 .pub-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pub-mark { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .pub-mark .card-sport { white-space: nowrap; }
-.pub-logos { display: flex; gap: 10px; }
+.pub-logos { display: flex; align-items: center; gap: 10px; }
+.pub-v { color: var(--muted); font: 700 18px/1 var(--display); }
 .pub-logos .logo { width: 44px; height: 44px; padding: 3px; border: 1px solid var(--line); border-radius: 12px; }
 .pub-score { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 9px 12px; border-radius: var(--r-md); background: var(--card-2); }
 .pub-score b { font: 700 22px/1 var(--display); font-variant-numeric: tabular-nums; }
