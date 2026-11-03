@@ -63,36 +63,6 @@ const sheetOpen = () => document.getElementById('sheet-layer')?.hidden === false
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // The floating orb the room puts in its chat panel, just above the message box.
-// Entering a room (and opening Dream AI) fans three balls of 0.3 cm out of the red ball to its left, where the
-// design puts them: red high up-left, blue up-left, white (with a border) level to the left, 1.5–2 cm out. They
-// stay in view for about 10 seconds, then fade. Real centimetres, as designed; angles are above the leftward horizontal.
-const BURST = [{ colour: 'red', angle: 62, cm: 1.5 }, { colour: 'blue', angle: 26, cm: 1.9 }, { colour: 'white', angle: 2, cm: 2 }];
-function burst(from: HTMLElement) {
-  const app = document.getElementById('app');
-  if (!app || reducedMotion()) return;
-  const box = app.getBoundingClientRect();
-  const orb = from.getBoundingClientRect();
-  const x = orb.left + orb.width / 2 - box.left;
-  const y = orb.top + orb.height / 2 - box.top;
-  BURST.forEach(({ colour, angle, cm }, i) => {
-    const ball = el('span', { class: `db-burst ${colour}`, 'aria-hidden': 'true' });
-    ball.style.left = `${x}px`; // set through the CSSOM: the page's CSP forbids inline style attributes
-    ball.style.top = `${y}px`;
-    app.append(ball);
-    const rad = (angle * Math.PI) / 180;
-    const to = `translate(${(-cm * Math.cos(rad)).toFixed(3)}cm, ${(-cm * Math.sin(rad)).toFixed(3)}cm)`;
-    ball.animate([
-      { transform: 'translate(0, 0) scale(0.3)', opacity: 0 },
-      { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: 0.024 },
-      { transform: `${to} scale(1.12)`, opacity: 1, offset: 0.08 },
-      { transform: `${to} scale(1)`, opacity: 1, offset: 0.1 },
-      { transform: `${to} scale(1)`, opacity: 1, offset: 0.962 },
-      { transform: `${to} scale(0.8)`, opacity: 0 },
-    ], { duration: 10600, delay: i * 90, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)', fill: 'backwards' }).finished
-      .then(() => ball.remove(), () => ball.remove());
-  });
-}
-
 export function dreamBotLauncher(opts: BotOptions): HTMLElement {
   const nudge = el('div', { class: 'db-nudge', 'aria-hidden': 'true', hidden: true, text: 'Ask me anything about this match', onclick: () => launch() });
   const orb = el('button', { type: 'button', class: 'db-orb', 'aria-label': 'Dream AI: ask the AI about the game', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => launch() }, icon('seam'));
@@ -105,11 +75,8 @@ export function dreamBotLauncher(opts: BotOptions): HTMLElement {
   };
   function launch() {
     hideNudge();
-    burst(orb);
     openDreamBot(opts);
   }
-  // The balls greet each room as it opens, once the orb is on screen.
-  setTimeout(() => { if (wrap.isConnected && !document.hidden) burst(orb); }, 650);
   if (!nudged && canAsk(opts)) {
     setTimeout(() => {
       if (nudged || !wrap.isConnected || view) return;

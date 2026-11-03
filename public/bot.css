@@ -27,11 +27,6 @@
   border: 2px solid rgba(229, 56, 59, 0.55); animation: db-ring 2.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
 }
 .db-launch .db-orb { overflow: visible; }
-/* The burst on opening: white, red and blue balls of 0.3 cm, each flying 2 cm (bot.ts sets the paths). */
-.db-burst { position: absolute; z-index: 12; width: 0.3cm; height: 0.3cm; margin: -0.15cm 0 0 -0.15cm; border-radius: 50%; pointer-events: none; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.28); }
-.db-burst.white { box-sizing: border-box; border: 1.5px solid #3c414b; background: radial-gradient(circle at 35% 30%, #fff, #f1f2f6 70%, #d6d8df); }
-.db-burst.red { background: radial-gradient(circle at 35% 30%, #ff8a8a, #d62828 60%, #7a0b10); }
-.db-burst.blue { background: radial-gradient(circle at 35% 30%, #9cc8ff, #1d4ed8 60%, #0f2a78); }
 .db-orb:hover { transform: translateY(-2px) scale(1.04); }
 .db-orb:active { transform: scale(0.94); }
 .db-orb:focus-visible { outline: 3px solid var(--db-violet); outline-offset: 3px; }
