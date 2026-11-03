@@ -65,7 +65,7 @@ const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').match
 // The floating orb the room puts in its chat panel, just above the message box.
 // Entering a room (and opening Dream AI) fans three balls of 0.3 cm out of the red ball to its left, where the
 // design puts them: red high up-left, blue up-left, white (with a border) level to the left, 1.5–2 cm out. They
-// hold there a moment, then fade. Real centimetres, as designed; angles are above the leftward horizontal.
+// stay in view for about 10 seconds, then fade. Real centimetres, as designed; angles are above the leftward horizontal.
 const BURST = [{ colour: 'red', angle: 62, cm: 1.5 }, { colour: 'blue', angle: 26, cm: 1.9 }, { colour: 'white', angle: 2, cm: 2 }];
 function burst(from: HTMLElement) {
   const app = document.getElementById('app');
@@ -83,12 +83,12 @@ function burst(from: HTMLElement) {
     const to = `translate(${(-cm * Math.cos(rad)).toFixed(3)}cm, ${(-cm * Math.sin(rad)).toFixed(3)}cm)`;
     ball.animate([
       { transform: 'translate(0, 0) scale(0.3)', opacity: 0 },
-      { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: 0.08 },
-      { transform: `${to} scale(1.12)`, opacity: 1, offset: 0.28 },
-      { transform: `${to} scale(1)`, opacity: 1, offset: 0.36 },
-      { transform: `${to} scale(1)`, opacity: 1, offset: 0.82 },
+      { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: 0.024 },
+      { transform: `${to} scale(1.12)`, opacity: 1, offset: 0.08 },
+      { transform: `${to} scale(1)`, opacity: 1, offset: 0.1 },
+      { transform: `${to} scale(1)`, opacity: 1, offset: 0.962 },
       { transform: `${to} scale(0.8)`, opacity: 0 },
-    ], { duration: 2600, delay: i * 90, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)', fill: 'backwards' }).finished
+    ], { duration: 10600, delay: i * 90, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)', fill: 'backwards' }).finished
       .then(() => ball.remove(), () => ball.remove());
   });
 }
