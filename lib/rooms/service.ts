@@ -351,8 +351,12 @@ export async function listRooms(db: Queryable, user: SessionUser) {
        FROM rooms r JOIN matches mt ON mt.id = r.match_id
       WHERE r.room_type = 'public' AND r.status = 'active' AND mt.status IN ('scheduled', 'live')
       ORDER BY r.created_at DESC LIMIT 10`, [user.id]))
-    .sort((a, b) => sportRank(a.fixture_key) - sportRank(b.fixture_key)) // one per sport: cricket, F1, basketball, hockey
-    .map(({ fixture_key: key, ...r }) => ({ ...r, sport: fixtureFor({ fixture_key: key }).sport, max_members: cap, full: r.members >= cap && !r.joined }));
+    .sort((a, b) => sportRank(a.fixture_key) - sportRank(b.fixture_key)) // one per sport: cricket, kabaddi, football, basketball
+    .map(({ fixture_key: key, ...r }) => {
+      const f = fixtureFor({ fixture_key: key });
+      const teams = f.teams.map(({ code, name, logo }) => ({ code, name, logo: logo ?? null })); // home cards show the logos
+      return { ...r, sport: f.sport, teams, max_members: cap, full: r.members >= cap && !r.joined };
+    });
   const mine = await many<MyRoomRow>(db,
     `SELECT r.id, r.name, r.room_type, r.status, r.moderation_level, r.ended_at, m.role, mt.title AS match_title,
             (SELECT count(*)::int FROM room_members x WHERE x.room_id = r.id AND x.status = 'active') AS members,

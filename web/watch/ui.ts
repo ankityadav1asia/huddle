@@ -66,7 +66,7 @@ export function aiLabel(text: string) {
 export const initials = (handle: string | null = '') => (String(handle).split(/[^a-z0-9]+/i).filter(Boolean).map((s) => s[0]).join('') || String(handle)).slice(0, 2).toUpperCase();
 
 // Colours for every team a fan can back (and the crowd's sides); styles.css maps t-<code> to them.
-const TEAM_COLOURS = new Set(['MI', 'CSK', 'MCL', 'RBR', 'FER', 'MER', 'GSW', 'LAL', 'EDM', 'TOR']);
+const TEAM_COLOURS = new Set(['MI', 'CSK', 'JPP', 'PAT', 'MBSG', 'EBFC', 'GSW', 'LAL']);
 export const teamClass = (team: string | null) => (team && TEAM_COLOURS.has(team) ? `team t-${team.toLowerCase()}` : '');
 
 // A team code ('MI'), or a team from the match data, which may carry its own logo.
@@ -134,7 +134,7 @@ export function railIntro() {
   return [
     el('p', { class: 'rail-kicker', text: 'Prototype · Sports watch parties' }),
     el('h1', { class: 'rail-title', text: 'Huddle' }),
-    el('p', { class: 'rail-lede', text: 'Watch parties for cricket, F1, basketball and hockey fans: invite friends, chat in real time and follow the live scorecard, with an AI Co-host in the chat and Dream Bot for your own questions.' }),
+    el('p', { class: 'rail-lede', text: 'Watch parties for cricket, kabaddi, football and basketball fans: invite friends, chat in real time and follow the live scorecard, with an AI Co-host in the chat and Dream Bot for your own questions.' }),
     el('ul', { class: 'rail-features' },
       el('li', {}, el('b', { text: 'Watch parties' }), el('span', { text: 'A public room for every sport run by Huddle, and private rooms you start in one tap and invite friends to by username.' })),
       el('li', {}, el('b', { text: 'Match Centre' }), el('span', { text: 'Tap the scorecard for the full scorecard, graphs, commentary and over by over.' })),

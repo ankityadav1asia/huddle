@@ -1,4 +1,4 @@
-// Shared pieces for the scripted sports (F1, basketball, hockey), whose scripts mark their own big moments, threads
+// Shared pieces for the scripted sports (kabaddi, football, basketball), whose scripts mark their own big moments, threads
 // and crowd cues. Cricket detects its moments with rules instead (momentum.ts).
 import type { Priority } from '../../db/rows.ts';
 import type { CrowdCue, Graphs, MomentThread, PlayLabel, RosterEntry, Signal } from '../fixture.ts';
@@ -40,7 +40,7 @@ export function scriptedSignals<State>(next: State, item: ScriptedItem<State>, s
 
 export const scriptedThread = (item: { thread?: MomentThread }): MomentThread | null => item.thread || null;
 
-// Every play sits at its game clock (the lap in F1).
+// Every play sits at its game clock.
 export const scriptedDescribe = (item: { clock: string }): PlayLabel => ({ over: item.clock, symbol: null });
 
 // The score worm of a game with a clock: where it started, after every change, and where it stands now.

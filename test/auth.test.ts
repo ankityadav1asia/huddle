@@ -44,7 +44,7 @@ test('usernames are validated, unique and safety-checked; privileged fields are 
   assert.equal((await join({ handle: 'call_9876543210' })).status, 400); // personal data in a label
   assert.equal((await join({ display_name: 'X' })).status, 400); // no display names
   assert.equal((await join({ handle: 'team_test', sports: { cricket: { team: 'RCB' } } })).status, 400);
-  assert.equal((await join({ handle: 'team_test', sports: { cricket: { team: 'MCL' } } })).status, 400); // an F1 team
+  assert.equal((await join({ handle: 'team_test', sports: { cricket: { team: 'GSW' } } })).status, 400); // a basketball team
   assert.equal((await join({ handle: 'team_test', sports: { tennis: { team: 'X' } } })).status, 400);
   assert.equal((await join('{"handle":"team_test","sports":{"__proto__":{"team":"X"}}}')).status, 400);
   assert.equal((await join({ handle: 'team_test', team: 'CSK' })).status, 400); // teams go per sport
@@ -96,18 +96,18 @@ test('fans pick a team and up to three players in each sport, keep them on edit,
     = (await client(app.base).get('/api/config')).body;
   assert.equal(config.max_picks, 3);
   assert.deepEqual(config.sports.map((s) => [s.sport, s.label, s.teams.map((t) => t.code)]), [
-    ['cricket', 'Cricket', ['MI', 'CSK']], ['f1', 'F1', ['MCL', 'RBR', 'FER', 'MER']],
-    ['basketball', 'Basketball', ['GSW', 'LAL']], ['hockey', 'Hockey', ['EDM', 'TOR']]]);
+    ['cricket', 'Cricket', ['MI', 'CSK']], ['kabaddi', 'Kabaddi', ['JPP', 'PAT']],
+    ['football', 'Football', ['MBSG', 'EBFC']], ['basketball', 'Basketball', ['GSW', 'LAL']]]);
   assert.ok(config.sports[0].players.some((p) => p.name === 'Jasprit Bumrah' && p.short === 'Bumrah' && p.team === 'MI'));
-  assert.ok(config.sports[1].players.some((p) => p.name === 'Charles Leclerc' && p.team === 'FER'));
+  assert.ok(config.sports[3].players.some((p) => p.name === 'LeBron James' && p.team === 'LAL'));
   const c = client(app.base);
-  const sports = { cricket: { team: 'CSK', picks: ['MS Dhoni', 'Jasprit Bumrah'] }, f1: { team: 'MCL', picks: ['Lando Norris'] } };
+  const sports = { cricket: { team: 'CSK', picks: ['MS Dhoni', 'Jasprit Bumrah'] }, basketball: { team: 'LAL', picks: ['LeBron James'] } };
   const r = await c.post('/api/auth/guest', { handle: 'picker_1', sports });
   assert.equal(r.status, 201);
   assert.deepEqual(r.body.user.sports, sports);
   assert.deepEqual((await c.get('/api/me')).body.user.sports, sports);
   let n = 0;
-  for (const picks of [['Virat Kohli'], ['MS Dhoni', 'MS Dhoni'], ['MS Dhoni', 'Jasprit Bumrah', 'Rohit Sharma', 'Tilak Varma'], 'MS Dhoni', ['Lando Norris']]) {
+  for (const picks of [['Virat Kohli'], ['MS Dhoni', 'MS Dhoni'], ['MS Dhoni', 'Jasprit Bumrah', 'Rohit Sharma', 'Tilak Varma'], 'MS Dhoni', ['LeBron James']]) {
     const bad = await client(app.base).post('/api/auth/guest', { handle: `bad_picks_${n += 1}`, sports: { cricket: { team: null, picks } } });
     assert.equal(bad.status, 400);
     assert.equal(bad.body.error.code, 'invalid_picks');
@@ -116,17 +116,17 @@ test('fans pick a team and up to three players in each sport, keep them on edit,
   assert.deepEqual((await edit({})).body.user.sports, sports); // left out: kept
   assert.deepEqual((await edit({ sports: { cricket: { team: 'CSK' } } })).body.user.sports.cricket.picks, ['MS Dhoni', 'Jasprit Bumrah']);
   assert.deepEqual((await edit({ sports: { cricket: { team: 'MI', picks: [] } } })).body.user.sports,
-    { cricket: { team: 'MI', picks: [] }, f1: sports.f1 });
-  assert.deepEqual(Object.keys((await edit({ sports: { f1: null } })).body.user.sports), ['cricket']); // forgotten: asked again
+    { cricket: { team: 'MI', picks: [] }, basketball: sports.basketball });
+  assert.deepEqual(Object.keys((await edit({ sports: { basketball: null } })).body.user.sports), ['cricket']); // forgotten: asked again
 
   // One sport at a time: what a room asks when you first watch that sport.
   const pick = (sport: string, body: unknown) => c.put(`/api/me/sports/${sport}`, body);
   assert.deepEqual((await pick('basketball', { team: 'GSW' })).body.user.sports.basketball, { team: 'GSW', picks: [] });
-  assert.deepEqual((await pick('hockey', { team: null })).body.user.sports.hockey, { team: null, picks: [] }); // just watching
-  assert.equal((await pick('basketball', { team: 'MCL' })).body.error.code, 'invalid_team');
+  assert.deepEqual((await pick('kabaddi', { team: null })).body.user.sports.kabaddi, { team: null, picks: [] }); // just watching
+  assert.equal((await pick('basketball', { team: 'JPP' })).body.error.code, 'invalid_team');
   assert.equal((await pick('tennis', { team: null })).body.error.code, 'invalid_sport');
-  assert.equal((await pick('f1', { team: 'MCL', is_moderator: true })).status, 400);
-  assert.equal((await client(app.base).put('/api/me/sports/f1', { team: 'MCL' })).status, 401);
+  assert.equal((await pick('football', { team: 'MBSG', is_moderator: true })).status, 400);
+  assert.equal((await client(app.base).put('/api/me/sports/football', { team: 'MBSG' })).status, 401);
   assert.equal((await c.get('/api/me')).body.user.sports.basketball.team, 'GSW');
 });
 

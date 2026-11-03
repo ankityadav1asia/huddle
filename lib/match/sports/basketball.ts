@@ -27,7 +27,7 @@ type Extra = Omit<BasketballItem, 'kind' | 'clock' | 'game_clock' | 'text' | 'ty
 type BasketballScore = ReturnType<typeof snapshot>;
 
 const TEAMS: Record<string, string> = { LAL: 'Lakers', GSW: 'Warriors' };
-const SIDES: Team[] = [{ code: 'GSW', name: 'Warriors' }, { code: 'LAL', name: 'Lakers' }];
+const SIDES: Team[] = [{ code: 'GSW', name: 'Warriors', logo: 'assets/gsw.png' }, { code: 'LAL', name: 'Lakers', logo: 'assets/lal.png' }];
 // `pts`: points before the last six minutes.
 const PLAYERS: Record<string, { team: string; role: string; pts: number }> = {
   'Luka Dončić': { team: 'LAL', role: 'guard', pts: 27 },

@@ -161,7 +161,7 @@ export async function roomBootstrap(db: Queryable, user: SessionUser, roomId: st
     },
     members,
     // The public watch party's simulated fans (the Match Centre's note covers them); private rooms have none.
-    simulated_fans: fixture && room.room_type === 'public' ? fixture.crowd.fans : [],
+    crowd_fans: fixture && room.room_type === 'public' ? fixture.crowd.fans : [],
     items,
     threads: [...(await hydrateThreads(db, roomId)).values()],
     cursor: room.last_seq,

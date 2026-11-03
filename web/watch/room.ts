@@ -2,7 +2,7 @@
 // Co-host's messages and #threads, and the composer with its rate limit and Dream Bot. The server re-authorises every
 // request; this view never decides who sees what.
 import { api, ApiError, errorMessage, serverNow, newKey, type CreatedRoom, type InviteResult, type ModerationLevel, type Role } from './api.ts';
-import { el, icon, aiLabel, initials, teamClass, teamLogo, clock, clockSeconds, ago, plural, toast, setRail, railIntro } from './ui.ts';
+import { el, icon, aiLabel, initials, teamClass, teamLogo, clock, clockSeconds, ago, plural, toast, setRail, railIntro, type Child } from './ui.ts';
 import { openSheet, closeSheet, sheetActions, confirmSheet } from './sheets.ts';
 import { friendPicker, levelChooser, LEVEL_NAMES } from './home.ts';
 import { openMatchCentre } from './match.ts';
@@ -111,7 +111,7 @@ interface RoomBootstrap {
   cursor: number;
   match_rev: string | null;
   cooldown_until: string | null;
-  simulated_fans: CrowdFan[]; // the public room's crowd; none in private rooms
+  crowd_fans: CrowdFan[]; // the public room's crowd; none in private rooms
   threads: Thread[];
   items: ({ type: 'message'; data: ChatMessage } | { type: 'poll'; data: Poll } | { type: 'insight'; data: Insight })[];
 }
@@ -153,15 +153,33 @@ interface CricketScore {
   bowler: { short: string; figures: string } | null;
   this_over: string[];
 }
-interface F1Score {
-  lap: number;
-  total_laps: number;
-  safety_car: boolean;
+interface SideScore { code: string; score: number }
+interface BasketballScore {
+  period: string;
+  clock: string;
   result: string | null;
-  order: { pos: number; short: string; gap: string }[];
-  fastest_lap: { driver: string; time: string };
+  teams: (SideScore & { leaders: { short: string; pts: number }[] })[];
+  last_play: string;
 }
-interface BasketballTeam { leaders: { short: string; pts: number }[] }
+interface KabaddiScore {
+  half: number;
+  clock: string; // time left in the half
+  result: string | null;
+  raiding: string;
+  do_or_die: boolean;
+  teams: SideScore[];
+  raiders: { short: string; team: string; raid_points: number }[];
+  last_play: string;
+}
+interface FootballScore {
+  minute: string;
+  period: string;
+  result: string | null;
+  teams: SideScore[];
+  goals: { team: string; scorer: string; minute: string; penalty: boolean }[];
+  cards: { team: string; player: string; minute: string; card: 'yellow' | 'red' }[];
+  last_play: string;
+}
 
 // An invitation as the room's owner and admins see it (GET /api/rooms/:id/invitations).
 interface RoomInvitation { id: string; user_id: string; handle: string; status: string }
@@ -325,7 +343,7 @@ async function bootstrap(state: RoomState) {
   state.cursor = boot.cursor;
   state.matchRev = boot.match_rev;
   state.cooldownUntil = boot.cooldown_until ? toLocal(boot.cooldown_until) : 0;
-  state.crowdFans = boot.simulated_fans || [];
+  state.crowdFans = boot.crowd_fans || [];
   buildRoom(state);
   for (const t of boot.threads || []) addThread(state, t, { quiet: true });
   for (const item of boot.items) upsertItem(state, item.type, item.data);
@@ -959,7 +977,7 @@ function renderThreadBar(state: RoomState) {
   const chip = (id: string, label: string, count?: number, { hot = false, fresh = false }: { hot?: boolean; fresh?: boolean } = {}) => el('button', {
     type: 'button', class: `chip${state.activeThread === id ? ' active' : ''}${fresh ? ' fresh' : ''}`, 'aria-pressed': String(state.activeThread === id),
     onclick: () => setThread(state, id),
-  }, hot ? el('span', { class: 'hot', 'aria-hidden': 'true' }) : null, label, count == null ? null : el('span', { class: 'count', text: String(count) }));
+  }, hot ? el('span', { class: 'hot', 'aria-hidden': 'true' }) : null, label, count ? el('span', { class: 'count', text: String(count) }) : null);
   bar.replaceChildren(chip('all', 'All chat'), ...threads.map((t) => {
     const node = chip(t.id, t.title, t.messages + t.live, { hot: Date.now() - t.lastActive < 15000, fresh: t.fresh });
     t.fresh = false;
@@ -1170,8 +1188,8 @@ const ballDot = (s: string) => (s === '0'
 
 function needBlock(s: CricketScore) {
   const need = el('span', { class: 'score-need' });
-  if (s.result) need.append(el('b', { text: s.result }));
-  else if (s.chase_won) need.append(el('b', { text: `${s.batting} have won` }));
+  if (s.result) return need;
+  if (s.chase_won) need.append(el('b', { text: `${s.batting} have won` }));
   else need.append('Need ', el('b', { text: String(s.need_runs) }), ' off ', el('b', { text: String(s.need_balls) }), el('br'), `Target ${s.target} · RRR ${s.rrr ?? '-'}`);
   return need;
 }
@@ -1180,9 +1198,12 @@ function needBlock(s: CricketScore) {
 function renderScore(state: RoomState) {
   const snap = state.match!; // refreshMatch calls this right after storing the snapshot
   const sport = snap.match.sport || 'cricket';
-  const [line, row1, detail] = sport === 'cricket' ? cricketScore(snap) : sport === 'f1' ? f1Score(snap) : teamScore(snap);
+  const [line, row1, detail] = sport === 'cricket' ? cricketScore(snap) : sport === 'kabaddi' ? kabaddiScore(snap)
+    : sport === 'football' ? footballScore(snap) : basketballScore(snap);
   const row2 = el('div', { class: 'score-row' }, detail, el('span', { class: 'fresh-tag', 'data-freshness': '', text: freshnessText(state) }));
-  state.els.score.replaceChildren(line, row1, row2);
+  // A result is a sentence ("CSK win by 6 wickets off the final ball"): it gets its own line under the score.
+  const result: string | null = snap.score?.result || null;
+  state.els.score.replaceChildren(line, ...(result ? [el('p', { class: 'score-result', text: result })] : []), row1, row2);
   state.els.score.hidden = false;
 }
 
@@ -1201,32 +1222,50 @@ function cricketScore(snap: MatchSnapshot) {
   return [line, row1, el('span', { class: 'score-bowler' }, ...(s.bowler ? [icon('ball'), el('span', { class: 'sr-only', text: 'Bowling: ' }), el('b', { text: s.bowler.short }), ` ${s.bowler.figures}`] : []))];
 }
 
-function f1Score(snap: MatchSnapshot) {
-  const s: F1Score = snap.score;
-  const status = s.result ? el('b', { text: s.result }) : s.safety_car ? el('b', { class: 'flag-sc', text: 'Safety car' }) : [el('b', { text: s.order[0].short }), ' leads'];
+// Kabaddi, football and basketball: both sides' logos either side of the score, where the game is, a one-line
+// detail, and the last play.
+function teamScore(snap: MatchSnapshot, s: { result: string | null; teams: SideScore[]; last_play: string }, when: Child, detail: Child) {
+  const [a, b] = s.teams;
+  const side = (t: SideScore) => el('span', { class: 'team-chip' }, teamLogo(snap.match.teams.find((x) => x.code === t.code) || t), t.code);
   const line = el('div', { class: 'score-line' },
-    el('span', { class: 'team-chip sport-chip', text: 'F1' }),
-    el('span', { class: 'score-runs', text: `Lap ${s.lap}` }),
-    el('span', { class: 'score-overs', text: `/ ${s.total_laps}` }),
-    el('span', { class: 'score-need' }, status));
-  const row1 = el('div', { class: 'score-row' }, el('span', { class: 'score-batters', text: s.order.slice(0, 3).map((d) => `P${d.pos} ${d.short}${d.pos > 1 ? ` ${d.gap}` : ''}`).join('  ·  ') }));
-  return [line, row1, el('span', { text: `Fastest lap ${s.fastest_lap.driver.split(' ').pop()} ${s.fastest_lap.time}` })];
+    side(a),
+    el('span', { class: 'score-runs', text: `${a.score}–${b.score}` }),
+    side(b),
+    el('span', { class: 'score-need' }, s.result ? null : when));
+  const row1 = el('div', { class: 'score-row' }, el('span', { class: 'score-batters' }, detail));
+  return [line, row1, el('span', { class: 'last-play', text: s.last_play || '' })];
 }
 
-// Basketball and hockey: two teams, a period and a clock.
-function teamScore(snap: MatchSnapshot) {
-  const s = snap.score;
-  const [a, b] = s.teams;
-  const line = el('div', { class: 'score-line' },
-    el('span', { class: 'team-chip sport-chip', text: a.code }),
-    el('span', { class: 'score-runs', text: `${a.score}–${b.score}` }),
-    el('span', { class: 'team-chip sport-chip', text: b.code }),
-    el('span', { class: 'score-need' }, s.result ? el('b', { text: s.result }) : [el('b', { text: s.period }), ` ${s.clock}`]));
-  const detail = snap.match.sport === 'basketball'
-    ? s.teams.map((t: BasketballTeam) => `${t.leaders[0].short} ${t.leaders[0].pts} pts`).join('  ·  ')
-    : `Shots ${a.shots}–${b.shots}${s.power_play ? ` · ${s.power_play.team} power play` : ''}${s.empty_net ? ` · ${s.empty_net} goalie pulled` : ''}`;
-  const row1 = el('div', { class: 'score-row' }, el('span', { class: 'score-batters', text: detail }));
-  return [line, row1, el('span', { class: 'last-play', text: s.last_play || '' })];
+function basketballScore(snap: MatchSnapshot) {
+  const s: BasketballScore = snap.score;
+  return teamScore(snap, s, [el('b', { text: s.period }), ` ${s.clock}`],
+    s.teams.map((t) => (t.leaders[0] ? `${t.leaders[0].short} ${t.leaders[0].pts} pts` : '')).filter(Boolean).join('  ·  '));
+}
+
+function kabaddiScore(snap: MatchSnapshot) {
+  const s: KabaddiScore = snap.score;
+  const top = s.raiders[0];
+  const detail = s.do_or_die && !s.result ? [el('b', { class: 'score-alert', text: 'Do-or-die raid' }), ` · ${s.raiding}`]
+    : top ? ['Top raider ', el('b', { text: top.short }), ` (${top.team}) ${plural(top.raid_points, 'pt')}`] : '';
+  return teamScore(snap, s, [el('b', { text: s.half === 1 ? '1st half' : '2nd half' }), el('br'), s.clock], detail);
+}
+
+// "90+3'" sorts after "90'" and "88'".
+function minutes(m: string) {
+  const x = /^(\d+)(?:\+(\d+))?/.exec(m);
+  return x ? Number(x[1]) + Number(x[2] ?? 0) : 0;
+}
+
+function footballScore(snap: MatchSnapshot) {
+  const s: FootballScore = snap.score;
+  const goal = s.goals[s.goals.length - 1];
+  const card = s.cards[s.cards.length - 1];
+  // The later of the last goal and the last card; a goal wins a tie.
+  const detail = goal && (!card || minutes(goal.minute) >= minutes(card.minute))
+    ? ['Goal ', el('b', { text: goal.scorer }), ` ${goal.minute}${goal.penalty ? ' (pen)' : ''} · ${goal.team}`]
+    : card ? [el('span', { class: `card-mark ${card.card}`, 'aria-hidden': 'true' }), `${card.card === 'red' ? 'Red' : 'Yellow'} card `, el('b', { text: card.player }), ` ${card.minute} · ${card.team}`]
+    : 'No goals yet';
+  return teamScore(snap, s, [el('b', { text: s.minute }), el('br'), s.period], detail);
 }
 
 function renderRail(state: RoomState) {

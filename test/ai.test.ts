@@ -342,7 +342,7 @@ test('numbers in ids and timestamps never ground an AI answer', () => {
   const allowed = allowedNumbersFrom(
     { score: 'Warriors 116, Lakers 115', points: ['Stephen Curry (Warriors) 42 points'] },
     [{ event_id: 'mev_35a1b2', over: '18.4', text: 'Curry hits a three', occurred_at: '2026-11-03T05:12:35.000Z' }],
-    { at: 'P3 15:21', just_before: [{ event_id: 'mev_77c3', text: 'Power play goal' }] });
+    { at: '2H 15:21', just_before: [{ event_id: 'mev_77c3', text: 'Super tackle' }] });
   for (const n of ['116', '115', '42', '18.4', '15', '21']) assert.ok(allowed.has(n), n);
   for (const n of ['35', '12', '2026', '77']) assert.ok(!allowed.has(n), n);
   assert.deepEqual(ungroundedNumbers('The shot clock is 35 seconds; Curry has 42.', allowed), ['35']);

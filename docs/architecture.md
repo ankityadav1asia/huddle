@@ -1,6 +1,6 @@
 # Huddle Watch Party: architecture
 
-Huddle is a sports Watch Party prototype for cricket, Formula 1, basketball and ice hockey: friends (or the public)
+Huddle is a sports Watch Party prototype for IPL T20 cricket, PKL kabaddi, ISL football and NBA basketball: friends (or the public)
 chat in a room while a game plays, the room shows verified match data, an AI Co-host in the chat answers questions
 nobody answered, flags big moments and catches people up, and Dream Bot answers anyone's own questions privately. It
 is one Node.js application written in TypeScript, with one Postgres database. There is no video, no microservice
@@ -15,8 +15,8 @@ live feed), **Planned** (not built).
 | Public and private Watch Party rooms, invitations (on the home screen), roles, presence | Implemented |
 | Realtime chat, reactions, polls (long-polling) | Implemented |
 | Moment threads: #topics for big moments and for what the room argues about | Implemented (deterministic rules) |
-| Match Intelligence for four sports: a scoreboard per sport, play by play, status, freshness | Implemented on **fixture data** (real names, made-up games): MI v CSK, the Italian Grand Prix, Warriors v Lakers, Oilers v Maple Leafs; one shared game and public watch party per sport, and every room follows its sport's game |
-| Match Centre: full commentary with every play labelled, and graphs per sport (runs per over, score worm, F1 gaps) | Implemented, computed from the ingested feed (`?detail=1`) |
+| Match Intelligence for four sports: a scoreboard per sport, play by play, status, freshness | Implemented on **fixture data** (real names, made-up games): MI v CSK, Jaipur Pink Panthers v Patna Pirates, Mohun Bagan v East Bengal, Warriors v Lakers; one shared game and public watch party per sport, and every room follows its sport's game |
+| Match Centre: full commentary with every play labelled, and graphs per sport (runs per over, score worm) | Implemented, computed from the ingested feed (`?detail=1`) |
 | Crowd personas: 200 per sport, chatting in that sport's public watch party only | **Fixture data** (derived on request, never stored, not sent to the AI) |
 | Rules and players help: a checked rules sheet and roster per sport; questions answered from the game as it stood when they were asked | Implemented; live answers need an AI key |
 | Match Momentum Engine (deterministic rules, dedup, fan-out) | Implemented; alerts show in the room (in-app only) |
@@ -125,14 +125,14 @@ erDiagram
 ### Match Intelligence (shared across rooms; never per room)
 | Table | Purpose | Key columns |
 |---|---|---|
-| `matches` | One run of a sport's game | `source` = `demo_fixture` (an internal id), `fixture_key` (which sport's script: `mi-csk-demo`, `f1-monza-demo`, `nba-gsw-lal-demo`, `nhl-edm-tor-demo`), `status` scheduled/live/completed, `feed_started_at`, `ball_interval_ms` (the pace). Migration `013` dropped `room_id` (private rooms' own runs) and `paused_at`; `backfill_until` is no longer written |
+| `matches` | One run of a sport's game | `source` = `demo_fixture` (an internal id), `fixture_key` (which sport's script: `mi-csk-demo`, `pkl-jpp-pat`, `isl-mbsg-ebfc`, `nba-gsw-lal-demo`), `status` scheduled/live/completed, `feed_started_at`, `ball_interval_ms` (the pace). Migration `013` dropped `room_id` (private rooms' own runs) and `paused_at`; `backfill_until` is no longer written. Migration `014` closed the retired F1 and ice hockey runs and ended their rooms |
 | `match_events` | Timestamped feed events | `provider_event_id` (unique per match: dedupes re-ingestion), `seq`, `kind` ball/event/overend (play/event in the other sports), `data` (bowler, batter, runs, wicket…), `occurred_at`; `backfilled` is no longer written |
 | `match_signals` | Momentum Engine output, one per crucial moment | `trigger` (e.g. `wicket_fallen`), `priority` high/medium/low, `evidence` (verified facts), `fact_text` (deterministic sentence), `dedupe_key` (unique), `status` pending/published/suppressed/expired, `ai_text` (optional validated explanation), `expires_at` |
 
 The scoreboard is not stored: each sport's engine (`lib/match/sports/`) recomputes it deterministically from
 `match_events` (cricket: runs, wickets, overs, required rate, batting card with each batter's fours and sixes, bowling
-card, fall of wickets, partnership; F1: the running order, gaps, tyres and pit stops; basketball and hockey: the
-score, clock and key stats), and it is cached in memory per match. `lib/match/fixture.ts` lists the four fixtures;
+card, fall of wickets, partnership; kabaddi: score, half and clock, raid, tackle and all-out points, top raiders and
+defenders; football: score, minute, goals, cards and shots; basketball: the score, clock and key stats), and it is cached in memory per match. `lib/match/fixture.ts` lists the four fixtures;
 each brings its engine, crowd, discussion topics, rules sheet, roster and example questions. The Match Centre's
 labelled commentary and graphs (§4.10) are rebuilt from the same events with the same engines.
 
@@ -191,6 +191,12 @@ Dream Bot answers are never stored.
 
 `test/migration.test.ts` builds a database at migration 012 holding all of these cases and upgrades it.
 
+### Migration 014 (3 November 2026)
+`014_kabaddi_football.sql` retires Formula 1 and ice hockey (fixtures `f1-monza-demo`, `nhl-edm-tor-demo`): every
+active room, public or private, on a run of those fixtures ends as `endRoom` ends one (`end_reason` `sport_retired`,
+purge after 24 h, which the sweep picks up; room jobs cancelled, pending invitations expired, presence cleared), their
+runs are marked `completed`, and the `f1` and `hockey` keys leave `users.sports`. Its test starts from migration 013.
+
 ## 4. Workflows
 
 ### 4.1 Joining
@@ -240,9 +246,9 @@ moderators until reviewed. AI work is only queued here: no LLM call ever sits on
    provider event id) inside a per-match row lock.
 2. The deterministic rules in `lib/match/momentum.ts` compare the scorecard before and after each item: wickets
    (`partnership_break` when a 30+ stand ends), dropped catches, boundary bursts, dot-ball pressure, a required-rate
-   spike, death overs, DRS outcomes and the confirmed result. Thresholds are documented heuristics. The F1,
-   basketball and hockey scripts mark their moments on the items themselves (pit stops, safety car, lead changes,
-   clutch time, the buzzer-beater, power plays, goals, the empty net, the result), and `lib/match/sports/scripted.ts`
+   spike, death overs, DRS outcomes and the confirmed result. Thresholds are documented heuristics. The kabaddi,
+   football and basketball scripts mark their moments on the items themselves (super tackles, all-outs, do-or-die
+   raids, goals, cards, penalties, lead changes, clutch time, the buzzer-beater, the result), and `lib/match/sports/scripted.ts`
    turns them into the same signal rows.
 3. Only fresh signals alert. A backlog (server asleep) or several signals in one pass publish at most one alert; the
    rest are stored as `suppressed` for Catch Me Up.
@@ -340,8 +346,7 @@ run's ingested events through the sport's engine (fewer than 100 items, so on ev
   The other sports give the clock.
 - **Graphs**, from each engine's `graphs`: cricket's runs and wickets per over of the feed with the innings total at
   each over's end (the feed starts after 14 overs, so the first over is the 15th; the totals add up to the score);
-  basketball's and hockey's score at the start, after every change and now; F1's gap to the leader, lap by lap, of
-  the top three as they stand.
+  kabaddi's, football's and basketball's score at the start, after every change and now.
 Cricket's batting card and fall of wickets carry each batter's fours and sixes, counted ball by ball on top of the
 fixture's starting card.
 
@@ -356,7 +361,7 @@ copy with host controls; migration `013` moved them onto the shared games (§3).
 ### 4.12 Crowd personas
 Public watch parties get a scripted crowd: fixture data, derived rather than stored (a private room holds only the
 people invited). Each sport has 200 personas (`lib/match/fans.ts`: seeded handles split between the two sides, such
-as MCL and RBR fans for F1); the bootstrap lists them as `simulated_fans`, and the room header counts real people
+as JPP and PAT fans for kabaddi); the bootstrap lists them as `crowd_fans`, and the room header counts real people
 online and the crowd separately. `GET /api/rooms/:id/match` returns `crowd`, the lines for the plays of the last 45 s,
 built by `lib/match/crowd.ts` from each play's crowd cue in the sport's script (or background chatter) with a random
 generator seeded by room, run and play. So everyone in a room sees the same fans say the same thing, another room
@@ -370,14 +375,14 @@ CROWD_CHAT, section 4.8). Each viewer can hide it on their device.
 ### 4.13 Moment threads
 A room splits its chat into #threads without anyone managing them (`lib/rooms/threads.ts`):
 - **Big moments** open one in every room following the match, inside feed ingestion: in cricket a wicket
-  (`#dube-out`), the bowling change, the DRS call, a dropped catch, the last over; in F1 the pit wall, the safety car,
-  Norris v Verstappen and the last lap; in basketball Curry's threes, clutch time and the buzzer-beater; in hockey the
-  power play, each goal and the empty net; and every result. Cricket's are ordinary cricket events, so a real feed
+  (`#dube-out`), the bowling change, the DRS call, a dropped catch, the last over; in kabaddi and football the
+  big swings their scripts mark (raids and tackles, goals, cards); in basketball Curry's threes, clutch time and the
+  buzzer-beater; and every result. Cricket's are ordinary cricket events, so a real feed
   would open the same threads; the other sports mark them on the scripted items. Re-ingesting opens nothing twice.
 - **Discussions** open one when three messages from at least two people in ten minutes argue about the same topic
   of the room's sport (in cricket, Hinglish and English keywords for the DRS call, a dropped catch, the bowling
-  change, the last over; in F1 the safety car, the pit wall, the stewards; in basketball the refs and the threes; in
-  hockey the refs and the goalies); those messages move into it.
+  change, the last over; in kabaddi, football and basketball each script's own topics, such as the refs and the threes in
+  basketball); those messages move into it.
 - A message joins the thread it is sent from (`thread_id`), else one whose topic it mentions, else a big moment
   from the last 30 s. Every message still shows in All chat. AI answers stay in their question's thread, and the
   crowd's reactions to a moment carry its thread.
@@ -424,7 +429,7 @@ A room splits its chat into #threads without anyone managing them (`lib/rooms/th
 ## 7. Known limitations
 - Every game is fixture data: a scripted game played as a timestamped feed, not a live provider. The app says so in
   one place, the Match Centre's note. A licensed provider per sport would replace the fixtures in
-  `lib/match/sports/`; the F1, basketball and hockey moments are marked in the scripts, so a real feed for those
+  `lib/match/sports/`; the kabaddi, football and basketball moments are marked in the scripts, so a real feed for those
   sports would also need momentum rules like cricket's. The rules sheets are short hand-written summaries, not the
   official rulebooks. Cricket's graph and per-over commentary cover the overs of the feed only (from the 15th over).
 - Joining is a guest profile without phone verification: one person can hold several profiles (limited per

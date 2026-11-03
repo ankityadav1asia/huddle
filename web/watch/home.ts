@@ -20,6 +20,7 @@ interface PublicRoom {
   joined: boolean;
   full: boolean;
   score: { line: string; sub: string | null; note: string | null } | null; // a live game's scoreboard
+  teams?: { code: string; name: string; logo: string }[]; // the game's two sides
 }
 interface MyRoom { id: string; name: string | null; status: string; role: Role; moderation_level: ModerationLevel; members: number; online: number }
 interface Game { id: string; title: string; sport: string }
@@ -111,10 +112,8 @@ function renderInvites(ctx: ReadyCtx, section: HTMLElement, invitations: Invitat
   }
 }
 
-const SPORT_LABEL: Partial<Record<string, string>> = { cricket: 'IPL T20', f1: 'Formula 1', basketball: 'Basketball', hockey: 'Ice hockey' };
-const SPORT_TAG: Partial<Record<string, string>> = { f1: 'F1', basketball: 'NBA', hockey: 'NHL' };
-// The two sides' logos (public/assets), where a sport has them: the logos are then the card's title.
-const TEAM_LOGOS: Partial<Record<string, [string, string]>> = { cricket: ['MI', 'CSK'], basketball: ['GSW', 'LAL'] };
+const SPORT_LABEL: Partial<Record<string, string>> = { cricket: 'IPL T20', kabaddi: 'Pro Kabaddi', football: 'Indian Super League', basketball: 'Basketball' };
+const SPORT_TAG: Partial<Record<string, string>> = { kabaddi: 'PKL', football: 'ISL', basketball: 'NBA' };
 
 // Joining a public watch party (or opening one you are in); a full room says so where it was tapped.
 async function enter(ctx: ReadyCtx, room: PublicRoom, control: HTMLButtonElement, err: HTMLElement) {
@@ -142,16 +141,17 @@ function renderLive(ctx: ReadyCtx, section: HTMLElement, rooms: RoomLists) {
     const go = el('button', { type: 'button', class: 'btn primary small', text: room.joined ? 'Open' : full ? 'Full' : 'Join', disabled: full });
     go.addEventListener('click', () => enter(ctx, room, go, err));
     const s = live ? room.score : null;
-    // Where the teams have logos, the logos are the title (the name stays for screen readers).
-    const logos = TEAM_LOGOS[room.sport || 'cricket'];
+    // The two sides' logos are the title (the name stays for screen readers); without them, the name.
+    const [ta, tb] = room.teams ?? [];
+    const sport = room.sport || 'cricket';
     section.append(el('article', { class: 'card pub-card' },
       el('div', { class: 'pub-top' },
-        el('span', { class: 'pub-mark' }, logos && room.sport === 'cricket' ? null : el('span', { class: 'sport-tag', text: SPORT_TAG[room.sport] || room.sport }),
-          el('span', { class: 'card-sport', text: SPORT_LABEL[room.sport] || 'Cricket' })),
+        el('span', { class: 'pub-mark' }, sport === 'cricket' ? null : el('span', { class: 'sport-tag', text: SPORT_TAG[sport] || sport }),
+          el('span', { class: 'card-sport', text: SPORT_LABEL[sport] || sport })),
         el('span', { class: `status-pill${live ? ' live' : ''}`, text: live ? '● Live' : 'Not started' })),
-      logos
-        ? el('h3', { class: 'card-h pub-logos' }, el('span', { class: 'sr-only', text: room.match_title || 'Match' }),
-          teamLogo(logos[0]), el('span', { class: 'pub-v', 'aria-hidden': 'true', text: 'v' }), teamLogo(logos[1]))
+      ta && tb
+        ? el('h3', { class: 'card-h pub-logos' }, el('span', { class: 'sr-only', text: room.match_title || `${ta.name} v ${tb.name}` }),
+          teamLogo(ta), el('span', { class: 'pub-v', 'aria-hidden': 'true', text: 'v' }), teamLogo(tb))
         : el('h3', { class: 'card-h', text: room.match_title || 'Match' }),
       s ? el('p', { class: 'pub-score' }, el('b', { text: s.line }), s.sub ? el('span', { text: s.sub }) : null, s.note ? el('em', { text: s.note }) : null) : null,
       el('div', { class: 'pub-foot' },
@@ -184,7 +184,7 @@ function renderMine(ctx: ReadyCtx, section: HTMLElement, rooms: MyRoom[]) {
   section.append(list);
 }
 
-// "Cricket: Chennai Super Kings (Dhoni, Bumrah) · F1: Ferrari": what you back in each sport you answered for.
+// "Cricket: Chennai Super Kings (Dhoni, Bumrah) · Kabaddi: Patna Pirates": what you back in each sport you answered for.
 function backingLine(ctx: ReadyCtx) {
   return (ctx.config.sports || []).filter((s) => ctx.me.sports?.[s.sport]).map((s) => {
     const { team, picks } = ctx.me.sports[s.sport];

@@ -42,27 +42,30 @@ export function matchStats(sport: string, sc: any): Stat[] {
     if (last) out.push({ label: 'Last wicket', value: `${last.name.split(' ').pop()} ${last.r} (${last.b})${last.score ? ` at ${last.score}` : ''}` });
     return out;
   }
-  if (sport === 'f1') {
-    return [
-      { label: 'Lap', value: `${sc.lap}/${sc.total_laps}` },
-      ...(sc.result ? [{ label: 'Result', value: sc.result }] : []),
-      ...sc.order.slice(0, 3).map((d: any) => ({ label: `P${d.pos}`, value: `${d.short} ${d.gap}` })),
-      { label: 'Fastest lap', value: `${sc.fastest_lap.driver.split(' ').pop()} ${sc.fastest_lap.time}` },
-    ];
-  }
   const [a, b] = sc.teams || [];
   if (!a || !b) return [];
-  const out: Stat[] = [
-    { label: 'Score', value: `${a.code} ${a.score} – ${b.score} ${b.code}` },
-    { label: sc.result ? 'Result' : 'Clock', value: sc.result || `${sc.period} ${sc.clock}` },
-  ];
-  if (sport === 'basketball') {
-    for (const t of sc.teams) if (t.leaders?.[0]) out.push({ label: `${t.code} leader`, value: `${t.leaders[0].short} ${t.leaders[0].pts} pts` });
+  const out: Stat[] = [{ label: 'Score', value: `${a.code} ${a.score} – ${b.score} ${b.code}` }];
+  if (sport === 'kabaddi') {
+    out.push({ label: sc.result ? 'Result' : 'Clock', value: sc.result || `${sc.half === 1 ? 'First' : 'Second'} half, ${sc.clock} left` });
+    const raider = sc.raiders?.[0];
+    if (raider) out.push({ label: 'Top raider', value: `${raider.short} ${raider.raid_points} pts (${raider.raids} raids)` });
+    const defender = sc.defenders?.[0];
+    if (defender) out.push({ label: 'Top defender', value: `${defender.short} ${defender.tackle_points} tackle pts` });
+    out.push({ label: 'All-out points', value: `${a.all_out_points} – ${b.all_out_points}` });
+  } else if (sport === 'football') {
+    out.push({ label: sc.result ? 'Result' : 'Minute', value: sc.result || sc.minute });
+    const goals = sc.goals || [];
+    if (goals.length) out.push({ label: 'Scorers', value: goals.map((g: any) => `${g.scorer.split(' ').pop()} ${g.minute}${g.penalty ? ' (pen)' : ''}`).join(', ') });
+    // Card counts per side; red cards by name, since they change the game.
+    const booked = (t: any) => [t.yellow && `${t.yellow} yellow`, t.red && `${t.red} red`].filter(Boolean).join(', ') || 'none';
+    const reds = (sc.cards || []).filter((c: any) => c.card === 'red').map((c: any) => `${c.player.split(' ').pop()} ${c.minute}`);
+    if (a.yellow || a.red || b.yellow || b.red) {
+      out.push({ label: 'Cards', value: `${a.code} ${booked(a)} · ${b.code} ${booked(b)}${reds.length ? ` (sent off: ${reds.join(', ')})` : ''}` });
+    }
+    out.push({ label: 'Shots (on target)', value: `${a.shots} (${a.on_target}) – ${b.shots} (${b.on_target})` });
   } else {
-    out.push({ label: 'Shots', value: `${a.shots} – ${b.shots}` });
-    if (sc.power_play) out.push({ label: 'Power play', value: sc.power_play.team });
-    const goal = sc.goals?.at(-1);
-    if (goal) out.push({ label: 'Last goal', value: `${goal.scorer.split(' ').pop()} ${goal.time}` });
+    out.push({ label: sc.result ? 'Result' : 'Clock', value: sc.result || `${sc.period} ${sc.clock}` });
+    for (const t of sc.teams) if (t.leaders?.[0]) out.push({ label: `${t.code} leader`, value: `${t.leaders[0].short} ${t.leaders[0].pts} pts` });
   }
   return out;
 }

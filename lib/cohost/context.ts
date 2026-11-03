@@ -41,7 +41,7 @@ export async function askedContext(db: Queryable, room: Pick<RoomRow, 'match_id'
     `SELECT id, seq, data FROM match_events WHERE match_id = $1 AND seq <= $2 AND kind <> 'overend' ORDER BY seq DESC LIMIT 5`,
     [match.id, matchSeq]);
   const snap = { match: { title: match.title, format: match.format, status: match.status, source: match.source, source_label: fixture.sourceLabel }, score: fixture.engine.snapshot(state) };
-  // When it was asked: the game clock where the sport has one (lap, period clock); in cricket, the latest delivery.
+  // When it was asked: the game clock where the sport has one; in cricket, the latest delivery.
   const lastBall: { label: string } | undefined = state.ball_log?.at(-1);
   return {
     ...guide,

@@ -46,7 +46,7 @@ route('GET', '/api/config', async () => {
     // The teams and players a fan can back in each sport (fixture data, like the games).
     sports: Object.values(SPORTS),
     max_picks: MAX_PICKS,
-    crowd: { fans: CROWD_SIZE }, // the simulated fans who chat along with each public watch party
+    crowd: { fans: CROWD_SIZE }, // the crowd personas who chat along with each public watch party
   };
 }, { auth: 'none' });
 
@@ -77,10 +77,12 @@ function homeScore(sport: string, sc: any) {
     const note = sc.result || (sc.target ? `${sc.batting} need ${sc.need_runs} off ${sc.need_balls}` : sc.crr != null ? `Run rate ${sc.crr}` : null);
     return { line: `${sc.batting} ${sc.runs}/${sc.wickets}`, sub: `${sc.overs} ov`, note };
   }
-  if (sport === 'f1') return { line: `Lap ${sc.lap}/${sc.total_laps}`, sub: null, note: sc.result || `${sc.order[0].short} leads` };
   const [a, b] = sc.teams;
   const lead = a.score === b.score ? 'All square' : `${(a.score > b.score ? a : b).name} lead by ${Math.abs(a.score - b.score)}`;
-  return { line: `${a.code} ${a.score}–${b.score} ${b.code}`, sub: `${sc.period} ${sc.clock}`, note: sc.result || lead };
+  const line = `${a.code} ${a.score}–${b.score} ${b.code}`;
+  if (sport === 'kabaddi') return { line, sub: `${sc.half}H ${sc.clock}`, note: sc.result || (sc.do_or_die ? `Do-or-die raid for ${sc.raiding}` : lead) };
+  if (sport === 'football') return { line, sub: sc.minute, note: sc.result || lead };
+  return { line, sub: `${sc.period} ${sc.clock}`, note: sc.result || lead };
 }
 
 route('GET', '/api/rooms', async ({ db, user }) => {

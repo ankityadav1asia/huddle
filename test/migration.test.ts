@@ -107,3 +107,61 @@ test('migration 013 moves rooms onto the shared games, drops notifications and d
   assert.equal(snap?.match.id, m.cricket);
   await db.close();
 });
+
+// Migration 014 on a database as release 013 left it: Formula 1 and ice hockey runs with rooms on them, and fans who
+// backed teams in those sports.
+test('migration 014 ends the rooms on the retired sports, closes their runs and forgets those picks', async () => {
+  const db = await openPglite(null);
+  await migrate(db, { upTo: 13 });
+  const id = (prefix: string) => newId(prefix);
+  const [owner, friend] = [id('usr'), id('usr')];
+  const m = { f1: id('mat'), hockeyDone: id('mat'), hockeyLive: id('mat'), cricket: id('mat') };
+  const r = { f1Public: id('room'), hockeyOwn: id('room'), hockeyPublic: id('room'), cricket: id('room'), ended: id('room') };
+  const [inv, job, otherJob] = [id('inv'), id('job'), id('job')];
+
+  await db.query(`INSERT INTO users (id, handle, sports) VALUES ($1, 'mig_fan', $3::jsonb), ($2, 'mig_mate', '{}'::jsonb)`, [owner, friend,
+    JSON.stringify({ cricket: { team: 'CSK', picks: ['MS Dhoni'] }, f1: { team: 'MCL', picks: ['Lando Norris'] }, hockey: { team: null, picks: [] } })]);
+  const run = (matchId: string, fixture: string, status: string) => db.query(
+    `INSERT INTO matches (id, fixture_key, title, team_a, team_b, source, status, feed_started_at, ball_interval_ms)
+     VALUES ($1, $2, 'Game', 'A', 'B', 'demo_fixture', $3, now(), 10000)`, [matchId, fixture, status]);
+  await run(m.f1, 'f1-monza-demo', 'live');
+  await run(m.hockeyDone, 'nhl-edm-tor-demo', 'completed');
+  await run(m.hockeyLive, 'nhl-edm-tor-demo', 'scheduled');
+  await run(m.cricket, 'mi-csk-demo', 'live');
+  for (const [roomId, matchId] of [[r.f1Public, m.f1], [r.hockeyPublic, m.hockeyLive]]) {
+    await db.query(`INSERT INTO rooms (id, name, room_type, match_id) VALUES ($1, 'Public watch party', 'public', $2)`, [roomId, matchId]);
+  }
+  for (const [roomId, matchId] of [[r.hockeyOwn, m.hockeyDone], [r.cricket, m.cricket], [r.ended, m.f1]]) {
+    await db.query(`INSERT INTO rooms (id, name, room_type, creator_id, match_id, moderation_level) VALUES ($1, 'Friends', 'private', $2, $3, 'balanced')`, [roomId, owner, matchId]);
+  }
+  await db.query(`UPDATE rooms SET status = 'ended', ended_at = now() - interval '1 hour', end_reason = 'ended_by_owner', purge_after = now() + interval '1 hour' WHERE id = $1`, [r.ended]);
+  await db.query(`INSERT INTO room_invitations (id, room_id, inviter_id, invitee_id, status, expires_at) VALUES ($1, $2, $3, $4, 'pending', now() + interval '1 day')`,
+    [inv, r.hockeyOwn, owner, friend]);
+  await db.query(`INSERT INTO room_presence (room_id, user_id, state) VALUES ($1, $3, 'active'), ($2, $3, 'active')`, [r.f1Public, r.cricket, owner]);
+  await db.query(`INSERT INTO jobs (id, type, room_id, dedupe_key, status) VALUES ($1, 'poll_close', $3, 'pollclose:a', 'queued'), ($2, 'poll_close', $4, 'pollclose:b', 'queued')`,
+    [job, otherJob, r.hockeyOwn, r.cricket]);
+
+  await migrate(db);
+
+  const one = async (sql: string, params: unknown[] = []) => (await db.query(sql, params)).rows[0];
+  assert.ok(await one(`SELECT 1 FROM schema_migrations WHERE version = '014_kabaddi_football'`));
+  // Rooms on any run of the retired sports end like a normal end, and the sweep purges them after the retention window.
+  for (const roomId of [r.f1Public, r.hockeyPublic, r.hockeyOwn]) {
+    const room = await one(`SELECT status, end_reason, ended_at IS NOT NULL AS ended, purge_after > now() + interval '23 hours' AS later FROM rooms WHERE id = $1`, [roomId]);
+    assert.deepEqual(room, { status: 'ended', end_reason: 'sport_retired', ended: true, later: true }, roomId);
+  }
+  assert.equal((await one('SELECT end_reason FROM rooms WHERE id = $1', [r.ended])).end_reason, 'ended_by_owner'); // already ended: untouched
+  assert.equal((await one('SELECT status FROM rooms WHERE id = $1', [r.cricket])).status, 'active');
+  assert.equal((await one('SELECT status FROM room_invitations WHERE id = $1', [inv])).status, 'expired');
+  assert.deepEqual((await db.query('SELECT room_id FROM room_presence')).rows.map((p) => p.room_id), [r.cricket]);
+  assert.equal((await one('SELECT status FROM jobs WHERE id = $1', [job])).status, 'cancelled');
+  assert.equal((await one('SELECT status FROM jobs WHERE id = $1', [otherJob])).status, 'queued');
+  // Their runs close; other sports play on.
+  const statuses = Object.fromEntries((await db.query('SELECT id, status, completed_at IS NOT NULL AS closed FROM matches')).rows.map((x) => [x.id, [x.status, x.closed]]));
+  for (const done of [m.f1, m.hockeyLive]) assert.deepEqual(statuses[done], ['completed', true]);
+  assert.deepEqual(statuses[m.cricket], ['live', false]);
+  // Fans keep only the sports Huddle still has.
+  assert.deepEqual((await one('SELECT sports FROM users WHERE id = $1', [owner])).sports, { cricket: { team: 'CSK', picks: ['MS Dhoni'] } });
+  assert.deepEqual((await one('SELECT sports FROM users WHERE id = $1', [friend])).sports, {});
+  await db.close();
+});

@@ -91,26 +91,22 @@ test('basketball: the score worm starts where the quarter did and ends on the fi
   }
 });
 
-test('hockey: the same worm, ending on the final score', async () => {
-  const f = fixtureOf('hockey');
-  await playTo('hockey', f.items.length - 1);
-  const { graphs } = await centre('hockey');
-  assert.deepEqual(graphs.teams, ['EDM', 'TOR']);
-  assert.deepEqual(graphs.points.map((p: { a: number; b: number }) => [p.a, p.b]), [[2, 2], [3, 2], [3, 3], [4, 3], [5, 3], [5, 3]]);
-  assert.deepEqual(graphs.points.at(-1), { label: 'P3 0:00', a: 5, b: 3 });
-});
-
-test('F1: lap by lap, the gaps to the leader of the top three at the end', async () => {
-  const f = fixtureOf('f1');
-  await playTo('f1', f.items.length - 1);
-  const { graphs, commentary } = await centre('f1');
-  assert.equal(graphs.kind, 'gaps');
-  assert.deepEqual(graphs.drivers, ['NOR', 'VER', 'LEC']);
-  assert.deepEqual(graphs.laps.map((l: { lap: number }) => l.lap), [41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53]);
-  for (const l of graphs.laps) assert.deepEqual(Object.keys(l.gaps), ['NOR', 'VER', 'LEC']);
-  assert.deepEqual(graphs.laps.at(-1).gaps, { NOR: 0, VER: 1.1, LEC: 2.8 });
-  assert.deepEqual(graphs.laps[0].gaps, { NOR: 1.8, VER: 0, LEC: 4.5 }); // Verstappen led then
-  assert.ok((commentary as Play[]).every((p) => /^Lap \d+$/.test(p.over)));
+test('kabaddi and football: the score worm ends on the final score, and every play sits at its clock', async () => {
+  const sides: [string, string[], RegExp][] = [['kabaddi', ['JPP', 'PAT'], /^2H \d+:\d\d$/], ['football', ['MBSG', 'EBFC'], /^\d+(\+\d+)?'$/]];
+  for (const [sport, teams, clock] of sides) {
+    await playTo(sport, fixtureOf(sport).items.length - 1);
+    const { graphs, commentary, score } = await centre(sport);
+    assert.equal(graphs.kind, 'score', sport);
+    assert.deepEqual(graphs.teams, teams);
+    const final = Object.fromEntries(score.teams.map((t: { code: string; score: number }) => [t.code, t.score]));
+    const last = graphs.points.at(-1);
+    assert.deepEqual([last.a, last.b], [final[teams[0]], final[teams[1]]], sport);
+    assert.ok(score.result, sport);
+    for (const p of commentary as Play[]) {
+      assert.match(p.over, clock, sport);
+      assert.equal(p.symbol, null);
+    }
+  }
 });
 
 test('without detail=1 the snapshot stays light: the last plays, no graphs, no replay or moments', async () => {

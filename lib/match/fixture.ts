@@ -4,9 +4,8 @@ import { one, type Queryable } from '../db/index.ts';
 import type { MatchRow, Priority } from '../db/rows.ts';
 import type { Fan } from './fans.ts';
 import { CRICKET } from './sports/cricket.ts';
-import { F1 } from './sports/f1.ts';
+import { FOOTBALL } from './sports/football.ts';
 import { BASKETBALL } from './sports/basketball.ts';
-import { HOCKEY } from './sports/hockey.ts';
 
 export interface Team { code: string; name: string; logo?: string }
 // The #thread a big moment opens in every room following the match.
@@ -45,12 +44,11 @@ interface Facts { headline: string; [field: string]: unknown }
 export interface PlayLabel { over: string; symbol: string | null; label?: string; text?: string }
 
 // The Match Centre's graphs (GET /api/rooms/:id/match?detail=1). Cricket: each over of the feed with its runs,
-// wickets and the innings total at its end. Basketball and hockey: the score (a for teams[0], b for teams[1]) at the
-// start, after each change and now. F1: each lap's gaps to the leader of the top three drivers as they stand now.
+// wickets and the innings total at its end. Kabaddi, football and basketball: the score (a for teams[0], b for
+// teams[1]) at the start, after each change and now.
 export type Graphs =
   | { kind: 'cricket'; target: number | null; overs: { over: number; runs: number; wickets: number; total: number }[] }
-  | { kind: 'score'; teams: string[]; points: { label: string; a: number; b: number }[] }
-  | { kind: 'gaps'; drivers: string[]; laps: { lap: number; gaps: Record<string, number> }[] };
+  | { kind: 'score'; teams: string[]; points: { label: string; a: number; b: number }[] };
 
 // `ball` is what an item was, for engines whose rules read it (cricket's delivery), else null.
 interface Engine<State, Item, Score> {
@@ -100,7 +98,7 @@ export interface Fixture<State = any, Item = any, Score = any> {
 interface SportBacking { sport: string; label: string; title: string; teams: Team[]; players: BackedPlayer[] }
 
 export const DEMO_FIXTURE = CRICKET;
-export const FIXTURE_ORDER: Fixture[] = [CRICKET, F1, BASKETBALL, HOCKEY];
+export const FIXTURE_ORDER: Fixture[] = [CRICKET, FOOTBALL, BASKETBALL];
 export const FIXTURES: Record<string, Fixture> = Object.fromEntries(FIXTURE_ORDER.map((f) => [f.key, f]));
 export const sportRank = (fixtureKey: string) => FIXTURE_ORDER.findIndex((f) => f.key === fixtureKey);
 // Backing per sport, in home-screen order (one fixture per sport).

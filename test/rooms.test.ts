@@ -13,6 +13,17 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
+test('the home list has one public watch party per sport, in order, each with its two teams and their logos', async () => {
+  const listed: { sport: string; teams: { code: string; name: string; logo: string | null }[] }[] = (await owner.get('/api/rooms')).body.public_rooms;
+  assert.deepEqual(listed.map((r) => [r.sport, r.teams.map((t) => `${t.code} ${t.logo}`)]), [
+    ['cricket', ['MI assets/mi.png', 'CSK assets/csk.png']],
+    ['kabaddi', ['JPP assets/jpp.png', 'PAT assets/pat.png']],
+    ['football', ['MBSG assets/mbsg.png', 'EBFC assets/ebfc.png']],
+    ['basketball', ['GSW assets/gsw.png', 'LAL assets/lal.png']],
+  ]);
+  assert.ok(listed.every((r) => r.teams.every((t) => t.name)));
+});
+
 test('a creator can make a private room, invite several people and becomes owner', async () => {
   const r = await owner.post('/api/rooms', { name: 'Chennai crew', moderation_level: 'relaxed', invitee_ids: [friend.user.id, other.user.id] });
   assert.equal(r.status, 201);
@@ -31,13 +42,13 @@ test('invalid moderation levels and client-supplied privileged fields are reject
 });
 
 test('a private room follows the shared game of its sport: there is no own_replay any more', async () => {
-  const pub = (await owner.get('/api/rooms')).body.public_rooms.find((r: { sport: string }) => r.sport === 'f1');
+  const pub = (await owner.get('/api/rooms')).body.public_rooms.find((r: { sport: string }) => r.sport === 'football');
   for (const ownReplay of [true, false]) {
     const r = await owner.post('/api/rooms', { name: 'Own run', match_id: pub.match_id, own_replay: ownReplay });
     assert.equal(r.status, 400);
     assert.equal(r.body.error.code, 'unexpected_field');
   }
-  const r = await owner.post('/api/rooms', { name: 'Race night', match_id: pub.match_id });
+  const r = await owner.post('/api/rooms', { name: 'Derby night', match_id: pub.match_id });
   assert.equal(r.status, 201);
   assert.equal((await owner.get(`/api/rooms/${r.body.room_id}`)).body.room.match.id, pub.match_id); // the public room's game
   await app.db.query(`UPDATE matches SET status = 'completed' WHERE id = $1`, [pub.match_id]);

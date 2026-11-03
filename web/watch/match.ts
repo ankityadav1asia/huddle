@@ -1,8 +1,8 @@
 // Match Centre: a Cricbuzz-style window over the room, opened from its scorecard. Swipeable tabs (Scorecard, Graphs,
-// Commentary, and Overs for cricket or Play by play for F1, basketball and hockey) show
+// Commentary, and Overs for cricket or Play by play for kabaddi, football and basketball) show
 // GET /api/rooms/:id/match?detail=1; the room calls update() whenever the match moves on.
 import { api, errorMessage } from './api.ts';
-import { el, icon, plural, teamClass, type Child } from './ui.ts';
+import { el, icon, plural, teamClass, teamLogo, type Child } from './ui.ts';
 
 export interface MatchCentre {
   update(): void;
@@ -14,27 +14,26 @@ export interface MatchCentre {
 const NOTE = 'Match data and crowd chat in this prototype are illustrative.';
 const REFETCH_MS = 2000; // update() fetches at most about once every 2 s
 const DASH = '–';
-// Constructor codes of the snapshot's F1 team names, for the team colours (styles.css .t-<code>).
-const F1_TEAMS: Record<string, string> = { McLaren: 'MCL', 'Red Bull': 'RBR', Ferrari: 'FER', Mercedes: 'MER' };
 // Line colours for a series that has no team colour.
 const SPARE = ['#2a78d6', '#eb6834', '#1baf7a'];
 
-type Sport = 'cricket' | 'f1' | 'basketball' | 'hockey';
+type Sport = 'cricket' | 'kabaddi' | 'football' | 'basketball';
 type Status = 'scheduled' | 'live' | 'completed';
 type Innings = 'current' | 'first';
 
-interface TeamRef { code: string; name: string }
+// `logo` when the server sends one; teamLogo() otherwise uses assets/<code>.png.
+interface TeamRef { code: string; name: string; logo?: string }
 interface MatchInfo { title: string; status: Status; sport: string; format?: string | null; teams: TeamRef[] }
 
 // A commentary line, newest first. `over` is a cricket ball's over.ball ("18.4"), the overs bowled for other cricket
-// lines, and the clock in the other sports. `symbol` is set on cricket balls only ("0".."6", "W", "wd", "nb").
+// lines, and the clock in the other sports ("Q4 5:41", "2H 12:41", "72'"). `symbol` is set on cricket balls only
+// ("0".."6", "W", "wd", "nb").
 interface Line { event_id?: string; kind: string; over: string | null; symbol: string | null; label: string | null; text: string }
 
 // `over` is 1-based and `total` the innings score at its end; the over in progress comes last.
 interface OverPoint { over: number; runs: number; wickets: number; total: number }
 interface CricketGraph { kind: 'cricket'; target: number | null; overs: OverPoint[] }
 interface ScoreGraph { kind: 'score'; teams: string[]; points: { label: string; a: number; b: number }[] }
-interface GapGraph { kind: 'gaps'; drivers: string[]; laps: { lap: number; gaps: Record<string, number> }[] }
 
 // GET /api/rooms/:id/match?detail=1: only the fields read here. Without detail the server sends no graphs and only
 // the last 10 lines of commentary, which the window shows as they are.
@@ -43,7 +42,7 @@ interface Detail {
   freshness?: { stale?: boolean } | null;
   score: unknown; // one shape per sport: see viewOf()
   commentary?: Line[] | null;
-  graphs?: CricketGraph | ScoreGraph | GapGraph | null;
+  graphs?: CricketGraph | ScoreGraph | null;
 }
 
 // The scorecards (lib/match/scorecard.ts and lib/match/sports/*.ts snapshot()).
@@ -71,30 +70,47 @@ interface CricketScore {
   fall_of_wickets: Wicket[];
   partnership: { runs: number; balls: number };
 }
-interface F1Car { pos: number; code: string; name: string; team: string; gap: string; tyre: string; pits: number }
-interface F1Score { lap: number; total_laps: number; safety_car: boolean; result: string | null; order: F1Car[]; fastest_lap: { driver: string; time: string } | null }
-interface ClockScore<T> { period: string; clock: string; result: string | null; teams: (TeamRef & { score: number } & T)[] }
-type BasketballScore = ClockScore<{ team_fouls: number; leaders: { name: string; pts: number }[] }>;
-interface HockeyScore extends ClockScore<{ shots: number }> {
-  power_play: { team: string; until: string; penalty: string } | null;
-  empty_net: string | null;
-  goals: { team: string; scorer: string; assists: string[]; time: string; strength: string }[];
-  penalties: { team: string; player: string; infraction: string; time: string }[];
+type TeamScore<T> = TeamRef & { score: number } & T;
+interface BasketballScore {
+  period: string;
+  clock: string;
+  result: string | null;
+  teams: TeamScore<{ team_fouls: number; leaders: { name: string; pts: number }[] }>[];
+}
+// `clock` is the time left in the half; `raiding` the team that raids next.
+interface KabaddiScore {
+  half: number;
+  clock: string;
+  result: string | null;
+  raiding: string;
+  do_or_die: boolean;
+  teams: TeamScore<{ on_mat: number; raid_points: number; tackle_points: number; all_out_points: number; extra_points: number }>[];
+  raiders: { name: string; team: string; raid_points: number; raids: number }[];
+  defenders: { name: string; team: string; tackle_points: number }[];
+}
+interface FootballScore {
+  minute: string; // "72'", "90+3'"
+  period: string;
+  result: string | null;
+  teams: TeamScore<{ shots: number; on_target: number; corners: number; fouls: number; yellow: number; red: number }>[];
+  goals: { team: string; scorer: string; assist: string | null; minute: string; penalty: boolean }[];
+  cards: { team: string; player: string; minute: string; card: 'yellow' | 'red' }[];
 }
 
 type View =
   | { sport: 'cricket'; score: CricketScore; graph: CricketGraph | null }
-  | { sport: 'f1'; score: F1Score; graph: GapGraph | null }
-  | { sport: 'basketball'; score: BasketballScore; graph: ScoreGraph | null }
-  | { sport: 'hockey'; score: HockeyScore; graph: ScoreGraph | null };
+  | { sport: 'kabaddi'; score: KabaddiScore; graph: ScoreGraph | null }
+  | { sport: 'football'; score: FootballScore; graph: ScoreGraph | null }
+  | { sport: 'basketball'; score: BasketballScore; graph: ScoreGraph | null };
 
 // The score's shape follows match.sport, which TypeScript cannot see: this is the one place it is asserted.
 function viewOf(d: Detail): View {
   const g = d.graphs ?? null;
+  const sg = g?.kind === 'score' ? g : null;
   switch (d.match.sport) {
-    case 'f1': return { sport: 'f1', score: d.score as F1Score, graph: g?.kind === 'gaps' ? g : null };
-    case 'basketball': return { sport: 'basketball', score: d.score as BasketballScore, graph: g?.kind === 'score' ? g : null };
-    case 'hockey': return { sport: 'hockey', score: d.score as HockeyScore, graph: g?.kind === 'score' ? g : null };
+    case 'kabaddi': return { sport: 'kabaddi', score: d.score as KabaddiScore, graph: sg };
+    case 'football': return { sport: 'football', score: d.score as FootballScore, graph: sg };
+    case 'basketball': return { sport: 'basketball', score: d.score as BasketballScore, graph: sg };
     default: return { sport: 'cricket', score: d.score as CricketScore, graph: g?.kind === 'cricket' ? g : null };
   }
 }
@@ -140,6 +156,7 @@ function createCentre(roomId: string): MatchCentre {
   let ctrl: AbortController | null = null;
 
   const title = el('h2', { class: 'mc-title', id: `${uid}-title` });
+  const logos = el('div', { class: 'mc-logos', 'aria-hidden': 'true' }); // the title names the teams
   const sub = el('p', { class: 'mc-sub' });
   const status = el('p', { class: 'mc-status' });
   const notice = el('p', { class: 'mc-notice', role: 'status' });
@@ -149,7 +166,8 @@ function createCentre(roomId: string): MatchCentre {
     el('header', { class: 'mc-head' },
       el('div', { class: 'mc-bar' },
         el('button', { type: 'button', class: 'mc-back', 'aria-label': 'Close Match Centre', onclick: close }, icon('back')),
-        el('div', { class: 'mc-titles' }, el('p', { class: 'mc-kicker', id: `${uid}-kicker`, text: 'Match Centre' }), title, sub)),
+        el('div', { class: 'mc-titles' }, el('p', { class: 'mc-kicker', id: `${uid}-kicker`, text: 'Match Centre' }), title, sub),
+        logos),
       status, notice, tablist),
     body,
     el('p', { class: 'mc-note', text: NOTE }));
@@ -232,6 +250,7 @@ function createCentre(roomId: string): MatchCentre {
     data = d;
     view = viewOf(d);
     title.textContent = d.match.title;
+    logos.replaceChildren(...d.match.teams.slice(0, 2).flatMap((t, i) => (i ? [el('span', { text: 'v' }), teamLogo(t)] : [teamLogo(t)])));
     sub.replaceChildren(...nodes(subLine(d)));
     status.textContent = statusLine(view);
     if (built !== view.sport) build(view.sport);
@@ -398,7 +417,7 @@ function createCentre(roomId: string): MatchCentre {
     if (i === 0) return scorecard(v, d.match, innings, (which) => { innings = which; render(0); });
     if (i === 1) return graphsPanel(v, d.match, charts);
     if (i === 2) return commentary(lines);
-    return v.sport === 'cricket' ? oversPanel(lines, v.graph, v.score) : playByPlay(lines, v.sport);
+    return v.sport === 'cricket' ? oversPanel(lines, v.graph, v.score) : playByPlay(lines);
   }
 }
 
@@ -447,7 +466,7 @@ const count = (v: number | null | undefined) => (v == null || !Number.isFinite(v
 const fixed = (v: number | null | undefined, digits = 2) => (v == null || !Number.isFinite(v) ? DASH : v.toFixed(digits));
 const strikeRate = (runs: number, balls: number) => (balls > 0 ? ((runs / balls) * 100).toFixed(2) : DASH);
 const oversText = (balls: number) => `${Math.floor(balls / 6)}.${balls % 6}`;
-const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const halfName = (h: number) => (h === 1 ? 'First half' : h === 2 ? 'Second half' : `Half ${h}`);
 const notRecorded = () => [el('span', { 'aria-hidden': 'true', text: DASH }), sr('not on record')];
 
 function empty(title: string, hint?: string) {
@@ -475,7 +494,14 @@ function facts(rows: ([string, Child] | null | false)[]) {
   return el('dl', { class: 'mc-kv' }, rows.map((r) => r && el('div', {}, el('dt', { text: r[0] }), el('dd', {}, r[1]))));
 }
 
-const swatch = (code: string | null) => el('span', { class: `mc-swatch ${teamClass(code)}`, 'aria-hidden': 'true' });
+// A team's logo before a name; `team` is a code or a team from the match data.
+const named = (team: string | TeamRef, name: Child) => el('span', { class: 'mc-name mc-team' }, teamLogo(team), name);
+
+// "72'" or "90+3'": the minutes played (93), and the minute the added time follows (90).
+function minuteOf(label: string): { at: number; base: number } | null {
+  const m = /^(\d{1,3})(?:\+(\d{1,2}))?'$/.exec(label.trim());
+  return m ? { at: Number(m[1]) + Number(m[2] ?? 0), base: Number(m[1]) } : null;
+}
 
 // ---- Header lines ----
 
@@ -497,15 +523,26 @@ function statusLine(v: View): string {
     if (s.chase_won) return `${s.batting} have won`;
     return `${s.batting} need ${plural(s.need_runs, 'run')} in ${plural(s.need_balls, 'ball')}`;
   }
-  if (v.sport === 'f1') {
-    const s = v.score;
-    const leader = s.order[0];
-    return [`Lap ${s.lap}/${s.total_laps}`, s.safety_car ? 'Safety car' : '', leader ? `${leader.name} leads` : ''].filter(Boolean).join(' · ');
-  }
   const [a, b] = v.score.teams;
-  const lead = !a || !b ? '' : a.score === b.score ? `Tied ${a.score}-${b.score}` : `${a.score > b.score ? a.name : b.name} lead by ${Math.abs(a.score - b.score)}`;
-  const pp = v.sport === 'hockey' && v.score.power_play ? `${v.score.power_play.team} power play` : '';
-  return [`${v.score.period} ${v.score.clock}`, lead, pp].filter(Boolean).join(' · ');
+  const ahead = a && b && a.score !== b.score ? (a.score > b.score ? a : b) : null;
+  const lead = !a || !b ? '' : !ahead ? `Tied ${a.score}-${b.score}`
+    : v.sport === 'football' ? `${ahead.name} lead ${Math.max(a.score, b.score)}-${Math.min(a.score, b.score)}`
+    : `${ahead.name} lead by ${Math.abs(a.score - b.score)}`;
+  if (v.sport === 'kabaddi') {
+    const s = v.score;
+    const raider = s.teams.find((t) => t.code === s.raiding)?.name ?? s.raiding;
+    return [gameClock(v), lead, s.do_or_die ? `Do-or-die raid: ${raider}` : `${raider} to raid`].filter(Boolean).join(' · ');
+  }
+  return [gameClock(v), lead].filter(Boolean).join(' · ');
+}
+
+// Where a game stands: "Q4 5:41", "Second half 12:41", "72' · Second half"; at the end, Final or Full time.
+function gameClock(v: Exclude<View, { sport: 'cricket' }>): string {
+  switch (v.sport) {
+    case 'kabaddi': return v.score.result ? 'Full time' : `${halfName(v.score.half)} ${v.score.clock}`;
+    case 'football': return v.score.result ? 'Full time' : `${v.score.minute} · ${v.score.period}`;
+    case 'basketball': return v.score.result ? 'Final' : `${v.score.period} ${v.score.clock}`;
+  }
 }
 
 // ---- Scorecard ----
@@ -513,9 +550,9 @@ function statusLine(v: View): string {
 function scorecard(v: View, m: MatchInfo, innings: Innings, pick: (i: Innings) => void): Child {
   switch (v.sport) {
     case 'cricket': return cricketCard(v.score, m, innings, pick);
-    case 'f1': return f1Card(v.score);
-    case 'basketball': return basketballCard(v.score);
-    case 'hockey': return hockeyCard(v.score);
+    case 'kabaddi': return kabaddiCard(v.score, gameClock(v));
+    case 'football': return footballCard(v.score, gameClock(v));
+    case 'basketball': return basketballCard(v.score, gameClock(v));
   }
 }
 
@@ -612,68 +649,84 @@ function chaseCard(s: CricketScore) {
   ]));
 }
 
-function tyre(name: string) {
-  const letter = (name[0] || '?').toUpperCase();
-  return [el('span', { class: `mc-tyre is-${letter.toLowerCase()}`, 'aria-hidden': 'true', title: name, text: letter }), sr(name)];
-}
+const teamCell = (t: TeamRef, short = false) => el('th', { scope: 'row' }, named(t, short ? t.code : t.name));
+// A player and their side: the team's logo, the name, and a line of detail under it.
+const playerCell = (team: string, name: Child, how?: string) => el('th', { scope: 'row', class: 'mc-l' }, named(team, name), how ? el('span', { class: 'mc-how', text: how }) : null);
 
-function f1Card(s: F1Score): Child {
+function basketballCard(s: BasketballScore, when: string): Child {
   return [
-    card('order', header('Running order', [el('b', { text: `Lap ${s.lap}` }), `/${s.total_laps}`]),
-      table(['Pos', 'Driver', 'Gap', 'Tyre', 'Stops'], s.order.map((c) => el('tr', {},
-        el('td', { class: 'mc-strong', text: c.pos }),
-        el('th', { scope: 'row', class: 'mc-l' }, el('span', { class: 'mc-name' }, swatch(F1_TEAMS[c.team] ?? null), c.name), el('span', { class: 'mc-how', text: c.team })),
-        el('td', { text: c.gap }),
-        el('td', {}, tyre(c.tyre)),
-        el('td', { text: c.pits }))), { left: [1] })),
-    card('race', facts([
-      ['Fastest lap', s.fastest_lap ? `${s.fastest_lap.driver} · ${s.fastest_lap.time}` : DASH],
-      ['Safety car', s.safety_car ? 'Deployed' : 'Not out'],
-    ])),
-  ];
-}
-
-const teamCell = (t: TeamRef) => el('th', { scope: 'row' }, el('span', { class: 'mc-name' }, swatch(t.code), t.name));
-const gameClock = (s: { result: string | null; period: string; clock: string }) => (s.result ? 'Final' : `${s.period} ${s.clock}`);
-
-function basketballCard(s: BasketballScore): Child {
-  return [
-    card('score', header('Score', gameClock(s)),
+    card('score', header('Score', when),
       table(['Team', 'PTS', 'Team fouls'], s.teams.map((t) => el('tr', {},
         teamCell(t), el('td', { class: 'mc-strong mc-big', text: t.score }), el('td', { text: t.team_fouls })))),
       el('p', { class: 'mc-foot-note', text: 'Team fouls count this quarter.' })),
     ...s.teams.map((t) => card(`leaders-${t.code}`,
-      table([[swatch(t.code), `${t.name} leaders`], 'PTS'], t.leaders.map((p) => el('tr', {},
+      table([named(t, `${t.name} leaders`), 'PTS'], t.leaders.map((p) => el('tr', {},
         el('th', { scope: 'row', text: p.name }), el('td', { class: 'mc-strong', text: p.pts })))))),
   ];
 }
 
-function hockeyCard(s: HockeyScore): Child {
-  const code = (name: string) => s.teams.find((t) => t.name === name)?.code ?? null;
-  const pp = s.power_play;
+// The seven on the mat, filled for each player still in.
+function mat(n: number) {
+  return el('span', { class: 'mc-mat' },
+    el('span', { class: 'mc-mat-dots', 'aria-hidden': 'true' }, Array.from({ length: 7 }, (_, i) => el('i', { class: i < n ? 'is-on' : null }))),
+    el('b', { 'aria-hidden': 'true', text: n }), sr(`${n} of 7`));
+}
+
+function kabaddiCard(s: KabaddiScore, when: string): Child {
+  const raider = s.teams.find((t) => t.code === s.raiding);
   return [
-    card('score', header('Score', gameClock(s)),
-      table(['Team', 'Goals', el('abbr', { title: 'Shots on goal', text: 'SOG' })], s.teams.map((t) => el('tr', {},
-        teamCell(t), el('td', { class: 'mc-strong mc-big', text: t.score }), el('td', { text: t.shots })))),
-      facts([
-        ['Power play', pp ? [`${pp.team} until ${pp.until}`, el('small', { text: ` · ${pp.penalty}` })] : 'Even strength'],
-        Boolean(s.empty_net) && ['Empty net', `${s.empty_net} goalie pulled`],
-      ])),
-    card('goals', el('h3', { class: 'mc-sub-head', text: 'Goals this period' }),
+    card('score', header('Score', when),
+      table(['Team', 'PTS', 'On mat'], s.teams.map((t) => el('tr', {},
+        teamCell(t), el('td', { class: 'mc-strong mc-big', text: t.score }), el('td', {}, mat(t.on_mat))))),
+      s.result ? null : facts([['Next raid', [
+        raider ? named(raider, raider.name) : s.raiding,
+        s.do_or_die ? el('b', { class: 'mc-tag is-alert', text: 'Do-or-die' }) : null,
+      ]]])),
+    card('points', el('h3', { class: 'mc-sub-head', text: 'Points breakdown' }),
+      table(['Team', 'Raid', 'Tackle', 'All out', 'Extra', 'Total'], s.teams.map((t) => el('tr', {},
+        teamCell(t, true), el('td', { text: t.raid_points }), el('td', { text: t.tackle_points }), el('td', { text: t.all_out_points }),
+        el('td', { text: t.extra_points }), el('td', { class: 'mc-strong', text: t.score }))))),
+    card('raiders', el('h3', { class: 'mc-sub-head', text: 'Top raiders' }),
+      s.raiders.length
+        ? table(['Raider', 'Raids', 'Raid pts'], s.raiders.map((p) => el('tr', {},
+          playerCell(p.team, p.name, p.team), el('td', { text: p.raids }), el('td', { class: 'mc-strong', text: p.raid_points }))))
+        : el('p', { class: 'mc-card-note', text: 'No raid points yet.' })),
+    card('defenders', el('h3', { class: 'mc-sub-head', text: 'Top defenders' }),
+      s.defenders.length
+        ? table(['Defender', 'Tackle pts'], s.defenders.map((p) => el('tr', {},
+          playerCell(p.team, p.name, p.team), el('td', { class: 'mc-strong', text: p.tackle_points }))))
+        : el('p', { class: 'mc-card-note', text: 'No tackle points yet.' })),
+  ];
+}
+
+const cardMark = (card: 'yellow' | 'red') => el('span', { class: `mc-cardmark is-${card}`, 'aria-hidden': 'true' });
+
+function footballCard(s: FootballScore, when: string): Child {
+  const [a, b] = s.teams;
+  const stats: [string, (t: FootballScore['teams'][number]) => number][] = [
+    ['Shots', (t) => t.shots], ['On target', (t) => t.on_target], ['Corners', (t) => t.corners],
+    ['Fouls', (t) => t.fouls], ['Yellow cards', (t) => t.yellow], ['Red cards', (t) => t.red],
+  ];
+  return [
+    card('score', header('Score', when),
+      table(['Team', 'Goals'], s.teams.map((t) => el('tr', {}, teamCell(t), el('td', { class: 'mc-strong mc-big', text: t.score }))))),
+    card('goals', el('h3', { class: 'mc-sub-head', text: 'Goals' }),
       s.goals.length
-        ? table(['Time', 'Goal'], s.goals.map((g) => el('tr', {},
-          el('td', { class: 'mc-strong', text: g.time }),
-          el('th', { scope: 'row', class: 'mc-l' },
-            el('span', { class: 'mc-name' }, swatch(code(g.team)), g.scorer),
-            el('span', { class: 'mc-how', text: [g.team, g.strength, g.assists.length ? `Assists: ${g.assists.join(', ')}` : 'Unassisted'].join(' · ') })))), { left: [1] })
-        : el('p', { class: 'mc-card-note', text: 'No goals yet this period.' })),
-    card('penalties', el('h3', { class: 'mc-sub-head', text: 'Penalties this period' }),
-      s.penalties.length
-        ? table(['Time', 'Player', 'Infraction'], s.penalties.map((p) => el('tr', {},
-          el('td', { class: 'mc-strong', text: p.time }),
-          el('th', { scope: 'row', class: 'mc-l' }, el('span', { class: 'mc-name' }, swatch(code(p.team)), p.player), el('span', { class: 'mc-how', text: p.team })),
-          el('td', { text: p.infraction }))), { left: [1] })
-        : el('p', { class: 'mc-card-note', text: 'No penalties yet this period.' })),
+        ? table(['Min', 'Goal'], s.goals.map((g) => el('tr', {},
+          el('td', { class: 'mc-strong', text: g.minute }),
+          playerCell(g.team, [g.scorer, g.penalty ? [' ', el('b', { class: 'mc-tag', 'aria-hidden': 'true', text: 'Pen' }), sr(', penalty')] : null],
+            [g.team, g.assist ? `Assist: ${g.assist}` : null].filter(Boolean).join(' · ')))), { left: [1] })
+        : el('p', { class: 'mc-card-note', text: 'No goals yet.' })),
+    card('cards', el('h3', { class: 'mc-sub-head', text: 'Cards' }),
+      s.cards.length
+        ? table(['Min', 'Player', 'Card'], s.cards.map((c) => el('tr', {},
+          el('td', { class: 'mc-strong', text: c.minute }),
+          playerCell(c.team, c.player, c.team),
+          el('td', {}, cardMark(c.card), c.card === 'red' ? 'Red' : 'Yellow'))), { left: [1] })
+        : el('p', { class: 'mc-card-note', text: 'No cards yet.' })),
+    a && b ? card('stats', el('h3', { class: 'mc-sub-head', text: 'Match stats' }),
+      table(['', named(a, a.code), named(b, b.code)], stats.map(([label, of]) => el('tr', {},
+        el('th', { scope: 'row', text: label }), el('td', { class: 'mc-strong', text: of(a) }), el('td', { class: 'mc-strong', text: of(b) }))))) : null,
   ];
 }
 
@@ -755,21 +808,25 @@ function oversPanel(lines: Line[], g: CricketGraph | null, s: CricketScore): Chi
   }));
 }
 
-// "Q4 5:41" is 5:41 in quarter 4; F1 lines carry the lap ("Lap 45").
-function periodOf(clock: string | null, sport: Sport) {
+// The part of the game a clock is in: "Q4 5:41" quarter 4, "2H 12:41" the second half, "72'" the second half.
+function periodOf(clock: string | null) {
   if (!clock) return '';
-  if (sport === 'f1') return clock;
-  const m = /^([QP])(\d+)\s/.exec(clock);
-  return m ? `${m[1] === 'Q' ? 'Quarter' : 'Period'} ${m[2]}` : clock.split(' ').length > 1 ? clock.split(' ')[0] : '';
+  const q = /^Q(\d+)\s/.exec(clock);
+  if (q) return `Quarter ${q[1]}`;
+  const h = /^(\d)H\s/.exec(clock);
+  if (h) return halfName(Number(h[1]));
+  const min = minuteOf(clock);
+  if (min) return halfName(min.base <= 45 ? 1 : 2);
+  return clock.split(' ').length > 1 ? clock.split(' ')[0] : '';
 }
 
-const timeOf = (clock: string | null, sport: Sport) => (!clock || sport === 'f1' ? '' : /(\d{1,2}:\d{2})$/.exec(clock)?.[1] ?? clock);
+const timeOf = (clock: string | null) => (!clock ? '' : /(\d{1,2}:\d{2})$/.exec(clock)?.[1] ?? clock);
 
-function playByPlay(lines: Line[], sport: Sport): Child {
+function playByPlay(lines: Line[]): Child {
   if (!lines.length) return empty('No plays yet', 'Play by play appears once play starts.');
   const groups: { name: string; rows: Line[] }[] = [];
   for (const c of lines) {
-    const name = periodOf(c.over, sport);
+    const name = periodOf(c.over);
     const last = groups[groups.length - 1];
     if (last && last.name === name) last.rows.push(c);
     else groups.push({ name, rows: [c] });
@@ -781,7 +838,7 @@ function playByPlay(lines: Line[], sport: Sport): Child {
     return card(`pbp-${g.name}-${n}`,
       g.name ? el('h3', { class: 'mc-sub-head', text: g.name }) : null,
       el('ol', { class: 'mc-pbp' }, g.rows.map((c) => el('li', { class: 'mc-pbp-row', dataset: { key: lineKey(c) } },
-        el('span', { class: 'mc-pbp-time', text: timeOf(c.over, sport) }),
+        el('span', { class: 'mc-pbp-time', text: timeOf(c.over) }),
         el('p', {}, c.kind === 'event' && c.label ? el('b', { class: 'mc-tag', text: c.label }) : null, c.text)))));
   });
 }
@@ -887,7 +944,7 @@ function graphsPanel(v: View, m: MatchInfo, charts: ChartState): Child {
     const live = !v.score.result && overs[overs.length - 1].over > v.score.balls / 6 ? v.score.balls : null;
     return [plotCard(manhattan(sorted, lastOver, live), charts), plotCard(worm(sorted, lastOver, live), charts)];
   }
-  const plot = v.sport === 'f1' ? v.graph && gapPlot(v.graph, v.score) : v.graph && scorePlot(v.graph, v.score.teams, v.sport === 'hockey' ? 'Goals' : 'Points');
+  const plot = v.graph && scorePlot(v.graph, v.score.teams, v.sport === 'football' ? 'Goals' : 'Points');
   return plot ? plotCard(plot, charts) : none;
 }
 
@@ -1036,8 +1093,9 @@ function clockSeconds(label: string): number | null {
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 }
 
-// Basketball and hockey: each team's score as a step line in its colour (the second team dashed, as the two colours
-// can be close), placed by the game clock while it runs down within one period, else play by play.
+// Kabaddi, football and basketball: each team's score as a step line in its colour (the second team dashed, as the
+// two colours can be close), placed by the game clock while it runs down within one period, by the minute in
+// football, else play by play.
 function scorePlot(g: ScoreGraph, teams: TeamRef[], unit: string): Plot | null {
   const pts = g.points;
   const [ca, cb] = g.teams;
@@ -1046,14 +1104,19 @@ function scorePlot(g: ScoreGraph, teams: TeamRef[], unit: string): Plot | null {
   const secs = pts.map((p) => clockSeconds(p.label));
   let timed = true;
   secs.forEach((s, i) => { if (s === null || (i > 0 && (secs[i - 1] === null || s > (secs[i - 1] ?? 0)))) timed = false; });
+  const mins = pts.map((p) => minuteOf(p.label)?.at ?? null);
+  const minuted = !timed && mins.every((m, i) => m !== null && (i === 0 || m >= (mins[i - 1] ?? 0)));
   const top = secs[0] ?? 0;
-  const xv = pts.map((_, i) => (timed ? top - (secs[i] ?? 0) : i));
+  const xv = pts.map((_, i) => (timed ? top - (secs[i] ?? 0) : minuted ? mins[i] ?? 0 : i));
   const f: Frame = { w: 320, h: 190, l: 32, r: 50, t: 24, b: 34 };
   const values = pts.flatMap((p) => [p.a, p.b]);
-  const yt = ticks(Math.min(...values), Math.max(...values));
+  // Goals count from nil; a span of at least 4 keeps the ticks whole numbers.
+  const lo = unit === 'Goals' ? 0 : Math.min(...values);
+  const yt = ticks(lo, Math.max(...values, lo + 4));
   const y = scale(yt[0], yt[yt.length - 1], f.h - f.b, f.t);
-  // A running clock's axis goes on to 0:00, so the time left in the period shows as room on the right.
-  const x = scale(xv[0], Math.max(timed ? top : 0, xv[xv.length - 1], xv[0] + 1), f.l, f.w - f.r);
+  // A running clock's axis goes on to 0:00, and football's to 90 minutes, so the time left shows as room on the right.
+  const end = Math.max(timed ? top : minuted ? 90 : 0, xv[xv.length - 1], xv[0] + 1);
+  const x = scale(xv[0], end, f.l, f.w - f.r);
   const step = (vs: number[]) => vs.map((v, i) => (i ? `H${r2(x(xv[i]))}V${r2(y(v))}` : `M${r2(x(xv[0]))},${r2(y(v))}`)).join('');
   const A = colour(ca, 0);
   const B = colour(cb, 1);
@@ -1061,11 +1124,14 @@ function scorePlot(g: ScoreGraph, teams: TeamRef[], unit: string): Plot | null {
   const xTicks: Tick[] = [];
   if (timed) {
     const every = [1, 2, 5, 10].find((n) => top / 60 / n <= 6) ?? 20;
-    for (let mins = 0; mins * 60 <= top; mins += every) xTicks.push({ x: x(top - mins * 60), label: `${mins}:00` });
+    for (let m = 0; m * 60 <= top; m += every) xTicks.push({ x: x(top - m * 60), label: `${m}:00` });
+  } else if (minuted) {
+    xTicks.push(...intTicks(xv[0], end, x).map((t) => ({ ...t, label: `${t.label}'` })));
   } else {
     xTicks.push({ x: x(xv[0]), label: pts[0].label }, { x: x(xv[xv.length - 1]), label: last.label });
   }
-  const period = /^(\S+)\s+\d{1,2}:\d{2}$/.exec(pts[0].label)?.[1];
+  const tag = /^(\S+)\s+\d{1,2}:\d{2}$/.exec(pts[0].label)?.[1];
+  const period = tag && /^\dH$/.test(tag) ? halfName(Number(tag[0])).toLowerCase() : tag; // "2H": the second half
   // End labels only where they clear each other; the legend and the readout carry the rest.
   const ya = y(last.a);
   const yb = y(last.b);
@@ -1082,7 +1148,7 @@ function scorePlot(g: ScoreGraph, teams: TeamRef[], unit: string): Plot | null {
       + `Latest: ${name(ca)} ${last.a}, ${name(cb)} ${last.b}.`,
     frame: f,
     marks: [
-      ...axes(f, yt, y, String, xTicks, timed ? `Game clock${period ? `, ${period}` : ''}` : 'Play', unit),
+      ...axes(f, yt, y, String, xTicks, timed ? `Game clock${period ? `, ${period}` : ''}` : minuted ? 'Minute' : 'Play', unit),
       svg('path', { class: `mc-series ${A.cls}`, style: A.style, d: step(pts.map((p) => p.a)) }),
       svg('path', { class: `mc-series is-b ${B.cls}`, style: B.style, d: step(pts.map((p) => p.b)) }),
       ...ends,
@@ -1092,76 +1158,5 @@ function scorePlot(g: ScoreGraph, teams: TeamRef[], unit: string): Plot | null {
     pick: (i) => [crosshair(f, x(xv[i])), dot(A, x(xv[i]), y(pts[i].a)), dot(B, x(xv[i]), y(pts[i].b))],
     legend: [{ label: name(ca), kind: 'line', cls: A.cls, style: A.style }, { label: name(cb), kind: 'dashed', cls: B.cls, style: B.style }],
     table: { head: ['Time', name(ca), name(cb)], rows: pts.map((p) => [p.label, p.a, p.b]) },
-  };
-}
-
-// F1: each listed driver's gap to the leader on every lap, the leader on top. Team-mates share a colour, the second
-// one dashed, as on the broadcast graphics.
-function gapPlot(g: GapGraph, s: F1Score): Plot | null {
-  const laps = [...g.laps].sort((a, b) => a.lap - b.lap);
-  const drivers = g.drivers.filter((code) => laps.some((l) => isNum(l.gaps[code])));
-  if (!laps.length || !drivers.length) return null;
-  const f: Frame = { w: 320, h: 200, l: 34, r: 34, t: 24, b: 34 };
-  const first = laps[0].lap;
-  const end = Math.max(laps[laps.length - 1].lap, s.total_laps || 0, first + 1);
-  const gapsOf = (code: string) => laps.flatMap((l) => (isNum(l.gaps[code]) ? [l.gaps[code]] : []));
-  const yt = ticks(0, Math.max(1, ...drivers.flatMap(gapsOf)));
-  const y = scale(0, yt[yt.length - 1], f.t, f.h - f.b);
-  const x = scale(first, end, f.l, f.w - f.r);
-  const mates = new Map<string, number>();
-  const traces = drivers.map((code, i) => {
-    const car = s.order.find((c) => c.code === code);
-    const team = car ? F1_TEAMS[car.team] ?? null : null;
-    const n = team ? mates.get(team) ?? 0 : 0;
-    if (team) mates.set(team, n + 1);
-    const c = colour(team, i);
-    let d = '';
-    let pen = 'M';
-    for (const l of laps) {
-      const v = l.gaps[code];
-      if (!isNum(v)) {
-        pen = 'M';
-        continue;
-      }
-      d += `${pen}${r2(x(l.lap))},${r2(y(v))}`;
-      pen = 'L';
-    }
-    return { code, name: car?.name ?? code, cls: `${c.cls}${n ? ' is-b' : ''}`, style: c.style, dashed: n > 0, d };
-  });
-  const lastLap = laps[laps.length - 1].lap;
-  // Driver codes at the line ends, dropping any that would overlap the one above.
-  const ends = traces.flatMap((t) => {
-    const final = [...laps].reverse().find((l) => isNum(l.gaps[t.code]));
-    return final ? [{ y: y(final.gaps[t.code]), code: t.code }] : [];
-  }).sort((a, b) => a.y - b.y);
-  const shown = ends.filter((e, i) => i === 0 || e.y - ends[i - 1].y >= 11);
-  return {
-    key: 'gaps',
-    title: 'Gap to the leader',
-    summary: `Seconds behind the leader on each lap from lap ${first} to lap ${lastLap}, for ${traces.map((t) => t.name).join(', ')}. The leader is at the top.`,
-    frame: f,
-    marks: [
-      ...axes(f, yt, y, (v) => `${v}s`, intTicks(first, end, x), 'Lap', 'Seconds behind the leader'),
-      ...traces.map((t) => svg('path', { class: `mc-series ${t.cls}`, style: t.style, d: t.d })),
-      ...shown.map((e) => svg('text', { class: 'mc-val', x: r2(x(lastLap) + 6), y: r2(e.y), dy: '0.32em' }, e.code)),
-    ],
-    xs: laps.map((l) => x(l.lap)),
-    describe: (i) => {
-      const l = laps[i];
-      const rows = traces.flatMap((t) => (isNum(l.gaps[t.code]) ? [{ code: t.code, v: l.gaps[t.code] }] : [])).sort((a, b) => a.v - b.v);
-      return `Lap ${l.lap}: ${rows.map((r) => (r.v === 0 ? `${r.code} leads` : `${r.code} +${r.v.toFixed(1)}s`)).join(' · ')}`;
-    },
-    pick: (i) => [crosshair(f, x(laps[i].lap)), ...traces.flatMap((t) => {
-      const v = laps[i].gaps[t.code];
-      return isNum(v) ? [svg('circle', { class: `mc-pick-dot ${t.cls}`, style: t.style, cx: r2(x(laps[i].lap)), cy: r2(y(v)), r: 4.5 })] : [];
-    })],
-    legend: traces.map((t) => ({ label: `${t.code} · ${t.name}`, kind: t.dashed ? 'dashed' : 'line', cls: t.cls, style: t.style })),
-    table: {
-      head: ['Lap', ...traces.map((t) => t.code)],
-      rows: laps.map((l) => [l.lap, ...traces.map((t) => {
-        const v = l.gaps[t.code];
-        return isNum(v) ? (v === 0 ? 'Leader' : `+${v.toFixed(1)}`) : DASH;
-      })]),
-    },
   };
 }

@@ -39,7 +39,7 @@ test('simulated fans are the same for everyone in the public watch party, and ne
   }
   assert.equal((await app.db.query(`SELECT count(*)::int AS n FROM messages WHERE room_id = $1`, [pub.id])).rows[0].n, 0);
   const boot = (await host.get(`/api/rooms/${pub.id}`)).body;
-  assert.equal(boot.simulated_fans.length, 200);
+  assert.equal(boot.crowd_fans.length, 200);
 });
 
 test('private rooms hold only the people invited: no simulated fans, though they follow the same game', async () => {
@@ -48,7 +48,7 @@ test('private rooms hold only the people invited: no simulated fans, though they
   const snap = (await host.get(`/api/rooms/${roomId}/match`)).body;
   assert.equal(snap.match.id, shared);
   assert.deepEqual(snap.crowd, []);
-  assert.deepEqual((await friend.get(`/api/rooms/${roomId}`)).body.simulated_fans, []);
+  assert.deepEqual((await friend.get(`/api/rooms/${roomId}`)).body.crowd_fans, []);
 });
 
 test('the crowd is seeded per room', async () => {

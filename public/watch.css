@@ -159,15 +159,17 @@ button.thread-tag { padding: 0; border: 0; background: none; cursor: pointer; }
 .roster-list { margin: 0; padding-left: 16px; display: grid; gap: 2px; font-size: 13px; }
 
 /* Other sports on the score card and home cards. */
-.team-chip.sport-chip { padding: 2px 8px; border-radius: 6px; background: var(--card-2); font-weight: 800; letter-spacing: 0.04em; }
-.flag-sc { color: #b7791f; }
+.score-alert { color: var(--wicket); }
+.card-mark { display: inline-block; width: 8px; height: 11px; margin-right: 5px; border-radius: 2px; vertical-align: -1px; }
+.card-mark.yellow { background: #f2c200; }
+.card-mark.red { background: var(--wicket); }
 .last-play { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sport-tag { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--card-2); font-size: 12px; font-weight: 800; letter-spacing: 0.04em; }
 .card-sport { margin: 0; color: var(--muted); font-size: 12px; }
 
 /* Toast */
-.app > .toast { top: auto; bottom: 86px; }
-.toast .x { color: #fff; }
+.app > .toast { top: 10px; bottom: auto; animation: drop 0.25s ease; }
+@keyframes drop { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 
 /* Buttons and links */
 .link-btn { padding: 0; border: 0; background: none; color: var(--accent-deep); font-size: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }

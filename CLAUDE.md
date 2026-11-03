@@ -11,7 +11,7 @@ The product owner made these decisions after trying the prototype. Where the det
 - **AI Co-host in the chat:** momentum alerts, quiet-room polls and answers to questions nobody answered arrive as chat messages labelled AI Co-host. There is no separate co-host panel.
 - **Dream Bot:** a button by the composer opens a chatbot window where a member asks anything about the match. It is the Co-host's Q&A (same orchestration, context and output validation), and its answers are private to the person asking. Mentioning the AI in chat (`@huddle`) does nothing.
 - **No push notifications:** push alerts, alert preferences and the service worker are removed. Invitations show on the home screen; momentum alerts show in the room.
-- **One game per sport:** every room follows the game in progress for its sport. Private rooms have no replay controls.
+- **One game per sport** (IPL T20 cricket, PKL kabaddi, ISL football, NBA basketball): every room follows the game in progress for its sport. Private rooms have no replay controls.
 - **Wording:** the app shows no "simulated", "demo", "replay" or "made-up" labels. The Match Centre carries exactly one note: "Match data and crowd chat in this prototype are illustrative." AI content stays labelled as AI, and the README and docs still say plainly that the match data are fixtures, not a live feed.
 
 ## Project objective

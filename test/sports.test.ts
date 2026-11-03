@@ -43,27 +43,27 @@ after(async () => { await app.close(); });
 
 test('the home screen offers one public watch party per sport, and every game can be followed', async () => {
   assert.deepEqual(rooms.map((r) => [r.sport, r.match_title]),
-    [['cricket', 'MI v CSK'], ['f1', 'Italian Grand Prix'], ['basketball', 'Warriors v Lakers'], ['hockey', 'Oilers v Maple Leafs']]);
+    [['cricket', 'MI v CSK'], ['kabaddi', 'Jaipur Pink Panthers v Patna Pirates'], ['football', 'Mohun Bagan v East Bengal'], ['basketball', 'Warriors v Lakers']]);
   const { matches } = (await fan.get('/api/rooms')).body;
-  assert.deepEqual(matches.map((m: { sport: string }) => m.sport), ['cricket', 'f1', 'basketball', 'hockey']);
+  assert.deepEqual(matches.map((m: { sport: string }) => m.sport), ['cricket', 'kabaddi', 'football', 'basketball']);
 });
 
 test("everyone shows the team they back in the room's sport", async () => {
   const roomOf = (sport: string) => rooms.find((r) => r.sport === sport)!.id;
-  assert.equal((await fan.put('/api/me/sports/f1', { team: 'FER', picks: ['Charles Leclerc'] })).status, 200);
+  assert.equal((await fan.put('/api/me/sports/football', { team: 'EBFC', picks: ['Hamid Ahadad'] })).status, 200);
   const teamIn = async (sport: string) => (await fan.get(`/api/rooms/${roomOf(sport)}`)).body.members.find((m: { id: string }) => m.id === fan.user.id).team;
-  assert.deepEqual([await teamIn('cricket'), await teamIn('f1'), await teamIn('basketball')], ['CSK', 'FER', null]); // none chosen yet
+  assert.deepEqual([await teamIn('cricket'), await teamIn('football'), await teamIn('basketball')], ['CSK', 'EBFC', null]); // none chosen yet
   await clearCooldown(app.db, fan.user.id);
-  const sent = await fan.post(`/api/rooms/${roomOf('f1')}/messages`, { client_msg_id: msgId(), text: 'Forza Ferrari!' });
+  const sent = await fan.post(`/api/rooms/${roomOf('football')}/messages`, { client_msg_id: msgId(), text: 'Joy East Bengal!' });
   assert.equal(sent.status, 201);
-  assert.equal(sent.body.message.sender.team, 'FER');
-  const items = (await fan.get(`/api/rooms/${roomOf('f1')}/events?after=0`)).body.events;
-  assert.ok(items.some((e: ApiEvent) => e.type === 'message' && e.data.sender.team === 'FER'));
+  assert.equal(sent.body.message.sender.team, 'EBFC');
+  const items = (await fan.get(`/api/rooms/${roomOf('football')}/events?after=0`)).body.events;
+  assert.ok(items.some((e: ApiEvent) => e.type === 'message' && e.data.sender.team === 'EBFC'));
 });
 
 test('each sport plays to a consistent final score, with its own moment cards and #threads', async () => {
   const finals: Record<string, string> = {};
-  for (const sport of ['f1', 'basketball', 'hockey']) {
+  for (const sport of ['kabaddi', 'football', 'basketball']) {
     const f = fixtureOf(sport);
     const run = await playTo(sport, f.items.length - 1);
     const room = rooms.find((r) => r.sport === sport)!;
@@ -78,63 +78,63 @@ test('each sport plays to a consistent final score, with its own moment cards an
     assert.ok(threads.length >= 4, `${sport}: ${threads}`);
   }
   assert.deepEqual(finals, {
-    f1: 'Norris wins, Verstappen second, Leclerc third',
+    kabaddi: 'KABADDI_RESULT',
+    football: 'Mohun Bagan win 3-2',
     basketball: 'Warriors win 116-115',
-    hockey: 'Oilers win 5-3',
   });
 });
 
 test('each public watch party has 200 simulated fans of its own sport', async () => {
-  const sides: [string, string[]][] = [['cricket', ['MI', 'CSK']], ['f1', ['MCL', 'RBR']], ['basketball', ['GSW', 'LAL']], ['hockey', ['EDM', 'TOR']]];
+  const sides: [string, string[]][] = [['cricket', ['MI', 'CSK']], ['kabaddi', ['JPP', 'PAT']], ['football', ['MBSG', 'EBFC']], ['basketball', ['GSW', 'LAL']]];
   for (const [sport, teams] of sides) {
     const boot = (await fan.get(`/api/rooms/${rooms.find((r) => r.sport === sport)!.id}`)).body;
-    assert.equal(boot.simulated_fans.length, 200, sport);
-    assert.equal(new Set(boot.simulated_fans.map((f: { handle: string }) => f.handle)).size, 200, sport);
-    assert.ok(boot.simulated_fans.every((f: { team: string }) => teams.includes(f.team)), sport);
+    assert.equal(boot.crowd_fans.length, 200, sport);
+    assert.equal(new Set(boot.crowd_fans.map((f: { handle: string }) => f.handle)).size, 200, sport);
+    assert.ok(boot.crowd_fans.every((f: { team: string }) => teams.includes(f.team)), sport);
   }
 });
 
 test('newcomers get the checked rules sheet, the roster and example questions for the room\'s sport', async () => {
   const guide: { sport: string; rules: { topic: string }[]; roster: { name: string; team: string }[]; examples: string[] }
-    = (await fan.get(`/api/rooms/${rooms.find((r) => r.sport === 'hockey')!.id}/guide`)).body;
-  assert.equal(guide.sport, 'hockey');
-  assert.ok(guide.rules.some((r) => r.topic === 'Icing'));
-  assert.ok(guide.roster.some((p) => p.name === 'Connor McDavid' && p.team === 'Oilers'));
-  assert.ok(guide.examples.includes('What is icing?'));
+    = (await fan.get(`/api/rooms/${rooms.find((r) => r.sport === 'football')!.id}/guide`)).body;
+  assert.equal(guide.sport, 'football');
+  assert.ok(guide.rules.some((r) => r.topic === 'Offside'));
+  assert.ok(guide.roster.some((p) => p.name === 'Liston Colaco' && p.team === 'Mohun Bagan Super Giant'));
+  assert.ok(guide.examples.includes('What is offside?'));
 });
 
 test('a rules question is answered from the rules sheet and the moment it was asked', async () => {
-  const sport = 'hockey';
+  const sport = 'football';
   const room = rooms.find((r) => r.sport === sport)!.id;
-  const ppGoal = fixtureOf(sport).items.findIndex((x) => x.moment === 'power-play-goal');
+  const penalty = fixtureOf(sport).items.findIndex((x) => x.moment === 'penalty');
   const run = await sharedRun(sport);
-  await app.db.query('DELETE FROM match_events WHERE match_id = $1', [run]); // play the period again from its start
+  await app.db.query('DELETE FROM match_events WHERE match_id = $1', [run]); // play the game again from its start
   clearMatchCache();
-  await playTo(sport, ppGoal);
+  await playTo(sport, penalty);
   let prompt = '';
   const provider: Provider = {
     name: 'fake', model: 'fake-1',
     async generate(req) {
       prompt = req.user;
-      return { content: { type: 'answer', text: 'A power play lasts 2 minutes, unless the team with the extra skater scores: McDavid just did at 15:21.', language: 'english', confidence: 'high', grounding: { status: 'rules_sheet', sourceEventIds: [] }, needsHumanReview: false }, provider: 'fake', model: 'fake-1', requestId: null, latencyMs: 5, usage: { input: 1, output: 1 } };
+      return { content: { type: 'answer', text: 'A penalty kick is taken from 11 metres: Mohun Bagan just won one, in minute 89.', language: 'english', confidence: 'high', grounding: { status: 'rules_sheet', sourceEventIds: [] }, needsHumanReview: false }, provider: 'fake', model: 'fake-1', requestId: null, latencyMs: 5, usage: { input: 1, output: 1 } };
     },
   };
   setAi(createOrchestrator({ providers: [provider] }));
   await clearCooldown(app.db, fan.user.id);
-  const sent = await fan.post(`/api/rooms/${room}/messages`, { client_msg_id: msgId(), text: 'What is a power play?' });
+  const sent = await fan.post(`/api/rooms/${room}/messages`, { client_msg_id: msgId(), text: 'What is a penalty kick?' });
   assert.equal(sent.status, 201);
   const stored = (await app.db.query('SELECT is_question, match_seq FROM messages WHERE id = $1', [sent.body.message.id])).rows[0];
-  assert.deepEqual(stored, { is_question: true, match_seq: ppGoal }); // the moment it was asked
+  assert.deepEqual(stored, { is_question: true, match_seq: penalty }); // the moment it was asked
   await answerQuestion(sent.body.message.id);
   assert.match(prompt, /RULES_SHEET/);
-  assert.match(prompt, /Power play/);
+  assert.match(prompt, /Penalty kick/);
   assert.match(prompt, /MATCH_WHEN_ASKED/);
-  assert.match(prompt, /P3 15:21/);
+  assert.match(prompt, /89'/);
   const answer = (await app.db.query(`SELECT body, ai_meta FROM messages WHERE room_id = $1 AND sender_type = 'ai'`, [room])).rows[0];
-  assert.match(answer.body, /2 minutes/);
-  assert.equal(answer.ai_meta.asked_at, 'P3 15:21');
+  assert.match(answer.body, /11 metres/);
+  assert.equal(answer.ai_meta.asked_at, "89'");
   assert.equal(answer.ai_meta.grounding.status, 'rules_sheet');
-  assert.ok(!logs.join('\n').includes('What is a power play'), 'questions never reach the logs');
+  assert.ok(!logs.join('\n').includes('What is a penalty kick'), 'questions never reach the logs');
   setAi(createOrchestrator({ providers: [] }));
 });
 
@@ -183,6 +183,6 @@ test('a question is placed at the moment it was asked: the clock, or the over an
   const ball = cricket.items.findIndex((x) => x.kind === 'ball');
   assert.equal(await at('cricket', ball), `Over ${stateAt(cricket, ball).ball_log.at(-1).label}`);
   assert.equal(await at('cricket', 0), null); // before the first delivery
-  const hockey = fixtureOf('hockey');
-  assert.equal(await at('hockey', 3), hockey.items[3].clock);
+  const football = fixtureOf('football');
+  assert.equal(await at('football', 3), football.items[3].clock);
 });

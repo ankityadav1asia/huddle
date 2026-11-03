@@ -33,6 +33,6 @@ test('public watch parties hold at most PUBLIC_ROOM_MAX_MEMBERS, and finished ma
   await app.db.query(`UPDATE matches SET status = 'completed' WHERE id = $1`, [pub.match_id]);
   await ensureDemoMatch(app.db);
   const listed: ApiPublicRoom[] = (await x.get('/api/rooms')).body.public_rooms;
-  assert.deepEqual(listed.map((r) => r.sport), ['cricket', 'f1', 'basketball', 'hockey']); // one public watch party per sport
+  assert.deepEqual(listed.map((r) => r.sport), ['cricket', 'kabaddi', 'football', 'basketball']); // one public watch party per sport
   assert.ok(!listed.some((r) => r.id === pub.id)); // the finished game's room is no longer offered
 });

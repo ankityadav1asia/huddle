@@ -137,6 +137,7 @@ button { cursor: pointer; }
 .score-overs { color: var(--muted); font: 500 17px/1 var(--display); }
 .score-need { margin-left: auto; text-align: right; font-size: 12.5px; color: var(--muted); line-height: 1.25; }
 .score-need b { color: var(--text); font-size: 14px; }
+.score-result { margin: 2px 0 4px; color: var(--accent-deep); font-size: 13.5px; font-weight: 700; line-height: 1.3; }
 .score-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .score-row b { color: var(--text); font-weight: 700; }
 .score-batters { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
@@ -205,17 +206,15 @@ button { cursor: pointer; }
 .msg-meta .handle { color: var(--text); font-weight: 700; font-size: 12.5px; }
 .badge { padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 800; letter-spacing: 0.05em; }
 .badge.team { background: var(--team-soft); color: var(--team-ink); }
-/* Team colours (ui.ts teamClass): MI and CSK from the tokens above, then the F1, NBA and NHL teams. */
+/* Team colours (ui.ts teamClass): MI and CSK from the tokens above, then the PKL, ISL and NBA teams. */
 .t-mi { --team: var(--mi); --team-soft: var(--mi-soft); --team-ink: var(--mi); }
 .t-csk { --team: var(--csk); --team-soft: var(--csk-soft); --team-ink: var(--csk-ink); }
-.t-mcl { --team: #ff8000; --team-soft: #fff0e0; --team-ink: #8f4600; }
-.t-rbr { --team: #223971; --team-soft: #e7ebf5; --team-ink: #223971; }
-.t-fer { --team: #dc0000; --team-soft: #fde8e8; --team-ink: #a30000; }
-.t-mer { --team: #00a19c; --team-soft: #e0f4f3; --team-ink: #006b67; }
+.t-jpp { --team: #d6157a; --team-soft: #fde7f2; --team-ink: #a10c5b; }
+.t-pat { --team: #0b7a3b; --team-soft: #e3f3e9; --team-ink: #08592b; }
+.t-mbsg { --team: #8a1c2c; --team-soft: #f8e7ea; --team-ink: #8a1c2c; }
+.t-ebfc { --team: #d2232a; --team-soft: #fde9e9; --team-ink: #a3151b; }
 .t-gsw { --team: #1d428a; --team-soft: #fff4d1; --team-ink: #1d428a; }
 .t-lal { --team: #552583; --team-soft: #f3ecfa; --team-ink: #552583; }
-.t-edm { --team: #fc4c02; --team-soft: #fff0e8; --team-ink: #9c2f00; }
-.t-tor { --team: #00205b; --team-soft: #e6eaf2; --team-ink: #00205b; }
 .thread-tag { color: var(--accent); font-size: 11.5px; font-weight: 700; animation: rise 0.3s ease; }
 .msg-text { margin: 2px 0 0; font-size: 14.5px; line-height: 1.4; overflow-wrap: anywhere; }
 .msg.you .handle { color: var(--chrome); }
@@ -269,6 +268,12 @@ button { cursor: pointer; }
 .toast span { flex: 1; min-width: 0; }
 .toast b { color: #8fe3bd; }
 .toast button { border: 0; border-radius: 999px; padding: 5px 12px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; }
+.toast .x { flex: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; background: transparent; color: rgba(255, 255, 255, 0.8); }
+.toast .x:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+
+/* Inside the phone, scroll areas scroll like a phone's: no desktop scrollbar (or its arrow buttons) drawn over the UI. */
+.phone, .phone * { scrollbar-width: none; }
+.phone::-webkit-scrollbar, .phone *::-webkit-scrollbar { display: none; }
 .new-pill {
   position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 2;
   border: 0; border-radius: 999px; padding: 6px 14px; background: var(--chrome); color: #fff; font-size: 12px; font-weight: 700;
