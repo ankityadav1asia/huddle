@@ -89,9 +89,13 @@ async function postJson(fetchImpl: typeof fetch, url: string, { headers, body, t
   }
 }
 
+// Vendors word errors differently: OpenAI-style { error: { message } }, xAI { code, error: "…" }, others { message }.
+// xAI answers a wrong API key with 400, so a key complaint is filed as an authentication error, whatever the status.
 function httpFailure(res: Response, json: any, provider: string): AIError {
-  const category = categoryForStatus(res.status);
-  const msg = typeof json?.error?.message === 'string' ? json.error.message.slice(0, 160) : `HTTP ${res.status}`;
+  const text = [json?.error?.message, typeof json?.error === 'string' ? json.error : null, json?.message]
+    .find((m): m is string => typeof m === 'string' && m.length > 0);
+  const category = text && /api key|unauthori[sz]ed|permission denied|credentials/i.test(text) ? 'authentication_error' : categoryForStatus(res.status);
+  const msg = text ? text.slice(0, 160) : `HTTP ${res.status}`;
   return new AIError(category, `${provider}: ${msg}`, { status: res.status, retryAfterMs: retryAfterMs(res.headers?.get?.('retry-after')) });
 }
 

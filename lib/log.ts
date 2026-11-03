@@ -1,6 +1,6 @@
 // Structured logs with redaction: ids, categories and timings, never message bodies, prompts, API keys or session tokens.
 const SENSITIVE_KEY = /(key|token|secret|authorization|password|cookie|otp|code|phone|body|text|prompt|question|endpoint|auth)$/i;
-const SECRET_VALUE = /(sk-[A-Za-z0-9_-]{8,}|sk-ant-[A-Za-z0-9_-]{8,}|AIza[0-9A-Za-z_-]{20,}|Bearer\s+[A-Za-z0-9._-]{8,}|\+91\d{10}|\b[6-9]\d{9}\b)/g;
+const SECRET_VALUE = /(sk-[A-Za-z0-9_-]{8,}|sk-ant-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|AIza[0-9A-Za-z_-]{20,}|Bearer\s+[A-Za-z0-9._-]{8,}|\+91\d{10}|\b[6-9]\d{9}\b)/g;
 
 // Objects come back as objects (log fields are spread into the line); anything else keeps its kind.
 function redact(value: Record<string, unknown>, depth?: number): Record<string, unknown>;

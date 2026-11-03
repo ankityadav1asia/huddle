@@ -140,7 +140,7 @@ async function generatePoll(db: Db, room: PollRoom, userId: string | null, { sin
   const mc = await matchContext(db, room);
   const chat = await roomChat(db, room, sinceSeq);
   const res = await orchestrator.run({
-    task: 'poll', system: SYSTEM, schema: SCHEMAS.poll, roomId: room.id, userId, deadline: 10000, timeoutMs: 4500,
+    task: 'poll', system: SYSTEM, schema: SCHEMAS.poll, roomId: room.id, userId, deadline: 12000, timeoutMs: 7000,
     user: buildPrompt('poll', {
       SPORT: fixture.sportName, VERIFIED_MATCH_DATA: mc.facts, COMMENTARY: mc.commentary.slice(0, 5),
       ROOM_CHAT_UNTRUSTED: chat.members.length ? chat.members : undefined,
@@ -241,7 +241,7 @@ export async function handleMomentumJob(db: Db, job: MomentumJob) {
     const allowedEventIds = new Set<string>([...mc.allowedEventIds, signal.event_id]);
     const allowedNumbers = new Set<string>([...mc.allowedNumbers, ...allowedNumbersFrom(signal.evidence, signal.fact_text)]);
     const res = await orchestrator.run({
-      task: 'momentum', system: SYSTEM, schema: SCHEMAS.momentum, deadline: 10000, timeoutMs: 4500,
+      task: 'momentum', system: SYSTEM, schema: SCHEMAS.momentum, deadline: 12000, timeoutMs: 7000,
       user: buildPrompt('momentum', {
         SIGNAL: { event_id: signal.event_id, trigger: signal.trigger, label: signal.label, verified_fact: signal.fact_text, evidence: signal.evidence },
         VERIFIED_MATCH_DATA: mc.facts,

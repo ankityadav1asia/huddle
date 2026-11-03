@@ -63,7 +63,7 @@ async function reply(db: Db, user: SessionUser, room: BotRoom, level: Moderation
     allowedNumbers: new Set<string>([...mc.allowedNumbers, ...allowedNumbersFrom(asked?.rules, asked?.roster, asked?.whenAsked)]),
   };
   const result = await orchestrator.run({
-    task: 'bot', system: BOT_SYSTEM, schema: SCHEMAS.bot, roomId: room.id, userId: user.id, deadline: 14000, timeoutMs: 6000,
+    task: 'bot', system: BOT_SYSTEM, schema: SCHEMAS.bot, roomId: room.id, userId: user.id, deadline: 16000, timeoutMs: 9000,
     user: buildPrompt('bot', {
       SPORT: asked?.sport, MATCH_WHEN_ASKED: asked?.whenAsked || undefined,
       VERIFIED_MATCH_DATA: mc.facts, COMMENTARY: mc.commentary, DATA_FRESHNESS: mc.freshness,

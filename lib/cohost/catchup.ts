@@ -294,7 +294,7 @@ export async function catchUp(db: Db, user: SessionUser, roomId: string, body: R
   const allowedEventIds = new Set<string>([...mc.allowedEventIds, ...plays.map((p) => p.event_id)]);
   const allowedNumbers = new Set<string>([...mc.allowedNumbers, ...allowedNumbersFrom(change && { from: change.from, to: change.to }, delta, timeline, fallback.match_points)]);
   const result = await cached(roomId, `catchup:${user.id}:${base.scope}:${sinceSeq}:${room.last_seq}`, 20000, () => orchestrator.run({
-    task: 'catchup', system: SYSTEM, schema: SCHEMAS.catchup, roomId, userId: user.id, deadline: 14000, timeoutMs: 6000,
+    task: 'catchup', system: SYSTEM, schema: SCHEMAS.catchup, roomId, userId: user.id, deadline: 16000, timeoutMs: 9000,
     user: buildPrompt('catchup', {
       SCOPE: wholeMatch ? 'the match so far' : 'since the member looked away',
       AWAY: base.away ?? undefined,
