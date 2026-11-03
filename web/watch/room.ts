@@ -7,6 +7,7 @@ import { openSheet, closeSheet, sheetActions, confirmSheet } from './sheets.ts';
 import { friendPicker, levelChooser, LEVEL_NAMES } from './home.ts';
 import { openMatchCentre } from './match.ts';
 import { openDreamBot } from './bot.ts';
+import { openCatchUp } from './catchup.ts';
 import type { ReadyCtx } from './app.ts';
 
 const ROLE_LABEL: Partial<Record<Role, string>> = { owner: 'OWNER', admin: 'ADMIN' };
@@ -363,6 +364,7 @@ function buildRoom(state: RoomState) {
   const menu = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Room menu', onclick: () => openRoomMenu(state) }, icon('dots'));
   els.score = el('button', { type: 'button', class: 'score score-btn', 'aria-label': 'Open the Match Centre', hidden: !room.match, onclick: () => openCentre(state) },
     el('div', { class: 'skeleton' }));
+  const catchUpBtn = el('button', { type: 'button', class: 'catch-btn', onclick: () => openCatch(state, null) }, icon('spark'), 'Catch me up');
   els.add = el('button', { type: 'button', class: 'add-btn', onclick: () => addFriends(state) },
     el('span', { text: 'Invite friends' }), el('span', { class: 'plus', 'aria-hidden': 'true' }, icon('plus')));
 
@@ -402,7 +404,7 @@ function buildRoom(state: RoomState) {
         el('div', { class: 'top-title' }, els.title, el('span', { class: 'top-sub' }, els.sub, els.reconnect)),
         menu),
       els.score,
-      el('div', { class: 'watch-strip' }, els.add)),
+      el('div', { class: 'watch-strip' }, catchUpBtn, els.add)),
     el('section', { class: 'room-panel', 'aria-label': 'Chat' },
       els.threadBar,
       el('div', { class: 'chat' }, els.scroll, els.banner, els.newPill),
@@ -435,17 +437,26 @@ function openCentre(state: RoomState) {
   state.centre = openMatchCentre(state.id);
 }
 
-function openBot(state: RoomState, catchUp = false) {
+function openBot(state: RoomState) {
   openDreamBot({
     roomId: state.id,
     game: state.room.match?.title || null,
     ai: state.room.ai_enabled,
-    since: () => state.catchupSince,
+    catchUp: () => openCatch(state, state.catchupSince),
+  });
+}
+
+// Catch me up: the match so far, or (after time away) what this person missed. A #thread in it opens that thread.
+function openCatch(state: RoomState, since: number | null) {
+  openCatchUp({
+    roomId: state.id,
+    since,
     caughtUp: () => {
       state.catchupSince = null;
       rememberSeen(state);
     },
-  }, { catchUp });
+    showThread: (id) => setThread(state, id),
+  });
 }
 
 // "Public · 201 watching": people online plus, in a public room, the crowd (unless this device hides it).
@@ -466,10 +477,10 @@ function scrollToBottom(state: RoomState) {
   if (state.els.newPill) state.els.newPill.hidden = true;
 }
 
-// Coming back to the room: Catch me up opens Dream Bot with a summary of what was missed.
+// Coming back to the room: Catch me up summarises what was missed.
 function showBanner(state: RoomState, text: string) {
   const b = state.els.banner;
-  const go = el('button', { type: 'button', text: 'Catch me up', onclick: () => { b.hidden = true; openBot(state, true); } });
+  const go = el('button', { type: 'button', text: 'Catch me up', onclick: () => { b.hidden = true; openCatch(state, state.catchupSince); } });
   const x = el('button', { type: 'button', class: 'x', 'aria-label': 'Dismiss', onclick: () => { b.hidden = true; } }, icon('close'));
   b.replaceChildren(el('span', { text }), go, x);
   b.hidden = false;

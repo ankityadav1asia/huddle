@@ -296,7 +296,7 @@ test('when every provider is down, chat keeps working and no answer is posted', 
 });
 
 test('Catch Me Up summarises only this room, and falls back to verified match data when AI is down', async () => {
-  const p = fake('primary', [{ headline: 'CSK chasing 187', match_points: ['CSK need 59 off 36.'], room_points: ['One fan thinks Bumrah looks sharp.'], sourceEventIds: [] }]);
+  const p = fake('primary', [{ headline: 'CSK chasing 187', match_points: ['CSK need 59 off 36.'], thread_points: [], room_points: ['One fan thinks Bumrah looks sharp.'], sourceEventIds: [] }]);
   setAi(createOrchestrator({ providers: [p], sleep: noSleep }));
   const r = await a.post(`/api/rooms/${roomA}/catchup`, { since_seq: 0 });
   assert.equal(r.status, 200);
@@ -366,4 +366,26 @@ test('the Co-host polls the room on what its members are arguing about, at most 
   const polls = (await app.db.query('SELECT question FROM polls WHERE room_id = $1', [roomA])).rows;
   assert.deepEqual(polls.map((r) => r.question), ['Tilak bowling now: right call?']);
   assert.equal(await handleDebatePollJob(app.db, { ...job, payload: { since_seq: null } }), 'cooldown');
+});
+
+test('Catch me up covers the match so far with stats, and what the room says on each #thread', async () => {
+  await app.db.exec('DELETE FROM rate_events');
+  const threadId = (await app.db.query(`INSERT INTO room_threads (id, room_id, slug, title, source) VALUES ('thr_catchup01', $1, 'drs-call', '#drs-call', 'moment') RETURNING id`, [roomA])).rows[0].id;
+  await say(a, roomA, 'ball tracking scam THREAD-CANARY', { thread_id: threadId });
+  await say(b, roomA, 'umpires call was right', { thread_id: threadId });
+  const p = fake('primary', [
+    { headline: 'CSK chasing 187', match_points: ['CSK need 59 off 36.'], thread_points: [{ thread: 'made-up-thread', text: 'Nope.' }], room_points: [], sourceEventIds: [] },
+    { headline: 'CSK chasing 187', match_points: ['CSK need 59 off 36.'], thread_points: [{ thread: 'drs-call', text: 'One fan calls ball tracking a scam; another backs the umpire.' }], room_points: [], sourceEventIds: [] },
+  ]);
+  setAi(createOrchestrator({ providers: [p], sleep: noSleep }));
+  const invented = await a.post(`/api/rooms/${roomA}/catchup`, { scope: 'match' });
+  assert.equal(invented.body.source, 'match_data', 'a thread the room does not have is rejected');
+  assert.deepEqual(invented.body.thread_points.map((t: { thread: string }) => t.thread), ['drs-call']);
+  assert.ok(invented.body.stats.some((s: { label: string }) => s.label === 'CSK'), JSON.stringify(invented.body.stats));
+  await app.db.exec('DELETE FROM rate_events');
+  const r = await b.post(`/api/rooms/${roomA}/catchup`, { scope: 'match' });
+  assert.equal(r.body.source, 'ai');
+  assert.deepEqual(r.body.thread_points, [{ thread: 'drs-call', id: threadId, text: 'One fan calls ball tracking a scam; another backs the umpire.' }]);
+  assert.ok(p.requests[1].user.includes('THREAD-CANARY'));
+  assert.ok(p.requests[1].user.includes('"thread":"drs-call"'));
 });

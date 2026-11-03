@@ -17,7 +17,8 @@ import { pollEvents, roomBootstrap, parseAfter } from '../rooms/realtime.ts';
 import { sendMessage } from '../chat/messages.ts';
 import { setReaction, votePoll } from '../chat/interactions.ts';
 import { REACTIONS } from '../chat/hydrate.ts';
-import { catchUp, suggestPoll } from '../cohost/index.ts';
+import { suggestPoll } from '../cohost/index.ts';
+import { catchUp } from '../cohost/catchup.ts';
 import { askDreamBot } from '../cohost/bot.ts';
 import { ensureDemoMatches, matchSnapshot } from '../match/feed.ts';
 import { fixtureFor, fixtureForMatch, sportRank, SPORTS } from '../match/fixture.ts';
@@ -70,9 +71,29 @@ route('PUT', '/api/me/sports/:sport', async ({ db, user, body, params }) => ({ u
 route('GET', '/api/me/invitations', async ({ db, user }) => myInvitations(db, user));
 route('GET', '/api/users/search', async ({ db, user, query }) => searchUsers(db, user, query));
 
+// The home screen's scoreboard for a live game: the big line, what it is out of, and the state of play.
+function homeScore(sport: string, sc: any) {
+  if (sport === 'cricket') {
+    const note = sc.result || (sc.target ? `${sc.batting} need ${sc.need_runs} off ${sc.need_balls}` : sc.crr != null ? `Run rate ${sc.crr}` : null);
+    return { line: `${sc.batting} ${sc.runs}/${sc.wickets}`, sub: `${sc.overs} ov`, note };
+  }
+  if (sport === 'f1') return { line: `Lap ${sc.lap}/${sc.total_laps}`, sub: null, note: sc.result || `${sc.order[0].short} leads` };
+  const [a, b] = sc.teams;
+  const lead = a.score === b.score ? 'All square' : `${(a.score > b.score ? a : b).name} lead by ${Math.abs(a.score - b.score)}`;
+  return { line: `${a.code} ${a.score}–${b.score} ${b.code}`, sub: `${sc.period} ${sc.clock}`, note: sc.result || lead };
+}
+
 route('GET', '/api/rooms', async ({ db, user }) => {
   await ensureDemoMatches(db); // one shared game, with its public watch party, per sport
-  const rooms = await listRooms(db, user);
+  const listed = await listRooms(db, user);
+  // A live game shows its score on the home screen, and how many are watching: people online plus the crowd.
+  const public_rooms = await Promise.all(listed.public_rooms.map(async (r) => {
+    if (r.match_status !== 'live' || !r.match_id) return { ...r, score: null, watching: r.online };
+    const snap = await matchSnapshot(db, r.match_id);
+    const fixture = fixtureFor({ fixture_key: snap?.match.fixture_key });
+    return { ...r, score: snap ? homeScore(r.sport, snap.score) : null, watching: r.online + fixture.crowd.fans.length };
+  }));
+  const rooms = { ...listed, public_rooms };
   const matches = (await many<Pick<MatchRow, 'id' | 'title' | 'status' | 'source' | 'fixture_key'>>(db, `SELECT id, title, status, source, fixture_key FROM matches WHERE status IN ('scheduled', 'live')`))
     .sort((a, b) => sportRank(a.fixture_key) - sportRank(b.fixture_key))
     .map(({ fixture_key: key, ...m }) => ({ ...m, sport: fixtureFor({ fixture_key: key }).sport, sport_name: fixtureFor({ fixture_key: key }).sportName }));

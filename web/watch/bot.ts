@@ -2,7 +2,7 @@
 // POST /api/rooms/:id/bot (verified match data, the sport's rules sheet and roster) and are only ever shown to the
 // person who asked, never posted in the room. Each room's conversation is kept in memory while the page is open.
 import { api, ApiError, errorMessage, newKey } from './api.ts';
-import { el, icon, aiLabel, clockSeconds } from './ui.ts';
+import { el, icon, aiLabel } from './ui.ts';
 import { openSheet, sheetActions } from './sheets.ts';
 
 // POST /api/rooms/:id/bot. With source 'unavailable' the AI could not answer, and answer says so.
@@ -13,30 +13,25 @@ interface BotAnswer {
   source: 'ai' | 'unavailable';
 }
 
-// POST /api/rooms/:id/catchup: a summary for the asker only, by the AI or straight from match data.
-interface CatchUp { headline: string; match_points?: string[]; room_points?: string[]; note?: string; source: string; data_as_of: string | null; stale: boolean }
-
 // GET /api/rooms/:id/guide: the sport's checked rules sheet, its players and questions to start with.
 interface Guide { sport_name: string; examples: string[]; rules: { topic: string; text: string }[]; roster: { name: string; team: string; role: string }[] }
 
-// What the room passes in. since and caughtUp tie Catch me up to what this person last saw in the room.
+// What the room passes in. catchUp opens the room's Catch me up window.
 export interface BotOptions {
   roomId: string;
   game: string | null; // the game the room follows
   ai: boolean; // the room's AI is on; without it, or without a game, Dream Bot can only catch you up
-  since: () => number | null;
-  caughtUp: () => void;
+  catchUp: () => void;
 }
 
-// A request. A question keeps its key, so trying again after a network error cannot be answered twice.
-type Ask = { kind: 'question'; text: string; key: string } | { kind: 'catchup' };
+// A question keeps its key, so trying again after a network error cannot be answered twice.
+interface Ask { text: string; key: string }
 
 // One bubble of the conversation.
 type Turn =
   | { who: 'me'; text: string }
   | { who: 'bot'; state: 'pending' }
   | { who: 'bot'; state: 'answer'; reply: BotAnswer }
-  | { who: 'bot'; state: 'summary'; summary: CatchUp }
   | { who: 'bot'; state: 'error'; text: string; note: string; retry: Ask | null };
 type Failed = Extract<Turn, { state: 'error' }>;
 
@@ -52,7 +47,7 @@ interface Chat {
 const MAX_TURNS = 60;
 const chats = new Map<string, Chat>();
 
-export function openDreamBot(opts: BotOptions, { catchUp = false }: { catchUp?: boolean } = {}) {
+export function openDreamBot(opts: BotOptions) {
   const chat = chats.get(opts.roomId) || { roomId: opts.roomId, opts, turns: [], busy: false, view: null };
   chats.set(opts.roomId, chat);
   chat.opts = opts;
@@ -69,14 +64,14 @@ export function openDreamBot(opts: BotOptions, { catchUp = false }: { catchUp?: 
     const text = input.value.trim();
     if (!text || chat.busy) return;
     input.value = '';
-    ask(chat, { kind: 'question', text, key: newKey() });
+    ask(chat, { text, key: newKey() });
   });
   const chip = (text: string, onclick: () => void, cls = 'chip') => el('button', { type: 'button', class: cls, text, onclick });
   chat.view = {
     isOpen: s.isOpen,
     renderChips: () => chips.replaceChildren(
-      chip('Catch me up', () => ask(chat, { kind: 'catchup' }), 'chip catch'),
-      ...(asks && chat.guide ? chat.guide.examples.map((q) => chip(q, () => ask(chat, { kind: 'question', text: q, key: newKey() }))) : []),
+      chip('Catch me up', () => opts.catchUp(), 'chip catch'),
+      ...(asks && chat.guide ? chat.guide.examples.map((q) => chip(q, () => ask(chat, { text: q, key: newKey() }))) : []),
       ...(chat.guide ? [chip('Rules and players', () => openRules(chat), 'chip ghost')] : [])),
     renderLog: () => {
       send.disabled = chat.busy;
@@ -94,7 +89,6 @@ export function openDreamBot(opts: BotOptions, { catchUp = false }: { catchUp?: 
   chat.view.renderChips();
   chat.view.renderLog();
   if (opts.game && chat.guide === undefined) loadGuide(chat);
-  if (catchUp) ask(chat, { kind: 'catchup' });
 }
 
 function refresh(chat: Chat) {
@@ -113,7 +107,7 @@ async function loadGuide(chat: Chat) {
 
 function ask(chat: Chat, a: Ask) {
   if (chat.busy) return;
-  chat.turns.push({ who: 'me', text: a.kind === 'catchup' ? 'Catch me up' : a.text });
+  chat.turns.push({ who: 'me', text: a.text });
   answer(chat, a);
 }
 
@@ -126,15 +120,8 @@ async function answer(chat: Chat, a: Ask) {
   refresh(chat);
   let result: Turn;
   try {
-    if (a.kind === 'catchup') {
-      const since = chat.opts.since();
-      const summary: CatchUp = await api.post(`/api/rooms/${chat.roomId}/catchup`, since != null ? { since_seq: since } : {});
-      chat.opts.caughtUp();
-      result = { who: 'bot', state: 'summary', summary };
-    } else {
-      const reply: BotAnswer = await api.post(`/api/rooms/${chat.roomId}/bot`, { question: a.text, client_request_id: a.key });
-      result = { who: 'bot', state: 'answer', reply };
-    }
+    const reply: BotAnswer = await api.post(`/api/rooms/${chat.roomId}/bot`, { question: a.text, client_request_id: a.key });
+    result = { who: 'bot', state: 'answer', reply };
   } catch (err) {
     result = { who: 'bot', state: 'error', text: errorMessage(err), note: waitNote(err), retry: err instanceof ApiError && err.status === 0 ? a : null };
   }
@@ -179,21 +166,10 @@ function bubble(chat: Chat, t: Turn) {
     return el('div', { class: 'bubble bot error' }, el('p', { text: t.text }), foot(t.note),
       t.retry ? el('button', { type: 'button', class: 'link-btn', text: 'Try again', onclick: () => retry(chat, t) }) : null);
   }
-  if (t.state === 'summary') return summaryBubble(t.summary);
   const r = t.reply;
   return el('div', { class: `bubble bot${r.source === 'ai' ? '' : ' muted'}` }, el('p', { text: r.answer }), foot(answerNote(r)));
 }
 
-function summaryBubble(c: CatchUp) {
-  const points = (title: string, list?: string[]) => (list?.length ? [el('p', { class: 'summary-h', text: title }), el('ul', { class: 'bullets' }, list.map((p) => el('li', { text: p })))] : null);
-  const note = [c.source === 'ai' ? 'AI summary' : 'Summary from verified match data', c.data_as_of ? `data as of ${clockSeconds(c.data_as_of)}` : '', c.stale ? 'may be out of date' : ''];
-  return el('div', { class: 'bubble bot summary' },
-    el('p', { class: 'summary-head', text: c.headline }),
-    points('In the match', c.match_points),
-    points('In the room', c.room_points),
-    c.note ? el('p', { class: 'summary-note', text: c.note }) : null,
-    foot(note.filter(Boolean).join(' · ')));
-}
 
 // The sport's checked rules sheet and players; the button goes back to the conversation.
 function openRules(chat: Chat) {

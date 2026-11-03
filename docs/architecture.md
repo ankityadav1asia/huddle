@@ -288,9 +288,18 @@ moderators until reviewed. AI work is only queued here: no LLM call ever sits on
    rejected, the reply is `source: 'unavailable'` with an honest line and the latest verified headline, never a guess.
 
 ### 4.7 Catch Me Up
-`POST /api/rooms/:id/catchup {since_seq}` checks membership and room state, gathers this room's messages since that
-point (max 40), the match events and key moments since then, and polls. It returns either an AI summary (validated) or a
-deterministic summary from verified data. It goes to the requester only; nothing is written to the chat.
+The room's **Catch me up** button asks for `{scope: 'match'}`: the match so far. Coming back to the room asks for
+`{since_seq}`: what the person missed. `lib/cohost/catchup.ts` checks membership and room state, then gathers:
+- stats straight from the scoreboard (score, rates, top score, best bowling, partnership, boundaries, last wicket; each
+  sport has its own);
+- the latest key moments and match events;
+- the room's talk: up to 60 member messages (pseudonymised) with their #thread and, in a public room, the crowd's lines,
+  grouped by thread;
+- polls.
+
+The AI writes the headline, key moments, what each busy #thread is saying and the rest of the talk. Validation allows
+only the room's real threads, numbers from verified data and safe text; otherwise a deterministic summary from match
+data is returned. It goes to the requester only; nothing is written to the chat.
 
 ### 4.8 Polls from the room's chat
 Every Co-host poll reads what the room is saying: up to 20 recent member messages (pseudonymised, labelled

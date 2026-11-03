@@ -1,11 +1,11 @@
-// The AI Co-host: answers to questions nobody answered, quiet-room polls, match momentum explanations and Catch Me
-// Up (its private Q&A, the Dream Bot, is in bot.ts). Each re-checks room state and membership before publishing, and
-// never publishes unchecked output.
+// The AI Co-host: answers to questions nobody answered, polls from the room's chat and match momentum explanations
+// (its private Q&A, the Dream Bot, is in bot.ts; Catch Me Up in catchup.ts). Each re-checks room state and membership
+// before publishing, and never publishes unchecked output.
 import { config } from '../config.ts';
 import { one, many, type Db } from '../db/index.ts';
-import type { JobRow, MatchRow, MessageRow, PollRow, RoomEventRow, RoomRow, SignalRow } from '../db/rows.ts';
+import type { JobRow, MatchRow, MessageRow, PollRow, RoomRow, SignalRow } from '../db/rows.ts';
 import type { SessionUser } from '../auth/sessions.ts';
-import { HttpError, badRequest, conflict, onlyKeys, clamp, newId, errorCode, type RequestBody } from '../util.ts';
+import { HttpError, badRequest, conflict, onlyKeys, newId, errorCode, type RequestBody } from '../util.ts';
 import { log } from '../log.ts';
 import { ai } from '../ai/index.ts';
 import { SYSTEM, SCHEMAS, buildPrompt, validateOutput, allowedNumbersFrom } from '../ai/tasks.ts';
@@ -14,11 +14,10 @@ import { nextSeq, appendEvent, RoomEndedError } from '../rooms/events.ts';
 import { notifyRoom } from '../realtime/bus.ts';
 import { takeToken } from '../limits.ts';
 import { createPoll } from '../chat/polls.ts';
-import { matchContext, askedContext, roomMessages, eventsSince, publishedSignalsSince } from './context.ts';
+import { matchContext, askedContext, roomMessages } from './context.ts';
 import { matchState } from '../match/feed.ts';
 import { fixtureFor } from '../match/fixture.ts';
 import { recordModeration } from '../moderation/audit.ts';
-import { cached } from '../ai/context-cache.ts';
 import { enqueue } from '../jobs/queue.ts';
 import { crowdLines } from '../match/crowd.ts';
 
@@ -31,8 +30,6 @@ type MomentumJob = { payload: { signal_id: string } };
 type DebateJob = Pick<JobRow, 'room_id'> & { payload: { since_seq?: number | null } };
 // The claimed question: a member's message, so it always has a sender and text.
 type Question = Pick<MessageRow, 'id' | 'room_id' | 'seq' | 'thread_id' | 'match_seq'> & { sender_id: string; body: string };
-// A poll as Catch Me Up summarises it: counts maps option index to votes, null before the first vote.
-type PollSummary = Pick<PollRow, 'question' | 'options' | 'status'> & { counts: Record<string, number> | null };
 // A fresh poll: AI-written from what the room is saying, or the sport's template when the AI is off or fails.
 interface PollIdea { question: string; options: string[]; source: string }
 
@@ -284,63 +281,4 @@ export async function handleMomentumJob(db: Db, job: MomentumJob) {
     }
   }
   return 'published';
-}
-
-// Catch Me Up, on request and for the requester only.
-export async function catchUp(db: Db, user: SessionUser, roomId: string, body: RequestBody) {
-  onlyKeys(body, ['since_seq']);
-  const { room } = await roomAccess(db, roomId, user);
-  const limited = await takeToken(db, `catchup:${user.id}`, { limit: 4, windowSeconds: 120 });
-  if (!limited.ok) throw new HttpError(429, 'rate_limited', 'Give it a moment before catching up again.', { retry_after: limited.retryAfter });
-  const sinceSeq = Number.isInteger(body.since_seq) ? clamp(body.since_seq, Math.max(0, room.last_seq - 300), room.last_seq) : Math.max(0, room.last_seq - 40);
-  const sinceRow = await one<Pick<RoomEventRow, 'created_at'>>(db, 'SELECT created_at FROM room_events WHERE room_id = $1 AND seq <= $2 ORDER BY seq DESC LIMIT 1', [roomId, sinceSeq]);
-  const since = sinceRow?.created_at || null;
-
-  const messages = await roomMessages(db, roomId, { limit: 40, sinceSeq });
-  const events = (await eventsSince(db, room.match_id, since)).reverse();
-  const signals = await publishedSignalsSince(db, room.match_id, since);
-  const polls = await many<PollSummary>(db,
-    `SELECT p.question, p.options, p.status,
-            (SELECT jsonb_object_agg(option_index, n) FROM (SELECT option_index, count(*)::int AS n FROM poll_votes v WHERE v.poll_id = p.id GROUP BY option_index) c) AS counts
-       FROM polls p WHERE p.room_id = $1 AND p.seq > $2 ORDER BY p.seq LIMIT 3`, [roomId, sinceSeq]);
-  const mc = await matchContext(db, room);
-
-  // Deterministic summary from verified data: always available, used when AI is off, unavailable or rejected.
-  const headline = mc.facts?.headline || 'No match data for this room';
-  const people = new Set(messages.map((m) => m.from)).size;
-  const fallback = {
-    headline,
-    match_points: signals.slice(-3).map((s) => `${s.label}: ${s.fact_text}`.slice(0, 110)),
-    room_points: [
-      messages.length ? `${messages.length} new message${messages.length === 1 ? '' : 's'} from ${people} member${people === 1 ? '' : 's'}.` : 'The chat has been quiet.',
-      ...polls.map((p) => {
-        const counts: Record<string, number> = p.counts || {};
-        const total = Object.values(counts).reduce((a, b) => a + b, 0);
-        const lead: [string, number] = p.options.map((o, i): [string, number] => [o.label, counts[i] || 0]).sort((a, b) => b[1] - a[1])[0];
-        return total ? `Poll "${p.question}": ${Math.round((lead[1] / total) * 100)}% picked ${lead[0]}.` : `Poll "${p.question}" got no votes yet.`;
-      }),
-    ].slice(0, 3),
-  };
-  const base = { data_as_of: mc.freshness?.latest_verified_update || null, stale: Boolean(mc.freshness?.stale), source_label: 'Match facts from the match feed' };
-  if (!messages.length && !events.length) return { ...fallback, ...base, source: 'match_data', note: 'Nothing new since you looked away.' };
-
-  const orchestrator = await ai();
-  if (!room.ai_enabled || !orchestrator.available) return { ...fallback, ...base, source: 'match_data' };
-  const allowedEventIds = new Set<string>([...mc.allowedEventIds, ...events.map((e) => e.event_id)]);
-  const allowedNumbers = new Set<string>([...mc.allowedNumbers, ...allowedNumbersFrom(events.map((e) => e.data), signals)]);
-  const result = await cached(roomId, `catchup:${user.id}:${sinceSeq}:${room.last_seq}`, 20000, () => orchestrator.run({
-    task: 'catchup', system: SYSTEM, schema: SCHEMAS.catchup, roomId, userId: user.id, deadline: 14000,
-    user: buildPrompt('catchup', {
-      VERIFIED_MATCH_DATA: mc.facts,
-      MATCH_EVENTS_SINCE: events.map((e) => ({ event_id: e.event_id, text: e.data.text || e.data.label || '', at: e.occurred_at })),
-      KEY_MOMENTS_SINCE: signals.map((s) => ({ label: s.label, fact: s.fact_text, event_id: s.event_id })),
-      POLLS_SINCE: polls.map((p) => ({ question: p.question, options: p.options.map((o) => o.label), status: p.status, votes: p.counts || {} })),
-      ROOM_MESSAGES_SINCE_UNTRUSTED: messages.map(({ from, text }) => ({ from, text })),
-      DATA_FRESHNESS: mc.freshness,
-    }),
-    validate: (v) => validateOutput('catchup', v, { allowedEventIds, allowedNumbers }),
-  }));
-  if (!result.ok) return { ...fallback, ...base, source: 'match_data', note: 'The AI Co-host is unavailable, so this summary comes straight from match data.' };
-  const v = result.value;
-  return { headline: v.headline, match_points: v.match_points, room_points: v.room_points, ...base, source: 'ai', label: AI_LABEL };
 }

@@ -61,7 +61,7 @@ server.listen(cfg.port, () => {
   const ai = aiStatus();
   console.log(`Huddle running at http://localhost:${cfg.port}`);
   console.log(`  database: ${db.kind === 'pglite' ? `embedded PGlite (${path.relative(ROOT, cfg.dataDir)}/pglite)` : 'Postgres (DATABASE_URL)'}`);
-  console.log('  joining: guest profiles (display name + handle)');
+  console.log('  joining: one tap, a guest profile with a username');
   console.log(`  AI Co-host: ${ai.available ? `primary ${ai.primary}${ai.fallback ? `, fallback ${ai.fallback}` : ', no fallback'}` : 'no AI key set (match alerts and Catch Me Up use verified-data templates)'}`);
   log.info('server.start', { port: cfg.port, db: db.kind });
 });

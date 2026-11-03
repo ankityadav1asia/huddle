@@ -14,11 +14,10 @@ interface PublicRoom {
   sport: string;
   match_title: string;
   match_status: string;
-  members: number;
-  max_members: number;
-  online: number;
   joined: boolean;
   full: boolean;
+  watching: number; // people online plus, once the game is live, the crowd
+  score: { line: string; sub: string | null; note: string | null } | null; // a live game's scoreboard
 }
 interface MyRoom { id: string; name: string | null; status: string; role: Role; moderation_level: ModerationLevel; members: number; online: number }
 interface Game { id: string; title: string; sport: string }
@@ -43,7 +42,7 @@ export async function renderHome(ctx: ReadyCtx) {
   const invites = el('section', { class: 'home-section', 'aria-labelledby': 'h-invites' });
   const live = el('section', { class: 'home-section', 'aria-labelledby': 'h-live' });
   const mine = el('section', { class: 'home-section', 'aria-labelledby': 'h-mine' });
-  const create = el('button', { type: 'button', class: 'btn primary', text: 'Create a private room' });
+  const create = el('button', { type: 'button', class: 'btn create-btn' }, icon('plus'), 'Private room');
   let data: RoomLists | null = null; // the /api/rooms response, once loaded
   create.addEventListener('click', () => openCreateRoom(ctx, data));
 
@@ -110,48 +109,61 @@ function renderInvites(ctx: ReadyCtx, section: HTMLElement, invitations: Invitat
   }
 }
 
-// Only rooms for live or scheduled matches are listed; rooms of finished matches are not.
-const matchStatus = (status: string) => (status === 'live' ? 'Live' : 'Starts when the first fan joins');
-
 const SPORT_LABEL: Partial<Record<string, string>> = { cricket: 'Cricket · T20', f1: 'Formula 1', basketball: 'Basketball · NBA', hockey: 'Ice hockey · NHL' };
 const SPORT_TAG: Partial<Record<string, string>> = { f1: 'F1', basketball: 'NBA', hockey: 'NHL' };
 
+// Joining a public watch party (or opening one you are in); a full room says so where it was tapped.
+async function enter(ctx: ReadyCtx, room: PublicRoom, control: HTMLButtonElement, err: HTMLElement) {
+  control.disabled = true;
+  try {
+    if (!room.joined) await api.post(`/api/rooms/${room.id}/join`);
+    ctx.navigate(`#/room/${room.id}`);
+  } catch (e) {
+    err.textContent = errorMessage(e);
+    control.disabled = e instanceof ApiError && e.code === 'room_full';
+  }
+}
+
+const fixtureMark = (room: PublicRoom) => (room.sport === 'cricket' || !room.sport
+  ? el('span', { class: 'mark-logos' }, teamLogo('MI'), teamLogo('CSK'))
+  : el('span', { class: 'sport-tag', text: SPORT_TAG[room.sport] || room.sport }));
+
+// Live now: each game in progress as a scoreboard card. Up next: the games that start when their first fan joins.
 function renderLive(ctx: ReadyCtx, section: HTMLElement, rooms: RoomLists) {
-  section.replaceChildren(el('h2', { class: 'section-title', id: 'h-live', text: 'Public watch parties' }));
-  const pub = rooms.public_rooms;
-  if (!pub.length) {
-    section.append(el('p', { class: 'empty', text: 'No public watch party right now.' }));
+  const live = rooms.public_rooms.filter((r) => r.match_status === 'live');
+  const next = rooms.public_rooms.filter((r) => r.match_status !== 'live');
+  section.replaceChildren();
+  if (!live.length && !next.length) {
+    section.append(el('h2', { class: 'section-title', id: 'h-live', text: 'Watch parties' }), el('p', { class: 'empty', text: 'No public watch party right now.' }));
     return;
   }
-  for (const room of pub) {
-    const full = Boolean(room.full) && !room.joined;
-    const go = el('button', { type: 'button', class: 'btn primary small', text: room.joined ? 'Open' : full ? 'Full' : 'Join', disabled: full });
+  if (live.length) section.append(el('h2', { class: 'section-title', id: 'h-live', text: 'Live now' }));
+  for (const room of live) {
+    const full = room.full && !room.joined;
     const err = el('p', { class: 'form-error', role: 'alert' });
-    go.addEventListener('click', async () => {
-      go.disabled = true;
-      try {
-        if (!room.joined) await api.post(`/api/rooms/${room.id}/join`);
-        ctx.navigate(`#/room/${room.id}`);
-      } catch (e) {
-        err.textContent = errorMessage(e);
-        go.disabled = e instanceof ApiError && e.code === 'room_full';
-        if (e instanceof ApiError && e.code === 'room_full') go.textContent = 'Full';
-      }
-    });
-    const seats = room.max_members ? `${room.members}/${room.max_members}` : plural(room.members, 'member');
-    section.append(el('article', { class: 'card public-card' },
-      el('div', { class: 'fixture-row' },
-        room.sport === 'cricket' || !room.sport
-          ? [teamLogo('MI'), el('b', { class: 'fixture-name', text: room.match_title || 'Match' }), teamLogo('CSK')]
-          : [el('span', { class: 'sport-tag', text: SPORT_TAG[room.sport] || room.sport }), el('b', { class: 'fixture-name', text: room.match_title || 'Match' })],
-        el('span', { class: `status-pill ${room.match_status === 'live' ? 'live' : ''}`, text: matchStatus(room.match_status) })),
-      el('p', { class: 'card-sport', text: SPORT_LABEL[room.sport] || 'Cricket' }),
-      el('h3', { class: 'card-h', text: room.name }),
-      el('p', { class: 'card-meta' },
-        room.full ? el('b', { class: 'full-tag', text: `Full · ${seats}` }) : `${seats}${room.max_members ? ' members' : ''}`,
-        ` · ${room.online} online`, el('span', { class: 'managed' }, icon('shield'), 'Moderation managed by Huddle')),
-      el('div', { class: 'card-actions' }, go), err));
+    const go = el('button', { type: 'button', class: 'btn primary small', text: room.joined ? 'Open' : full ? 'Full' : 'Join', disabled: full });
+    go.addEventListener('click', () => enter(ctx, room, go, err));
+    const s = room.score;
+    section.append(el('article', { class: 'card live-card' },
+      el('div', { class: 'live-top' }, el('span', { class: 'card-sport', text: SPORT_LABEL[room.sport] || 'Cricket' }), el('span', { class: 'status-pill live', text: 'Live' })),
+      el('div', { class: 'live-title' }, fixtureMark(room), el('b', { text: room.match_title || 'Match' })),
+      s ? el('p', { class: 'live-score' }, el('b', { text: s.line }), s.sub ? el('span', { text: s.sub }) : null) : null,
+      s?.note ? el('p', { class: 'live-note', text: s.note }) : null,
+      el('div', { class: 'live-foot' }, el('span', { class: 'card-meta', text: `${room.watching} watching` }), go), err));
   }
+  if (!next.length) return;
+  const list = el('ul', { class: 'next-list' });
+  for (const room of next) {
+    const err = el('span', { class: 'form-error', role: 'alert' });
+    const row = el('button', { type: 'button', class: 'next-row', disabled: room.full && !room.joined },
+      fixtureMark(room),
+      el('span', { class: 'next-main' }, el('b', { text: room.match_title || 'Match' }),
+        el('small', { text: room.full && !room.joined ? 'Full' : 'Starts when you join' })),
+      el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
+    row.addEventListener('click', () => enter(ctx, room, row, err));
+    list.append(el('li', {}, row, err));
+  }
+  section.append(el('h2', { class: 'section-title', text: 'Up next' }), list);
 }
 
 function renderMine(ctx: ReadyCtx, section: HTMLElement, rooms: MyRoom[]) {
