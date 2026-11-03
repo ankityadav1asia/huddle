@@ -1,10 +1,10 @@
-/* Dream AI: the floating AI orb above the room's message box, and the chat window it opens from the bottom of the
-   phone. Loaded after the other stylesheets and built on styles.css's tokens. The AI's colours run from Huddle's
-   green through teal to violet. */
+/* Dream AI: the red cricket ball above the room's message box, and the chat window it opens from the bottom of the
+   phone. Loaded after the other stylesheets and built on styles.css's tokens. Its colours are Huddle's red, warming
+   to orange. */
 .db-launch, .db-layer {
-  --db-grad: linear-gradient(135deg, #3b6cff 0%, #8b5cf6 52%, #ec4899 100%);
-  --db-violet: #7c3aed;
-  --db-ink: #120b2e;
+  --db-grad: linear-gradient(135deg, #e5383b 0%, #c1121f 55%, #f77f00 100%);
+  --db-violet: #c1121f;
+  --db-ink: #2b0a0d;
   --db-surface: #f5f6fb;
   --db-edge: #e4e6f0;
 }
@@ -52,7 +52,7 @@
   border: 1px solid transparent; border-radius: 16px 16px 4px 16px; cursor: pointer; pointer-events: auto;
   background: linear-gradient(#fff, #fff) padding-box, var(--db-grad) border-box;
   color: var(--db-ink); font-size: 13px; font-weight: 700; line-height: 1.3;
-  box-shadow: 0 10px 26px rgba(124, 58, 237, 0.22);
+  box-shadow: 0 10px 26px rgba(193, 18, 31, 0.22);
   transform-origin: 100% 100%; animation: db-nudge-in 0.4s cubic-bezier(0.2, 0.9, 0.25, 1.2) both;
 }
 .db-nudge.out { animation: db-nudge-out 0.24s ease forwards; }
@@ -73,29 +73,32 @@
 /* Header: the orb, name, AI pill, status and the live match line */
 .db-head {
   flex: none; position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
-  gap: 12px; padding: 20px 14px 14px 16px; color: #fff;
+  gap: 12px; padding: 20px 14px 16px 16px; color: #fff;
   background:
-    radial-gradient(110% 140% at 0% 0%, rgba(59, 108, 255, 0.42), transparent 55%),
-    radial-gradient(110% 140% at 100% 0%, rgba(139, 92, 246, 0.5), transparent 55%),
-    linear-gradient(160deg, #0f1533 0%, #1b1447 100%);
+    radial-gradient(120% 140% at 0% 0%, rgba(255, 255, 255, 0.18), transparent 55%),
+    radial-gradient(110% 140% at 100% 0%, rgba(247, 127, 0, 0.28), transparent 55%),
+    linear-gradient(160deg, #d3262f 0%, #9d0f19 100%);
 }
 .db-head::before { content: ''; position: absolute; top: 7px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: rgba(255, 255, 255, 0.28); }
 .db-id { min-width: 0; }
 .db-name { margin: 0; display: flex; align-items: center; gap: 8px; font: 700 24px/1 var(--display); letter-spacing: 0.01em; }
-.db-name .ai-label { padding: 3px 7px 3px 6px; border: 1px solid rgba(244, 171, 252, 0.4); border-radius: 999px; background: rgba(244, 171, 252, 0.12); color: #f5b8fd; font-size: 10px; }
-.db-name .ai-label svg { width: 9px; height: 9px; fill: #f5b8fd; }
-.db-status { margin: 5px 0 0; display: flex; align-items: center; gap: 6px; color: rgba(255, 255, 255, 0.74); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-name .ai-label { padding: 3px 7px 3px 6px; border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-size: 10px; }
+.db-name .ai-label svg { width: 9px; height: 9px; fill: #fff; }
+.db-status { margin: 5px 0 0; display: flex; align-items: center; gap: 6px; color: rgba(255, 255, 255, 0.86); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .db-live { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #2ee6a6; box-shadow: 0 0 0 3px rgba(46, 230, 166, 0.2); animation: db-blink 2s ease-in-out infinite; }
 .db-x { flex: none; align-self: start; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.12); color: #fff; }
 .db-x:hover { background: rgba(255, 255, 255, 0.22); }
 .db-x .ico { width: 14px; height: 14px; }
-.db-x:focus-visible { outline-color: #c4b5fd; }
+.db-x:focus-visible { outline-color: #fff; }
 .db-ctx {
-  grid-column: 1 / -1; margin: 0; display: flex; align-items: center; gap: 9px; padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 12px; background: rgba(255, 255, 255, 0.08);
+  grid-column: 1 / -1; margin: 0; display: flex; align-items: flex-start; gap: 9px; padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 12px; background: rgba(255, 255, 255, 0.14);
   font-size: 13px; font-weight: 600; line-height: 1.3; font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
 }
-.db-ctx-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--db-grad); box-shadow: 0 0 10px rgba(236, 72, 153, 0.8); }
+.db-ctx-dot { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: #fff; box-shadow: 0 0 10px rgba(255, 255, 255, 0.8); }
+.db-ctx > span:last-child { min-width: 0; }
+/* The ball avatar on the red header gets a white ring, so it stands out. */
+.db-head .db-avatar { box-shadow: 0 0 0 2.5px #fff, 0 4px 12px rgba(60, 4, 8, 0.4); }
 
 /* The orb as an avatar */
 .db-avatar {
@@ -105,9 +108,9 @@
   box-shadow: 0 3px 10px rgba(193, 18, 31, 0.3);
 }
 .db-avatar .ico { width: 26px; height: 26px; }
-.db-avatar.lg { width: 44px; height: 44px; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1), 0 0 22px rgba(236, 72, 153, 0.5); }
+.db-avatar.lg { width: 44px; height: 44px; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1), 0 0 22px rgba(247, 127, 0, 0.5); }
 .db-avatar.lg .ico { width: 42px; height: 42px; }
-.db-avatar.xl { width: 64px; height: 64px; box-shadow: 0 0 0 6px rgba(139, 92, 246, 0.08), 0 12px 30px rgba(124, 58, 237, 0.32); animation: db-glow 3.2s ease-in-out infinite; }
+.db-avatar.xl { width: 64px; height: 64px; box-shadow: 0 0 0 6px rgba(193, 18, 31, 0.08), 0 12px 30px rgba(193, 18, 31, 0.32); animation: db-glow 3.2s ease-in-out infinite; }
 .db-avatar.xl .ico { width: 60px; height: 60px; animation: db-spin 6s linear infinite; }
 
 /* Body: the conversation, or the welcome before it */
@@ -116,7 +119,7 @@
 .db-welcome { margin: auto 0; display: grid; justify-items: center; gap: 6px; padding: 6px 4px 10px; text-align: center; animation: db-rise 0.4s ease both; }
 .db-hello {
   margin: 10px 0 0; font: 700 27px/1.05 var(--display); letter-spacing: 0.01em;
-  background: linear-gradient(90deg, #2f5bff, #7c3aed 50%, #db2777); -webkit-background-clip: text; background-clip: text; color: transparent;
+  background: linear-gradient(90deg, #a4161a, #e5383b 50%, #f77f00); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .db-lede { margin: 0; max-width: 31em; color: var(--muted); font-size: 13.5px; text-wrap: pretty; }
 .db-suggest { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
@@ -125,14 +128,14 @@
 .db-chip {
   display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 8px 13px;
   border: 1px solid transparent; border-radius: 999px; text-align: left;
-  background: linear-gradient(#fff, #fff) padding-box, linear-gradient(135deg, rgba(59, 108, 255, 0.6), rgba(139, 92, 246, 0.6)) border-box;
+  background: linear-gradient(#fff, #fff) padding-box, linear-gradient(135deg, rgba(229, 56, 59, 0.6), rgba(193, 18, 31, 0.6)) border-box;
   color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.3;
   box-shadow: 0 1px 2px rgba(21, 23, 28, 0.05); transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .db-chip .ico { width: 11px; height: 11px; color: var(--db-violet); }
-.db-chip:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(139, 92, 246, 0.18); }
+.db-chip:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(193, 18, 31, 0.18); }
 .db-chip:disabled { opacity: 0.5; cursor: default; }
-.db-chip.catch { background: linear-gradient(135deg, #eef2ff, #fdf2f8) padding-box, linear-gradient(135deg, rgba(59, 108, 255, 0.7), rgba(236, 72, 153, 0.7)) border-box; color: #4338ca; font-weight: 700; }
+.db-chip.catch { background: linear-gradient(135deg, #fff1f1, #fff6ec) padding-box, linear-gradient(135deg, rgba(229, 56, 59, 0.7), rgba(247, 127, 0, 0.7)) border-box; color: #a4161a; font-weight: 700; }
 .db-chip.catch .ico { color: var(--db-violet); }
 .db-chip.rules { border: 1px dashed #c4cad3; background: transparent; color: var(--muted); box-shadow: none; }
 .db-chip.rules .ico { color: var(--faint); }
@@ -160,7 +163,7 @@
 .db-msg.me { justify-content: flex-end; }
 .db-bubble { margin: 0; max-width: 84%; padding: 10px 13px; border-radius: 18px; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
 .db-bubble p { margin: 0; }
-.db-msg.me .db-bubble { border-bottom-right-radius: 6px; background: linear-gradient(135deg, #2e1a7a, #5b3fe0); color: #fff; box-shadow: 0 4px 12px rgba(46, 26, 122, 0.24); }
+.db-msg.me .db-bubble { border-bottom-right-radius: 6px; background: linear-gradient(135deg, #8a0f12, #c1121f); color: #fff; box-shadow: 0 4px 12px rgba(138, 15, 18, 0.24); }
 .db-msg.bot .db-bubble { border: 1px solid var(--db-edge); border-bottom-left-radius: 6px; background: #fff; box-shadow: 0 2px 10px rgba(21, 23, 28, 0.05); }
 .db-msg.bot .db-avatar { margin-bottom: 2px; }
 .db-answer { white-space: pre-line; }
@@ -168,7 +171,7 @@
 .db-prov::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
 .db-prov.data::before { background: var(--accent); box-shadow: 0 0 0 3px rgba(15, 157, 99, 0.15); }
 .db-prov.rules::before { background: var(--db-violet); box-shadow: 0 0 0 3px rgba(106, 79, 240, 0.15); }
-.db-bg { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: linear-gradient(135deg, rgba(59, 108, 255, 0.07), rgba(236, 72, 153, 0.07)); border: 1px solid rgba(139, 92, 246, 0.18); }
+.db-bg { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: linear-gradient(135deg, rgba(229, 56, 59, 0.07), rgba(247, 127, 0, 0.07)); border: 1px solid rgba(193, 18, 31, 0.18); }
 .db-answer + .db-bg, .db-prov + .db-bg { margin-top: 10px; }
 .db-bg-label { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; color: var(--db-violet); font-size: 11px; font-weight: 800; letter-spacing: 0.02em; }
 .db-bg-label .ico { width: 13px; height: 13px; }
@@ -206,12 +209,12 @@
   border: 1px solid #dcdfea; border-radius: 999px; background: var(--db-surface);
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
-.db-compose:focus-within { border-color: #a78bfa; background: #fff; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.16); }
+.db-compose:focus-within { border-color: #f08080; background: #fff; box-shadow: 0 0 0 3px rgba(193, 18, 31, 0.16); }
 .db-input { flex: 1; min-width: 0; height: 40px; padding: 0; border: 0; background: none; outline: none; font-size: 16px; }
 .db-input::placeholder { color: var(--faint); font-size: 14.5px; }
 .db-send {
   flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%;
-  background: var(--db-grad); color: #fff; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.32); opacity: 0.6;
+  background: var(--db-grad); color: #fff; box-shadow: 0 4px 12px rgba(193, 18, 31, 0.32); opacity: 0.6;
   transition: transform 0.15s ease, opacity 0.15s ease;
 }
 .db-send .ico { width: 17px; height: 17px; }
@@ -239,8 +242,8 @@
 .db-roster span { color: var(--muted); font-size: 12.5px; }
 
 @keyframes db-glow {
-  0%, 100% { box-shadow: 0 8px 22px rgba(124, 58, 237, 0.36), 0 2px 6px rgba(236, 72, 153, 0.3), inset 0 -4px 10px rgba(46, 16, 101, 0.28); }
-  50% { box-shadow: 0 8px 30px rgba(124, 58, 237, 0.5), 0 0 18px rgba(236, 72, 153, 0.45), inset 0 -4px 10px rgba(46, 16, 101, 0.28); }
+  0%, 100% { box-shadow: 0 8px 22px rgba(193, 18, 31, 0.36), 0 2px 6px rgba(247, 127, 0, 0.3), inset 0 -4px 10px rgba(60, 4, 8, 0.28); }
+  50% { box-shadow: 0 8px 30px rgba(193, 18, 31, 0.5), 0 0 18px rgba(247, 127, 0, 0.45), inset 0 -4px 10px rgba(60, 4, 8, 0.28); }
 }
 @keyframes db-ring { 0% { transform: scale(1); opacity: 0.75; } 100% { transform: scale(1.55); opacity: 0; } }
 @keyframes db-spin { to { transform: rotate(360deg); } }
@@ -256,7 +259,7 @@
 @keyframes db-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 @keyframes db-bounce { 0%, 70%, 100% { transform: translateY(0); opacity: 0.45; } 35% { transform: translateY(-4px); opacity: 1; } }
 @keyframes db-sheen { from { background-position: 110% 0; } to { background-position: -110% 0; } }
-@keyframes db-think { 0%, 100% { box-shadow: 0 3px 10px rgba(139, 92, 246, 0.28); } 50% { box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.14), 0 0 16px rgba(236, 72, 153, 0.55); } }
+@keyframes db-think { 0%, 100% { box-shadow: 0 3px 10px rgba(193, 18, 31, 0.28); } 50% { box-shadow: 0 0 0 4px rgba(193, 18, 31, 0.14), 0 0 16px rgba(247, 127, 0, 0.55); } }
 
 @media (prefers-reduced-motion: reduce) {
   .db-orb, .db-orb .ico, .db-avatar, .db-avatar .ico, .db-live, .db-dots i, .db-shimmer, .db-chip-wait { animation: none !important; }
