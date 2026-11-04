@@ -13,17 +13,20 @@ type MemberMessage = Pick<MessageRow, 'id' | 'seq' | 'created_at'> & { sender_id
 type EventSince = Pick<MatchEventRow, 'kind' | 'data' | 'occurred_at'> & { event_id: string };
 type SignalSince = Pick<SignalRow, 'label' | 'priority' | 'fact_text' | 'event_id'>;
 
-export async function matchContext(db: Queryable, room: Pick<RoomRow, 'match_id'>) {
+// story: also the sport's record of the whole game up to the latest play (for answering questions about any moment);
+// its numbers may then be stated too.
+export async function matchContext(db: Queryable, room: Pick<RoomRow, 'match_id'>, { story = false } = {}) {
   const snap = room.match_id ? await matchSnapshot(db, room.match_id) : null;
-  if (!snap) return { facts: null, commentary: [], freshness: null, allowedEventIds: new Set<string>(), allowedNumbers: new Set<string>() };
+  if (!snap) return { facts: null, story: null, commentary: [], freshness: null, allowedEventIds: new Set<string>(), allowedNumbers: new Set<string>() };
   const fixture = fixtureFor(snap.match);
   const facts = fixture.engine.facts(snap); // each sport decides which verified fields the AI may state
+  const record = story ? fixture.story?.(snap.rev) ?? null : null;
   const commentary = snap.commentary.map((c) => ({ event_id: c.event_id, over: c.over, label: c.label, text: c.text, occurred_at: c.occurred_at }));
   const freshness = { latest_verified_update: snap.freshness.updated_at, age_seconds: snap.freshness.age_seconds, stale: snap.freshness.stale };
   return {
-    facts, commentary, freshness,
+    facts, story: record, commentary, freshness,
     allowedEventIds: new Set<string>(commentary.map((c) => c.event_id)),
-    allowedNumbers: allowedNumbersFrom(facts, commentary),
+    allowedNumbers: allowedNumbersFrom(facts, commentary, record),
   };
 }
 

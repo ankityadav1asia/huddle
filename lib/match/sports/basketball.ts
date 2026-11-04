@@ -2,7 +2,7 @@
 // the plays, so the scoreboard always matches them.
 import type { FactsInput, Fixture, PollTemplate, Team } from '../fixture.ts';
 import { makeFans } from '../fans.ts';
-import { scriptedSignals, scriptedThread, scriptedBurst, scriptedDescribe, scoreWorm, ROLE, type ScriptedItem } from './scripted.ts';
+import { scriptedSignals, scriptedThread, scriptedBurst, scriptedDescribe, scriptedStory, scoreWorm, ROLE, type ScriptedItem } from './scripted.ts';
 
 // The game as the script has it. Scores and team fouls (this quarter) are by team code, points by player.
 interface BasketballState {
@@ -244,4 +244,8 @@ export const BASKETBALL: Fixture<BasketballState, BasketballItem, BasketballScor
     players: Object.entries(PLAYERS).map(([name, p]) => ({ name, short: last(name), team: p.team })),
   },
   examples: ['What is the shot clock?', 'Why did Curry get two free throws?', 'Who is Luka Dončić?'],
+  nicknames: { Luka: 'Luka Dončić', Doncic: 'Luka Dončić', LeBron: 'LeBron James', Steph: 'Stephen Curry', Draymond: 'Draymond Green', Jimmy: 'Jimmy Butler' },
+  story: (lastSeq) => scriptedStory(SCRIPT.map((it) => ({ ...it, clock: `Q4 ${it.clock}` })), lastSeq, {
+    quarter_scores: ['Q1: Warriors 31, Lakers 26', 'Q2: Lakers 29, Warriors 24 (half-time 55-55)', 'Q3: Lakers 27, Warriors 25 (Lakers 82-80 after three quarters)', 'Q4 to 6:00 left: 16-16 (Lakers 98-96)'],
+  }),
 };

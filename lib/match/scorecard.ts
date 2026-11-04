@@ -3,8 +3,8 @@ import type { BatterLine, BowlerLine, CricketItem } from './demo-script.ts';
 import type { CricketFixture } from './sports/cricket.ts';
 
 interface Partnership { runs: number; balls: number }
-// A wicket on the card; score and over are null for the ones that fell before the feed started.
-interface Out extends BatterLine { name: string; how: string; score: string | null; over: string | null }
+// A wicket on the card, with the score and over it fell at.
+interface Out extends BatterLine { name: string; how: string; score: string; over: string }
 // The wicket a ball took, and the stand it ended.
 interface Dismissal { name: string; r: number; b: number; how: string; score: string; over: string; partnership: Partnership }
 // What one delivery was, as the momentum rules read it.
@@ -79,11 +79,11 @@ export function initialState(fixture: CricketFixture): CricketState {
     striker: s.striker,
     bowler: s.bowler,
     bowlers: Object.fromEntries(Object.entries(s.bowlers).map(([n, v]) => [n, { b: v.b, r: v.r, w: v.w }])),
-    outs: s.outs.map((o) => ({ ...o, score: null, over: null })),
+    outs: s.outs.map((o) => ({ ...o })),
     this_over: [],
     over_legal: 0,
     ball_log: [],
-    partnership: { runs: 0, balls: 0 },
+    partnership: { ...s.partnership },
     extras: 0,
     fours: 0,
     sixes: 0,
@@ -101,6 +101,7 @@ export function applyItem(prev: CricketState, item: CricketItem, seq: number): {
   if (item.kind === 'overend') {
     s.this_over = [];
     s.over_legal = 0;
+    s.striker = Object.keys(s.batters).find((n) => n !== s.striker) ?? s.striker; // the batters change ends
     return { state: s, ball: null };
   }
   if (item.kind === 'event') {
@@ -152,7 +153,9 @@ export function applyItem(prev: CricketState, item: CricketItem, seq: number): {
   const symbol = item.wicket ? 'W' : item.extra === 'wd' ? 'wd' : String(item.runs);
   s.this_over.push(symbol);
   s.bowler = item.bowler;
-  s.striker = item.wicket ? item.wicket.next : item.bat;
+  // Who faces next: the new batter after a wicket, else the other batter after an odd number of runs run.
+  const partner = Object.keys(s.batters).find((n) => n !== item.bat);
+  s.striker = item.wicket ? item.wicket.next : legal && item.runs % 2 === 1 && partner ? partner : item.bat;
   const ball: BallRecord = { seq, label, symbol, runs: item.runs, legal, boundary: legal && (item.runs === 4 || item.runs === 6), dot: legal && item.runs === 0 && !item.wicket, wicket: out, drop: item.drop || null, bowler: item.bowler, bat: item.bat, text: item.text };
   s.ball_log.push(ball);
   if (s.ball_log.length > 18) s.ball_log.shift();

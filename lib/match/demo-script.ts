@@ -16,9 +16,10 @@ export interface CricketStart {
   balls: number;
   striker: string;
   bowler: string;
+  partnership: { runs: number; balls: number }; // the stand at the crease
   batters: Record<string, BatterLine>;
   bowlers: Record<string, BowlerLine>;
-  outs: (BatterLine & { name: string; how: string })[];
+  outs: (BatterLine & { name: string; how: string; score: string; over: string })[];
 }
 
 interface Wicket { out: string; how: string; next: string }
@@ -68,7 +69,7 @@ export const SQUADS: Record<string, string[]> = {
 const CALLED: Record<string, string> = { 'Tilak Varma': 'Tilak', 'Hardik Pandya': 'Hardik', 'Rohit Sharma': 'Rohit', 'Suryakumar Yadav': 'Surya', 'Ruturaj Gaikwad': 'Ruturaj', 'Sanju Samson': 'Sanju' };
 export const shortName = (name: string) => CALLED[name] || name.split(' ').slice(-1)[0];
 
-// The feed starts after 14 overs of the chase.
+// The feed starts after 14 overs of the chase; cricket-history.ts has every ball before it.
 export const START: CricketStart = {
   batting: 'CSK',
   bowling: 'MI',
@@ -79,6 +80,7 @@ export const START: CricketStart = {
   balls: 84,
   striker: 'Ruturaj Gaikwad',
   bowler: 'Mitchell Santner',
+  partnership: { runs: 53, balls: 32 },
   batters: {
     'Shivam Dube': { r: 41, b: 24, fours: 2, sixes: 3 },
     'Ruturaj Gaikwad': { r: 22, b: 17, fours: 2, sixes: 1 },
@@ -92,8 +94,8 @@ export const START: CricketStart = {
     'Tilak Varma': { b: 0, r: 0, w: 0 },
   },
   outs: [
-    { name: 'Ayush Mhatre', r: 14, b: 11, fours: 2, sixes: 0, how: 'c Rickelton b Bumrah' },
-    { name: 'Sanju Samson', r: 44, b: 32, fours: 4, sixes: 2, how: 'c Naman Dhir b Chahar' },
+    { name: 'Ayush Mhatre', r: 14, b: 11, fours: 2, sixes: 0, how: 'c Rickelton b Bumrah', score: '24/1', over: '2.5' },
+    { name: 'Sanju Samson', r: 44, b: 32, fours: 4, sixes: 2, how: 'c Naman Dhir b Chahar', score: '75/2', over: '8.4' },
   ],
 };
 
@@ -189,16 +191,25 @@ export const SCRIPT: CricketItem[] = [
 // Simulated chat, the way fans actually type it. {need} and {balls} are filled from the scorecard.
 export const CROWD = {
   start: {
-    CSK: ['59 off 36, ho jayega bhai 💛💛', 'Dube set hai, chill karo 😎', 'ek bada over chahiye bas 🙏', 'Whistle Podu 💛🦁', 'Thala abhi baaki hai 😏🔥'],
-    MI: ['Bumrah ke 2 overs bache hain, relax 😤💙', 'ek wicket aur game palat jayega 🔥', 'Paltan ready hai 💙🔥', 'tight bowling chahiye ab 🙏', 'MI MI MI 💙💙'],
+    CSK: ['59 off 36, ho jayega bhai 💛💛', 'Dube set hai, chill karo 😎', 'ek bada over chahiye bas 🙏', 'Whistle Podu 💛🦁', 'Dube aur Ruturaj, bas khade raho 🙏'],
+    MI: ['Santner, ab dabaav banao 🙏', 'ek wicket aur game palat jayega 🔥', 'Paltan ready hai 💙🔥', 'tight bowling chahiye ab 🙏', 'MI MI MI 💙💙'],
   },
   six_csk: {
     CSK: ['DUBEEEE 🔥🔥🔥', 'kya maara hai yaar 😱🚀', 'Dube spin ko khaa jaata hai 😂🔥', 'ball abhi tak hawa mein hai 🚀', 'Dube meri team ka C hai, chalte raho 🙏💛', 'GAME ON 💛💛', 'stadium ke bahar 😱😱'],
     MI: ['Santner ko hatao bhai 😤', 'Dube ko spin kyun de rahe ho yaar 🤦‍♂️', 'itna flight kaun deta hai 😩', 'Santner ka din kharab hai aaj 💀', 'match haath se nikal raha hai 😰'],
   },
+  // End of an over: a middling one, a big one (10+ runs) and a tight one (5 or fewer). {bowler} bowled it.
   overend: {
-    CSK: ['badhiya over 💛', 'RRR neeche aa raha hai 📉😎', 'strike rotate karte raho 👍'],
-    MI: ['ab tight over chahiye 😬', 'Bumrah ko lao pls 🙏🙏', 'pressure hum pe hai ab 😰', 'hmm 😶'],
+    CSK: ['strike rotate karte raho 👍', 'theek over tha 👌', 'ek bada over chahiye ab 🙏'],
+    MI: ['hmm 😶', 'ab tight over chahiye 😬', 'chalo, ab wicket chahiye 🔥'],
+  },
+  overend_big: {
+    CSK: ['badhiya over 💛', 'RRR neeche aa raha hai 📉😎', 'yahi chahiye tha 🔥'],
+    MI: ['ye over mehenga pada 😩', 'pressure hum pe hai ab 😰', '{bowler} ka over bahut mehenga gaya 🤦‍♂️'],
+  },
+  overend_tight: {
+    CSK: ['tight over tha 😬', 'RRR badh raha hai 📈😰', 'strike rotate karo yaar 🙏'],
+    MI: ['badhiya over 👏💙', '{bowler} ne kamaal kar diya 🔥', 'dabaav bana ke rakho 💪'],
   },
   bowling_change: {
     MI: [
@@ -273,8 +284,8 @@ export const CROWD = {
     MI: ['{need} defend karo 💙', 'nerves pakad ke rakho 😤', 'singles chalega, boundary nahi 🙏', 'ek wicket aur 🔥'],
   },
   chatter: {
-    CSK: ['office se dekh raha hoon koi aur? 😅', 'dew aa rahi hai, chase easy hoga 💧', 'mere social contest team ko Dube ke 50+ chahiye 🙏', '@BoundaryBhaiya prediction batao bhai?', 'Ruturaj touch mein lag raha hai 👌', 'pitch slow ho rahi hai 🤔'],
-    MI: ['Bumrah meri team mein hai, bowling do pls 🙏', 'koi bhi wicket chahiye bas 😩', 'field bahut defensive hai 🤦‍♂️', 'Surya ke 70 waste nahi hone chahiye 😤', 'shaadi mein phone pe dekh raha hoon lol 😂📱', 'pitch slow hai, humare liye accha 💙'],
+    CSK: ['office se dekh raha hoon koi aur? 😅', 'dew aa rahi hai, chase easy hoga 💧', 'mere social contest team ko Dube ke 50+ chahiye 🙏', '{bat} ko strike pe rakho bas 🙏','Ruturaj touch mein lag raha hai 👌', 'pitch slow ho rahi hai 🤔'],
+    MI: ['{bowler} bas line pe raho 🎯','koi bhi wicket chahiye bas 😩', 'field bahut defensive hai 🤦‍♂️', '186 defend ho jayega, bas wickets chahiye 💙','shaadi mein phone pe dekh raha hoon lol 😂📱', 'pitch slow hai, humare liye accha 💙'],
   },
 };
 

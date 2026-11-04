@@ -4,6 +4,7 @@ import { START, SCRIPT, TEAMS, SQUADS, CROWD, FANS, otherTeam, shortName, type C
 import { initialState, applyItem, snapshot, rates, oversText, type BallRecord, type CricketScore, type CricketState } from '../scorecard.ts';
 import { detectSignals } from '../momentum.ts';
 import { makeFans } from '../fans.ts';
+import { cricketStory } from '../cricket-story.ts';
 
 // `initial` is the scorecard the feed starts from.
 export interface CricketFixture extends Fixture<CricketState, CricketItem, CricketScore> { initial: CricketStart }
@@ -91,10 +92,15 @@ function templatePoll(state: CricketState): PollTemplate {
   return { question: `${state.batting} need ${r.need_runs} off ${r.need_balls}. Who wins?`, options: [`${state.batting} chase it`, `${state.bowling} defend it`] };
 }
 
-// The script's crowd cue for an item, or background chatter between cues.
+// The script's crowd cue for an item, or background chatter between cues. At the end of an over the crowd reacts to
+// how the over went: 10 or more runs is a big over, 5 or fewer a tight one.
 function burstFor(item: CricketItem, state: CricketState, rand: () => number): CrowdCue | null {
   if (item.crowd) return item.crowd;
-  if (item.kind === 'overend') return { key: 'overend', n: 3, spread: 2400 };
+  if (item.kind === 'overend') {
+    const done = Math.floor(state.balls / 6);
+    const runs = state.ball_log.filter((b) => b.label.startsWith(`${done - 1}.`)).reduce((n, b) => n + b.runs, 0);
+    return { key: runs >= 10 ? 'overend_big' : runs <= 5 ? 'overend_tight' : 'overend', n: 3, spread: 2400 };
+  }
   if (item.kind !== 'ball') return null;
   if (item.runs >= 4 && !item.extra) return { key: 'boundary', n: 3, spread: 2500 };
   if (item.runs === 0) return rand() < 0.5 ? { key: 'dot', n: 1, spread: 1500 } : null;
@@ -107,15 +113,27 @@ const fill = (text: string, s: CricketState) => text
   .replaceAll('{bat}', shortName(s.striker))
   .replaceAll('{bowler}', shortName(s.bowler));
 
-const ROLES: Record<string, string> = {
-  'Jasprit Bumrah': 'fast bowler', 'Hardik Pandya': 'all-rounder and MI captain', 'Rohit Sharma': 'opening batter',
-  'Suryakumar Yadav': 'batter', 'Tilak Varma': 'batter who bowls part-time spin', 'Trent Boult': 'left-arm fast bowler',
-  'MS Dhoni': 'wicketkeeper-batter', 'Ruturaj Gaikwad': 'opening batter and CSK captain', 'Shivam Dube': 'batting all-rounder',
-  'Sanju Samson': 'wicketkeeper-batter', 'Dewald Brevis': 'batter',
+// Both playing XIs (MI's tenth and eleventh, Boult and Bumrah, did not bat), for Dream AI and for spotting who a crowd
+// line is about.
+const ROLES: Record<string, Record<string, string>> = {
+  MI: {
+    'Rohit Sharma': 'opening batter', 'Ryan Rickelton': 'wicketkeeper and opening batter', 'Suryakumar Yadav': 'batter',
+    'Tilak Varma': 'batter who bowls part-time spin', 'Hardik Pandya': 'all-rounder and MI captain', 'Naman Dhir': 'batting all-rounder',
+    'Mitchell Santner': 'left-arm spinner', 'Deepak Chahar': 'swing bowler', 'Trent Boult': 'left-arm fast bowler', 'Jasprit Bumrah': 'fast bowler',
+  },
+  CSK: {
+    'Sanju Samson': 'opening batter', 'Ayush Mhatre': 'opening batter', 'Shivam Dube': 'batting all-rounder',
+    'Ruturaj Gaikwad': 'batter and CSK captain', 'Dewald Brevis': 'batter', 'MS Dhoni': 'wicketkeeper-batter', 'Jamie Overton': 'fast-bowling all-rounder',
+    'Noor Ahmad': 'left-arm wrist spinner', 'Khaleel Ahmed': 'left-arm fast bowler', 'Anshul Kamboj': 'seam bowler', 'Nathan Ellis': 'fast bowler',
+  },
 };
-
-const ROSTER = Object.entries(SQUADS).flatMap(([team, names]) => names.map((name) => ({ name, team, role: ROLES[name] || 'player' })))
-  .concat([{ name: 'Mitchell Santner', team: 'MI', role: 'left-arm spinner' }]);
+const ROSTER = Object.entries(ROLES).flatMap(([team, players]) => Object.entries(players).map(([name, role]) => ({ name, team, role })));
+// Who fans can back: the stars of each side.
+const BACKABLE = Object.entries(SQUADS).flatMap(([team, names]) => names.map((name) => ({ name, team }))).concat([{ name: 'Mitchell Santner', team: 'MI' }]);
+const NICKNAMES: Record<string, string> = {
+  Thala: 'MS Dhoni', Mahi: 'MS Dhoni', Surya: 'Suryakumar Yadav', SKY: 'Suryakumar Yadav', Tilak: 'Tilak Varma', Hardik: 'Hardik Pandya',
+  Rohit: 'Rohit Sharma', Ruturaj: 'Ruturaj Gaikwad', Sanju: 'Sanju Samson', Naman: 'Naman Dhir', Noor: 'Noor Ahmad', Khaleel: 'Khaleel Ahmed',
+};
 
 export const CRICKET: CricketFixture = {
   key: 'mi-csk-demo',
@@ -135,9 +153,12 @@ export const CRICKET: CricketFixture = {
     // Cues that react to the latest big moment, so their lines belong in its #thread.
     momentCues: new Set(['bowling_change', 'tilak_hit', 'tilak_wicket', 'bumrah_back', 'drs_appeal', 'drs_result', 'drop',
       'bumrah_wicket', 'dhoni_walks', 'last_over', 'tension', 'csk_win']),
+    // The two batters and the bowler; once the game is won, anyone.
+    inPlay: (s) => [...Object.keys(s.batters), s.bowler],
+    anyoneCues: new Set(['csk_win']),
   },
   topics: TOPICS,
-  terms: /\b(?:overs?|runs?|wickets?|bowl\w*|bat\w*|score\w*|need\w*|target|rrr|crr|rate|six\w*|fours?|boundar\w*|innings|chase|drs|review|lbw|catch\w*|yorker\w*|spin\w*|partnership|economy|strike|powerplay|wide|no.?ball|free.?hit|dhoni|thala|bumrah|hardik|tilak|dube|gaikwad|ruturaj|brevis|boult|santner|surya\w*|rohit|sanju|mi|csk|match|win\w*|jeet\w*|haar\w*|chahiye|rule\w*)\b/i,
+  terms: /\b(?:overs?|runs?|wickets?|bowl\w*|bat\w*|score\w*|need\w*|target|rrr|crr|rate|six\w*|fours?|boundar\w*|innings|chase|drs|review|lbw|catch\w*|yorker\w*|spin\w*|partnership|economy|strike|powerplay|wide|no.?ball|free.?hit|dhoni|thala|bumrah|hardik|tilak|dube|gaikwad|ruturaj|brevis|boult|santner|surya\w*|rohit|sanju|samson|mhatre|rickelton|naman|chahar|khaleel|noor|kamboj|overton|ellis|toss|mi|csk|match|win\w*|jeet\w*|haar\w*|chahiye|rule\w*)\b/i,
   rules: [
     { topic: 'Overs', text: 'An over is six legal balls from one bowler. A T20 innings has 20 overs per side.' },
     { topic: 'Run rate', text: 'Current run rate (CRR) is runs per over so far. Required run rate (RRR) is the runs still needed divided by the overs left.' },
@@ -152,9 +173,11 @@ export const CRICKET: CricketFixture = {
     { topic: 'Result', text: 'The chasing side wins if it passes the target before its overs or wickets run out; otherwise the side batting first wins.' },
   ],
   roster: ROSTER,
+  nicknames: NICKNAMES,
   backing: {
     teams: SIDES,
-    players: ROSTER.map((p) => ({ name: p.name, short: shortName(p.name), team: p.team })),
+    players: BACKABLE.map((p) => ({ name: p.name, short: shortName(p.name), team: p.team })),
   },
   examples: ['What does RRR mean?', 'What is DRS in cricket?', 'Who is MS Dhoni?'],
+  story: (lastSeq) => cricketStory(CRICKET, lastSeq),
 };

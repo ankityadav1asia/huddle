@@ -53,13 +53,20 @@ const clockSeconds = (clock: string) => { const [m, s] = clock.split(':').map(Nu
 const ordinal = (n: number) => `${n}${['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'th'}`;
 const pair = (s: CricketState) => Object.keys(s.batters).map(shortName).join(' & ');
 
-function chaseChance(s: CricketState): number {
+// Par from here: a T20 side scores about 9 an over across a whole innings, rising towards 11.5 at the death, scaled
+// down as wickets go (by wickets in hand).
+const WICKET_SCALE = [0, 0.3, 0.5, 0.66, 0.76, 0.84, 0.9, 0.94, 0.97, 0.985, 1];
+const parFromHere = (left: number, inHand: number) => (left / 6) * (9 + 2.5 * (1 - left / 120) ** 1.5) * WICKET_SCALE[Math.max(0, Math.min(10, inHand))];
+
+// The chasing side's chance: par from here against the runs needed, less uncertain as the balls run out (Dream AI's
+// record of the match uses it too).
+export function chaseChance(s: Pick<CricketState, 'target' | 'runs' | 'balls' | 'wkts'>): number {
   const need = s.target - s.runs;
   const left = Math.max(0, 120 - s.balls);
   const inHand = 10 - s.wkts;
   if (need <= 0) return 1;
   if (inHand <= 0 || left === 0) return 0;
-  return sigmoid(0.13 * ((left / 6) * (6 + 0.5 * inHand) - need));
+  return sigmoid((1.7 * (parFromHere(left, inHand) - need)) / (4 + 14 * Math.sqrt(left / 120)));
 }
 
 function cricketStats(states: CricketState[]): Section[] {
@@ -78,21 +85,19 @@ function cricketStats(states: CricketState[]): Section[] {
     row('Extras', String(s.runs - card.reduce((n, b) => n + b.r, 0))), // the runs not off the bat
     row('Boundary %', `${s.runs ? Math.round((100 * inBoundaries) / s.runs) : 0}%`, `${inBoundaries} of ${s.runs} runs in fours and sixes`),
   ];
-  // Each stand that ended in the feed, then the current one. The stand at the start of the feed began before it.
+  // Each stand that ended in the feed, then the current one (the stand at the crease when the feed began brings its
+  // runs from before it).
   const stands: ListRow[] = [];
-  let before = true;
   for (let i = 1; i < states.length; i++) {
     const [prev, next] = [states[i - 1], states[i]];
     if (next.wkts === prev.wkts) continue;
     const runs = prev.partnership.runs + next.runs - prev.runs;
     const balls = prev.partnership.balls + next.balls - prev.balls;
-    const ended = `ended at ${next.runs}/${next.wkts} (${oversText(next.balls)} ov)`;
-    stands.push(row(`${ordinal(prev.wkts + 1)} wicket: ${pair(prev)}`, `${runs} (${balls})`, before ? `${from}, ${ended}` : ended));
-    before = false;
+    stands.push(row(`${ordinal(prev.wkts + 1)} wicket: ${pair(prev)}`, `${runs} (${balls})`, `ended at ${next.runs}/${next.wkts} (${oversText(next.balls)} ov)`));
   }
   if (s.wkts < 10) {
     const now = s.result || s.runs >= s.target ? 'unbroken' : 'current';
-    stands.push(row(`${ordinal(s.wkts + 1)} wicket: ${pair(s)}`, `${s.partnership.runs} (${s.partnership.balls})`, before ? `${from}, ${now}` : now));
+    stands.push(row(`${ordinal(s.wkts + 1)} wicket: ${pair(s)}`, `${s.partnership.runs} (${s.partnership.balls})`, now));
   }
   const bowling = snapshot(s).bowling_card.sort((x, y) => y.wickets - x.wickets || x.economy - y.economy)
     .map((b) => row(b.name, b.figures, `economy ${b.economy.toFixed(2)}`));
@@ -110,10 +115,10 @@ const CRICKET: Sport<CricketState> = {
     const out: Projection[] = [];
     if (r.crr !== null) out.push({ label: `At the current rate (${r.crr.toFixed(2)} an over)`, value: `${s.batting} finish on ${Math.round(s.runs + (r.crr * r.need_balls) / 6)}` });
     out.push({ label: 'Needed', value: `${r.rrr.toFixed(2)} an over` });
-    out.push({ label: `Par from here with ${inHand} wickets in hand`, value: `${Math.round((r.need_balls / 6) * (6 + 0.5 * inHand))} runs` });
+    out.push({ label: `Par from here with ${inHand} wickets in hand`, value: `${Math.round(parFromHere(r.need_balls, inHand))} runs` });
     return out;
   },
-  method: "Huddle's estimate from runs needed, balls and wickets left: par is 6 an over plus 0.5 per wicket in hand, set against the runs needed (logistic, 0.13 per run).",
+  method: "Huddle's estimate from runs needed, balls and wickets left: par from here is about 9 an over, rising to 11.5 at the death and scaled down as wickets fall, set against the runs needed, with less spread as the balls run out.",
 };
 
 // Kabaddi: the score, points breakdown and players on the mat from the state; the raids from each raid's outcome.

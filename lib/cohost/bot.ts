@@ -43,7 +43,7 @@ async function reply(db: Db, user: SessionUser, room: BotRoom, level: Moderation
   if (!limit.ok) throw new HttpError(429, 'rate_limited', 'Dream AI needs a short break. Ask again in a moment.', { retry_after: limit.retryAfter });
   // asked_at is the latest play: the moment the question is about.
   const latest = await one<{ seq: number | null }>(db, 'SELECT max(seq)::int AS seq FROM match_events WHERE match_id = $1', [room.match_id]);
-  const mc = await matchContext(db, room);
+  const mc = await matchContext(db, room, { story: true });
   const asked = await askedContext(db, room, latest?.seq ?? null);
   const askedAt = asked?.whenAsked?.at || null;
   const headline = mc.facts?.headline ? ` Latest: ${mc.facts.headline}.` : '';
@@ -62,17 +62,21 @@ async function reply(db: Db, user: SessionUser, room: BotRoom, level: Moderation
     allowedEventIds: new Set<string>([...mc.allowedEventIds, ...(asked?.eventIds || [])]),
     allowedNumbers: new Set<string>([...mc.allowedNumbers, ...allowedNumbersFrom(asked?.rules, asked?.roster, asked?.whenAsked)]),
   };
-  const result = await orchestrator.run({
+  const ask = (retry: boolean) => orchestrator.run({
     task: 'bot', system: BOT_SYSTEM, schema: SCHEMAS.bot, roomId: room.id, userId: user.id, deadline: 16000, timeoutMs: 9000,
     user: buildPrompt('bot', {
-      SPORT: asked?.sport, MATCH_WHEN_ASKED: asked?.whenAsked || undefined,
+      SPORT: asked?.sport, MATCH_SO_FAR: mc.story ?? undefined, MATCH_WHEN_ASKED: asked?.whenAsked || undefined,
       VERIFIED_MATCH_DATA: mc.facts, COMMENTARY: mc.commentary, DATA_FRESHNESS: mc.freshness,
       RULES_SHEET: asked?.rules, ROSTER: asked?.roster,
       QUESTION_UNTRUSTED: question,
+      ...(retry && { NOTE: 'Your last answer to this was rejected: it had a number that is not in the supplied match data, or was too long. Answer again using only numbers that appear in the data, within the length limits.' }),
     }),
     validate: (v) => validateOutput('bot', v, grounding),
     isCancelled: async () => (await one<Pick<RoomRow, 'status'>>(db, 'SELECT status FROM rooms WHERE id = $1', [room.id]))?.status !== 'active',
   });
+  let result = await ask(false);
+  // An answer that failed the checks gets one more go, told why.
+  if (!result.ok && result.category === 'validation_failed' && (result.reason === 'ungrounded_numbers' || result.reason === 'length')) result = await ask(true);
   await roomAccess(db, room.id, user); // the room may have ended, or the asker left, while the answer was written
   if (!result.ok) {
     log.info('cohost.bot_unavailable', { room: room.id, category: result.category, reason: result.reason });

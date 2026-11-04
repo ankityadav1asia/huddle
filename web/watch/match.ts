@@ -65,11 +65,12 @@ interface Detail {
   graphs?: CricketGraph | ScoreGraph | null;
   stats?: { sections: StatSection[] } | null;
   prediction?: Prediction | null;
+  first_innings_card?: FirstInnings | null; // cricket: the innings before the chase
 }
 
 // The scorecards (lib/match/scorecard.ts and lib/match/sports/*.ts snapshot()).
 interface Batter { name: string; runs: number; balls: number; on_strike: boolean; fours?: number | null; sixes?: number | null }
-// score and over are null for a wicket that fell before the ball-by-ball data begin.
+// score and over are null for a wicket that fell before the ball-by-ball data begin (older matches).
 interface Wicket { name: string; r: number; b: number; how: string; score: string | null; over: string | null; fours?: number | null; sixes?: number | null }
 interface CricketScore {
   batting: string;
@@ -92,6 +93,8 @@ interface CricketScore {
   fall_of_wickets: Wicket[];
   partnership: { runs: number; balls: number };
 }
+// A completed innings, as the batting, fall-of-wickets and bowling tables read it.
+type FirstInnings = Pick<CricketScore, 'runs' | 'wickets' | 'overs' | 'crr' | 'result' | 'batters' | 'bowler' | 'bowling_card' | 'fall_of_wickets'> & { did_not_bat: string[] };
 type TeamScore<T> = TeamRef & { score: number } & T;
 interface BasketballScore {
   period: string;
@@ -120,7 +123,7 @@ interface FootballScore {
 }
 
 type View =
-  | { sport: 'cricket'; score: CricketScore; graph: CricketGraph | null }
+  | { sport: 'cricket'; score: CricketScore; graph: CricketGraph | null; first: FirstInnings | null }
   | { sport: 'kabaddi'; score: KabaddiScore; graph: ScoreGraph | null }
   | { sport: 'football'; score: FootballScore; graph: ScoreGraph | null }
   | { sport: 'basketball'; score: BasketballScore; graph: ScoreGraph | null };
@@ -133,7 +136,7 @@ function viewOf(d: Detail): View {
     case 'kabaddi': return { sport: 'kabaddi', score: d.score as KabaddiScore, graph: sg };
     case 'football': return { sport: 'football', score: d.score as FootballScore, graph: sg };
     case 'basketball': return { sport: 'basketball', score: d.score as BasketballScore, graph: sg };
-    default: return { sport: 'cricket', score: d.score as CricketScore, graph: g?.kind === 'cricket' ? g : null };
+    default: return { sport: 'cricket', score: d.score as CricketScore, graph: g?.kind === 'cricket' ? g : null, first: d.first_innings_card ?? null };
   }
 }
 
@@ -361,21 +364,21 @@ function gameClock(v: Exclude<View, { sport: 'cricket' }>): string {
 
 function scorecard(v: View, m: MatchInfo, lines: Line[], innings: Innings, pick: (i: Innings) => void): Child {
   switch (v.sport) {
-    case 'cricket': return cricketCard(v.score, m, innings, pick, overByOver(lines, v.graph, v.score));
+    case 'cricket': return cricketCard(v.score, m, innings, pick, overByOver(lines, v.graph, v.score), v.first);
     case 'kabaddi': return kabaddiCard(v.score, gameClock(v));
     case 'football': return footballCard(v.score, gameClock(v));
     case 'basketball': return basketballCard(v.score, gameClock(v));
   }
 }
 
-// "MI 186/6 (20)": the first innings, of which only the total is known.
+// "MI 186/6 (20)": the first innings' total.
 function parseInnings(text: string) {
   const m = /^(\S+)\s+(\d+)\/(\d+)\s*\(([\d.]+)\)/.exec(text);
   return m ? { team: m[1], score: `${m[2]}-${m[3]}`, overs: m[4] } : null;
 }
 
-// `overs`: the over-by-over card, which follows the innings with ball-by-ball data.
-function cricketCard(s: CricketScore, m: MatchInfo, innings: Innings, pick: (i: Innings) => void, overs: HTMLElement): Child {
+// `overs`: the over-by-over card, which follows the innings with ball-by-ball data. `fi`: the first innings' card.
+function cricketCard(s: CricketScore, m: MatchInfo, innings: Innings, pick: (i: Innings) => void, overs: HTMLElement, fi: FirstInnings | null): Child {
   const name = (code: string) => m.teams.find((t) => t.code === code)?.name || code;
   const first = s.target && s.first_innings ? parseInnings(s.first_innings) ?? { team: s.bowling, score: s.first_innings, overs: null } : null;
   const showFirst = Boolean(first) && innings === 'first';
@@ -386,9 +389,13 @@ function cricketCard(s: CricketScore, m: MatchInfo, innings: Innings, pick: (i: 
   const pills = first ? el('div', { class: 'mc-pills', role: 'group', 'aria-label': 'Innings', dataset: { key: 'pills' } },
     pill(`${first.team} (1st Inn)`, 'first'), pill(`${s.batting} (2nd Inn)`, 'current')) : null;
   if (first && showFirst) {
-    return [pills, card('inn-1',
-      header(`${name(first.team)} 1st Innings`, [el('b', { text: first.score }), first.overs ? ` (${first.overs} Ov)` : null]),
-      el('p', { class: 'mc-card-note', text: 'Only the total of this innings is on record here.' }))];
+    const head = header(`${name(first.team)} 1st Innings`, [el('b', { text: first.score }), first.overs ? ` (${first.overs} Ov)` : null]);
+    if (!fi) return [pills, card('inn-1', head, el('p', { class: 'mc-card-note', text: 'Only the total of this innings is on record here.' }))];
+    return [pills, card('inn-1', head,
+      el('div', { dataset: { key: 'bat-1' } }, battingTable(fi)),
+      fi.did_not_bat.length ? el('p', { class: 'mc-card-note', text: `Did not bat: ${fi.did_not_bat.join(', ')}` }) : null,
+      el('div', { dataset: { key: 'fow-1' } }, fallOfWickets(fi)),
+      el('div', { dataset: { key: 'bowl-1' } }, bowlingTable(fi)))];
   }
   return [
     pills,
@@ -402,7 +409,7 @@ function cricketCard(s: CricketScore, m: MatchInfo, innings: Innings, pick: (i: 
   ];
 }
 
-function battingTable(s: CricketScore) {
+function battingTable(s: Pick<CricketScore, 'runs' | 'wickets' | 'overs' | 'crr' | 'result' | 'batters' | 'fall_of_wickets'>) {
   const row = (name: Child, how: string, r: number, b: number, fours?: number | null, sixes?: number | null) => el('tr', {},
     el('th', { scope: 'row' }, el('span', { class: 'mc-name' }, name), el('span', { class: 'mc-how', text: how })),
     el('td', { class: 'mc-strong', text: r }), el('td', { text: b }), el('td', { text: count(fours) }), el('td', { text: count(sixes) }),
@@ -424,7 +431,7 @@ function battingTable(s: CricketScore) {
   });
 }
 
-function fallOfWickets(s: CricketScore): Child {
+function fallOfWickets(s: Pick<CricketScore, 'fall_of_wickets'>): Child {
   if (!s.fall_of_wickets.length) return [el('h3', { class: 'mc-sub-head', text: 'Fall of wickets' }), el('p', { class: 'mc-card-note', text: 'No wickets yet.' })];
   const early = s.fall_of_wickets.some((w) => !w.score || !w.over);
   return [
@@ -437,7 +444,7 @@ function fallOfWickets(s: CricketScore): Child {
   ];
 }
 
-function bowlingTable(s: CricketScore) {
+function bowlingTable(s: Pick<CricketScore, 'bowling_card' | 'bowler'>) {
   return table(['Bowler', 'O', 'M', 'R', 'W', 'ECON'], s.bowling_card.map((b) => {
     const parts = b.figures.split('-');
     const [o, m, r, w] = parts.length === 4 ? parts : [DASH, DASH, DASH, DASH];

@@ -4,7 +4,7 @@
 import type { FactsInput, Fixture, Graphs, PollTemplate, Signal, Team } from '../fixture.ts';
 import type { Priority } from '../../db/rows.ts';
 import { makeFans, seeded } from '../fans.ts';
-import { scriptedThread, scriptedBurst, scriptedDescribe, ROLE, type ScriptedItem } from './scripted.ts';
+import { scriptedThread, scriptedBurst, scriptedDescribe, scriptedStory, ROLE, type ScriptedItem } from './scripted.ts';
 
 interface Goal { team: string; scorer: string; assist: string | null; penalty: boolean }
 // `second_yellow`: the yellow that turns red, so it counts as both.
@@ -405,5 +405,12 @@ export const FOOTBALL: Fixture<FootballState, FootballItem, FootballScore> = {
     teams: SIDES,
     players: BACKED.map((name) => ({ name, short: last(name), team: PLAYERS[name].team })),
   },
+  nicknames: { Liston: 'Liston Colaco', Manvir: 'Manvir Singh', Bipin: 'Bipin Singh', Sahal: 'Sahal Abdul Samad', Jeakson: 'Jeakson Singh', Mahesh: 'Naorem Mahesh Singh' },
   examples: ['What is offside?', 'What happens after two yellow cards?', 'Who is Liston Colaco?'],
+  story: (lastSeq) => scriptedStory(SCRIPT, lastSeq, {
+    venue: 'Salt Lake Stadium, Kolkata',
+    first_half: ["23' GOAL Mohun Bagan: Jamie Maclaren, assisted by Liston Colaco (1-0)", "34' Apuia (Mohun Bagan) booked", "41' Hijazi Maher (East Bengal) booked"],
+    half_time: 'Mohun Bagan 1-0 East Bengal',
+    second_half_to_70: ["58' GOAL East Bengal: P.V. Vishnu, assisted by Naorem Mahesh Singh (1-1)", "63' Jeakson Singh (East Bengal) booked"],
+  }),
 };

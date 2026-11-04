@@ -60,7 +60,7 @@ export async function handleAnswerJob(db: Db, job: AnswerJob) {
   if (!(await aiBudget(db, room, null))) return giveUp();
 
   const orchestrator = await ai();
-  const mc = await matchContext(db, room);
+  const mc = await matchContext(db, room, { story: true });
   const asked = await askedContext(db, room, q.match_seq);
   const recent = await roomMessages(db, room.id, { limit: 12 });
   const grounding = {
@@ -70,7 +70,7 @@ export async function handleAnswerJob(db: Db, job: AnswerJob) {
   const result = await orchestrator.run({
     task: 'answer', system: SYSTEM, schema: SCHEMAS.answer, roomId: room.id, userId: q.sender_id,
     user: buildPrompt('answer', {
-      SPORT: asked?.sport, MATCH_WHEN_ASKED: asked?.whenAsked || undefined,
+      SPORT: asked?.sport, MATCH_SO_FAR: mc.story ?? undefined, MATCH_WHEN_ASKED: asked?.whenAsked || undefined,
       VERIFIED_MATCH_DATA: mc.facts, COMMENTARY: mc.commentary, DATA_FRESHNESS: mc.freshness,
       RULES_SHEET: asked?.rules, ROSTER: asked?.roster,
       ROOM_MESSAGES_UNTRUSTED: recent.filter((m) => m.message_id !== q.id).map(({ from, text }) => ({ from, text })),

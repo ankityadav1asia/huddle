@@ -6,6 +6,7 @@ import { many, type Queryable } from '../db/index.ts';
 import type { MatchEventRow, MatchRow } from '../db/rows.ts';
 import { fixtureFor } from './fixture.ts';
 import { matchInsights } from './insights.ts';
+import { firstInningsCard } from './cricket-story.ts';
 
 const MAX_COMMENTARY = 300;
 
@@ -41,5 +42,7 @@ export async function matchCentre(db: Queryable, match: Pick<MatchRow, 'id' | 'f
     state = next;
   }
   const insights = matchInsights(fixture, states, plays.map((p) => p.over), balls);
-  return { commentary: plays.reverse().slice(0, MAX_COMMENTARY), graphs: engine.graphs(states), ...insights };
+  // Cricket's first innings, complete before the chase began, for the Scorecard tab.
+  const first = fixture.sport === 'cricket' ? { first_innings_card: firstInningsCard() } : {};
+  return { commentary: plays.reverse().slice(0, MAX_COMMENTARY), graphs: engine.graphs(states), ...insights, ...first };
 }

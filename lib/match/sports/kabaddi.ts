@@ -4,7 +4,7 @@
 import type { FactsInput, Fixture, Graphs, PlayLabel, PollTemplate, Signal, Team } from '../fixture.ts';
 import type { Priority } from '../../db/rows.ts';
 import { makeFans } from '../fans.ts';
-import { scriptedThread, scriptedBurst, ROLE, type ScriptedItem } from './scripted.ts';
+import { scriptedThread, scriptedBurst, scriptedStory, ROLE, type ScriptedItem } from './scripted.ts';
 
 type Breakdown = { raid: number; tackle: number; all_out: number; extra: number };
 interface PlayerLine { raid_points: number; raids: number; tackle_points: number }
@@ -399,4 +399,9 @@ export const KABADDI: Fixture<KabaddiState, KabaddiItem, KabaddiScore> = {
     players: BACKED.map((name) => ({ name, short: last(name), team: PLAYERS[name].team })),
   },
   examples: ['What is a super tackle?', 'What is a do-or-die raid?', 'Who is Arjun Deshwal?'],
+  story: (lastSeq) => scriptedStory(SCRIPT.map((it) => ({ ...it, clock: `2nd half, ${it.clock} left` })), lastSeq, {
+    venue: 'Sawai Mansingh Indoor Stadium, Jaipur',
+    first_half: ['Jaipur inflicted an all out on Patna in the 14th minute, worth 2 points.', 'Half-time: Jaipur 15, Patna 12.'],
+    second_half_before_feed: 'Patna won the first seven minutes of the second half 11-9, so it was Jaipur 24, Patna 23 with 13:00 left.',
+  }),
 };

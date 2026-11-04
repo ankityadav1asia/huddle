@@ -65,6 +65,8 @@ interface Engine<State, Item, Score> {
   graphs(states: State[]): Graphs;
 }
 
+// A line that names a player is only said while that player is in the game's last few plays or, where the sport says
+// so, in play right now (cricket: the two batters and the bowler). `anyoneCues` (the result) may name anyone.
 interface Crowd<State, Item> {
   lines: CrowdLines;
   fans: Fan[];
@@ -72,6 +74,8 @@ interface Crowd<State, Item> {
   fill(text: string, state: State): string;
   otherSide(team: string): string;
   momentCues: Set<string>;
+  inPlay?(state: State): string[];
+  anyoneCues?: Set<string>;
 }
 
 // A sport's scripted game. Each sports/*.ts file types its own state, items and scoreboard; code that serves every
@@ -91,8 +95,32 @@ export interface Fixture<State = any, Item = any, Score = any> {
   terms: RegExp;
   rules: Rule[];
   roster: RosterEntry[];
+  // What fans call players, beyond their surnames ("Thala" for MS Dhoni), for spotting who a crowd line is about.
+  nicknames?: Record<string, string>;
   examples: string[];
   backing: { teams: Team[]; players: BackedPlayer[] };
+  // Dream AI's record of the whole game from its start up to feed item `lastSeq`, and nothing after it.
+  story?(lastSeq: number): Record<string, unknown>;
+}
+
+// The players a text names: by full name, by a surname no other player shares, or by a nickname.
+export function playerFinder(fixture: Pick<Fixture, 'roster' | 'nicknames'>): (text: string) => Set<string> {
+  const names = new Map<string, Set<string>>();
+  const add = (alias: string, name: string) => {
+    const key = alias.toLowerCase();
+    if (key.length >= 3) names.set(key, (names.get(key) || new Set()).add(name));
+  };
+  for (const p of fixture.roster) {
+    add(p.name, p.name);
+    add(p.name.split(/\s+/).at(-1)!, p.name);
+  }
+  for (const [alias, name] of Object.entries(fixture.nicknames || {})) add(alias, name);
+  const unique = [...names].filter(([, who]) => who.size === 1);
+  if (!unique.length) return () => new Set();
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(?<!\\p{L})(${unique.map(([alias]) => escape(alias)).sort((a, b) => b.length - a.length).join('|')})(?!\\p{L})`, 'giu');
+  const byAlias = new Map(unique.map(([alias, who]) => [alias, [...who][0]]));
+  return (text) => new Set([...text.matchAll(pattern)].map((m) => byAlias.get(m[1].toLowerCase())!));
 }
 
 // What a fan can back in one sport, as GET /api/config lists it.

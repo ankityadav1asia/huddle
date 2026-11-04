@@ -63,3 +63,13 @@ export function scriptedBurst(item: { crowd?: CrowdCue }, rand: () => number, am
 }
 
 export const ROLE = (name: string, team: string, role: string): RosterEntry => ({ name, team, role });
+
+// Dream AI's record of a scripted game up to feed item `lastSeq`: how it stood when the feed began (`before`, fixture
+// data that matches the starting scoreboard), then every play since at its clock. Nothing after `lastSeq`.
+export function scriptedStory(items: { clock: string; label?: string; text: string }[], lastSeq: number, before: Record<string, unknown>) {
+  return {
+    note: 'The record of this game from the start up to the latest play. Nothing after the latest play is known.',
+    before_the_feed: before,
+    plays_so_far: items.slice(0, lastSeq + 1).map((it) => `${it.clock}${it.label ? ` ${it.label}:` : ''} ${it.text}`),
+  };
+}
